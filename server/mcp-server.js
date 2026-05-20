@@ -1381,4 +1381,4 @@ function startMcpServer() {
   process.stderr.write('[whiskor:mcp] MCP server ready — ' + TOOLS.length + ' tools available\n');
 }
 
-module.exports = { startMcpServer, setCallbacks, setActionCallbacks, setSecurity, setNavigateBroadcast };
+module.exports = { startMcpServer, setCallbacks, setActionCallbacks, setSecurity, setNavigateBroadcast, setConfigLog };

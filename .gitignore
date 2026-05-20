@@ -4,4 +4,6 @@ Thumbs.db
 *.log
 .env
 .env.*
+archive_project.ps1
 browser-whiskor-v3/
+
