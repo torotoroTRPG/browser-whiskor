@@ -1,0 +1,108 @@
+{
+  "_comment": "browser-whiskor 設定ファイル。値は .env で上書き可能 (WHISKOR_<SECTION>_<KEY>=<value>)。",
+
+  "server": {
+    "wsPort":   7891,
+    "httpPort": 7892,
+    "host":     "127.0.0.1",
+    "_comment": "host を 0.0.0.0 にすると LAN 全体に公開されます"
+  },
+
+  "security": {
+    "allowExecuteJs":      true,
+    "allowActions":        true,
+    "allowScreenshots":    true,
+    "allowExplorer":       true,
+    "executeJsTimeoutMs":  15000,
+    "actionTimeoutMs":     15000,
+    "allowedMcpOrigins":   ["*"],
+    "_comment_execute":    "allowExecuteJs=false にするとエージェントからの任意JS実行を無効化"
+  },
+
+  "collection": {
+    "staleThresholdMs":        30000,
+    "pollingIntervalMs":       0,
+    "_comment_polling":        "0 = 自動ポーリング無効。ms数を指定するとその間隔で全タブ収集",
+    "maxConsoleLogs":          2000,
+    "maxNetworkRequests":      500,
+    "networkBodyMaxBytes":     4096,
+    "maxReactStateHistory":    100,
+    "_comment_history":        "React/UI状態変化の最大保存数 (0 = 無制限)"
+  },
+
+  "plugins": {
+    "react-fiber":     true,
+    "vue3":            true,
+    "vue2":            true,
+    "angular":         true,
+    "svelte":          true,
+    "preact":          true,
+    "alpine":          true,
+    "solid":           true,
+    "dom-generic":     true,
+    "text-coords":     true,
+    "network-hook":    true,
+    "css-analyzer":    true,
+    "ui-catalog":      true,
+    "perf-analyzer":   true,
+    "dom-mutations":   true,
+    "accessibility":   true,
+    "console-logger":  true,
+    "storage-reader":  true
+  },
+
+  "react": {
+    "maxDepth":              80,
+    "maxProps":              30,
+    "maxHooks":              25,
+    "trackStateTransitions": true,
+    "captureRedux":          true,
+    "captureZustand":        true,
+    "captureReactQuery":     true,
+    "captureJotai":          true,
+    "captureRecoil":         true,
+    "captureMobX":           true,
+    "captureRouter":         true,
+    "debounceMs":            200
+  },
+
+  "textCoords": {
+    "level":            "word",
+    "includeHidden":    false,
+    "includeOffscreen": false,
+    "maxWords":         5000
+  },
+
+  "executeJs": {
+    "captureConsoleDuringExec": true,
+    "_comment": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
+  },
+
+  "agentControl": {
+    "allowAgentConfig":     false,
+    "autoRevertConfig":     false,
+    "screenshotMarks":      false,
+    "_comment_agentConfig": "allowAgentConfig=true: agentがset_configで設定変更可能",
+    "_comment_autoRevert":  "autoRevertConfig=true: 非推奨変更を次回起動時に自動復元",
+    "_comment_marks":       "screenshotMarks=true: スクリーンショットに要素番号マーカーを重畳"
+  },
+
+  "stateGraph": {
+    "maxNodesInMemory":     500,
+    "maxMemoryMB":          50,
+    "maxDiskMB":            200,
+    "maxSiteVersions":      10,
+    "compression":          "gzip",
+    "useDiffStorage":       true,
+    "diffThresholdBytes":   4096,
+    "labelMaxLength":       80,
+    "autoTagging":          true,
+    "protectedTags":        ["authenticated"],
+    "excludeKeys":          ["createdAt", "updatedAt", "timestamp", "lastSeen", "capturedAt", "requestId", "nonce", "csrf", "expiresAt", "lastModified", "_id"],
+    "defaultNavigateTimeoutMs": 30000,
+    "defaultStepTimeoutMs":     5000,
+    "maxNavigateSteps":         10,
+    "verifyEachStep":           true,
+    "minConfidenceForPath":     0.3
+  }
+}

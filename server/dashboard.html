@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Site Inspector v2 — Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #0f172a;
+    --surface:  #1e293b;
+    --border:   #334155;
+    --accent:   #6366f1;
+    --accent2:  #22d3ee;
+    --text:     #f1f5f9;
+    --muted:    #94a3b8;
+    --green:    #4ade80;
+    --red:      #f87171;
+    --yellow:   #fbbf24;
+    --radius:   8px;
+    --font:     "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+  header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 18px; font-weight: 700; }
+  .badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #14532d; color: var(--green); }
+  .badge-red   { background: #7f1d1d; color: var(--red); }
+  .badge-blue  { background: #1e3a5f; color: var(--accent2); }
+  .spacer { flex: 1; }
+  #status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); transition: background .3s; }
+  #status-dot.on { background: var(--green); }
+  #status-label { font-size: 12px; color: var(--muted); }
+
+  .main { display: grid; grid-template-columns: 260px 1fr; height: calc(100vh - 57px); }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; }
+  .sidebar-section { padding: 12px 16px 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .session-item { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; }
+  .session-item:hover, .session-item.active { background: rgba(99,102,241,.12); }
+  .session-item .url { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--accent2); }
+  .session-item .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .session-item .adapters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .fw-tag { padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: rgba(99,102,241,.2); color: var(--accent); }
+
+  .content { overflow-y: auto; padding: 24px; }
+  .empty-state { color: var(--muted); text-align: center; padding: 80px 0; }
+  .empty-state h2 { font-size: 20px; margin-bottom: 8px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab-btn { padding: 8px 16px; background: transparent; border: none; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .card h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; }
+  .stat { background: var(--bg); border-radius: var(--radius); padding: 12px; }
+  .stat-value { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Text coords */
+  .text-search { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none; }
+  .text-search:focus { border-color: var(--accent); }
+  .word-grid { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 1px; font-size: 12px; }
+  .word-grid .hdr { color: var(--muted); font-weight: 600; padding: 4px 8px; }
+  .word-row { display: contents; }
+  .word-row > span { padding: 3px 8px; background: var(--bg); }
+  .word-row > span:first-child { color: var(--accent2); }
+  .coord { color: var(--muted); font-family: monospace; }
+
+  /* Network */
+  .net-row { display: grid; grid-template-columns: 50px 60px 1fr 60px 70px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .method { font-weight: 700; font-family: monospace; }
+  .method.GET  { color: var(--green); }
+  .method.POST { color: var(--yellow); }
+  .status-ok   { color: var(--green); }
+  .status-err  { color: var(--red); }
+  .net-url     { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .net-dur     { text-align: right; color: var(--muted); font-family: monospace; }
+
+  /* JSON viewer */
+  .json-view { background: var(--bg); border-radius: var(--radius); padding: 12px; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; color: var(--text); }
+
+  /* Config panel */
+  .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .form-group select, .form-group input { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; outline: none; }
+  .form-group select:focus, .form-group input:focus { border-color: var(--accent); }
+  .btn { padding: 8px 20px; border-radius: var(--radius); border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+  .plugin-toggles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
+  .plugin-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg); border-radius: var(--radius); }
+  .plugin-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .plugin-toggle label { font-size: 12px; cursor: pointer; }
+
+  #stream { max-height: 400px; overflow-y: auto; font-size: 11px; font-family: monospace; }
+  .stream-entry { padding: 4px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 80px 160px 1fr; gap: 8px; }
+  .stream-ts { color: var(--muted); }
+  .stream-type { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="status-dot"></div>
+  <h1>Site Inspector <span class="badge badge-blue">v2</span></h1>
+  <span id="status-label">Waiting for extension…</span>
+  <span class="spacer"></span>
+  <button class="btn btn-secondary" onclick="refreshSessions()">↺ Refresh</button>
+  <button class="btn btn-primary" onclick="triggerCollect()">▶ Collect Now</button>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-section">Sessions</div>
+    <div id="session-list"></div>
+  </div>
+  <div class="content">
+    <div id="empty-state" class="empty-state">
+      <h2>No session selected</h2>
+      <p>Open a browser tab with the Site Inspector extension installed,<br>then select a session from the left panel.</p>
+    </div>
+    <div id="session-detail" style="display:none">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="text">Text Coords</button>
+        <button class="tab-btn" data-tab="framework">Framework</button>
+        <button class="tab-btn" data-tab="network">Network</button>
+        <button class="tab-btn" data-tab="ui">UI Catalog</button>
+        <button class="tab-btn" data-tab="css">CSS</button>
+        <button class="tab-btn" data-tab="dom">DOM</button>
+        <button class="tab-btn" data-tab="stream">Stream</button>
+        <button class="tab-btn" data-tab="config">Config</button>
+      </div>
+
+      <!-- OVERVIEW -->
+      <div class="tab-pane active" id="pane-overview">
+        <div class="card">
+          <h3>Session</h3>
+          <div id="ov-meta"></div>
+        </div>
+        <div class="card">
+          <h3>Stats</h3>
+          <div class="stats-row" id="ov-stats"></div>
+        </div>
+        <div class="card">
+          <h3>Available Files</h3>
+          <div class="json-view" id="ov-files"></div>
+        </div>
+      </div>
+
+      <!-- TEXT COORDS -->
+      <div class="tab-pane" id="pane-text">
+        <div class="card">
+          <h3>Text Coordinates <span id="text-count" class="badge badge-blue"></span></h3>
+          <input class="text-search" id="text-search" placeholder="Filter words…" oninput="filterText(this.value)">
+          <div class="word-grid">
+            <span class="hdr">Text</span><span class="hdr">X</span><span class="hdr">Y</span><span class="hdr">W</span><span class="hdr">H</span>
+          </div>
+          <div id="text-words"></div>
+        </div>
+      </div>
+
+      <!-- FRAMEWORK -->
+      <div class="tab-pane" id="pane-framework">
+        <div class="card">
+          <h3>Framework State</h3>
+          <div class="json-view" id="fw-data"></div>
+        </div>
+      </div>
+
+      <!-- NETWORK -->
+      <div class="tab-pane" id="pane-network">
+        <div class="card">
+          <h3>Network Requests <span id="net-count" class="badge badge-blue"></span></h3>
+          <input class="text-search" id="net-search" placeholder="Filter by URL…" oninput="filterNet(this.value)">
+          <div id="net-list"></div>
+        </div>
+      </div>
+
+      <!-- UI CATALOG -->
+      <div class="tab-pane" id="pane-ui">
+        <div class="card">
+          <h3>UI Elements</h3>
+          <div class="json-view" id="ui-data"></div>
+        </div>
+      </div>
+
+      <!-- CSS -->
+      <div class="tab-pane" id="pane-css">
+        <div class="card">
+          <h3>CSS Analysis</h3>
+          <div class="json-view" id="css-data"></div>
+        </div>
+      </div>
+
+      <!-- DOM -->
+      <div class="tab-pane" id="pane-dom">
+        <div class="card">
+          <h3>DOM / ARIA Snapshot</h3>
+          <div class="json-view" id="dom-data"></div>
+        </div>
+      </div>
+
+      <!-- STREAM -->
+      <div class="tab-pane" id="pane-stream">
+        <div class="card">
+          <h3>Live Message Stream</h3>
+          <div id="stream"></div>
+        </div>
+      </div>
+
+      <!-- CONFIG -->
+      <div class="tab-pane" id="pane-config">
+        <div class="card">
+          <h3>Activation Config</h3>
+          <div class="config-grid">
+            <div class="form-group">
+              <label>Mode</label>
+              <select id="cfg-mode">
+                <option value="always_on">always_on</option>
+                <option value="manual">manual</option>
+                <option value="api">api</option>
+                <option value="selective">selective</option>
+                <option value="off">off</option>
+              </select>
+            </div>
+          </div>
+          <div class="plugin-toggles" id="plugin-toggles"></div>
+          <div style="margin-top:16px;display:flex;gap:8px">
+            <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Raw Config JSON</h3>
+          <div class="json-view" id="cfg-raw"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://localhost:7892';
+let currentTabId = null;
+let sessions = [];
+let wsStream  = null;
+let currentWords = [];
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`pane-${btn.dataset.tab}`).classList.add('active');
+    if (currentTabId && btn.dataset.tab !== 'stream' && btn.dataset.tab !== 'config') {
+      loadTabData(btn.dataset.tab);
+    }
+  });
+});
+
+// ── WebSocket (live stream) ───────────────────────────────────────────────
+function connectStream() {
+  try {
+    wsStream = new WebSocket('ws://localhost:7891/dashboard');
+    wsStream.onopen  = () => { setStatus(true); };
+    wsStream.onclose = () => { setStatus(false); setTimeout(connectStream, 3000); };
+    wsStream.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      addStream(msg);
+      if (msg.tabId === currentTabId) {
+        setTimeout(() => loadTabData(activeTab()), 300);
+      }
+      refreshSessions();
+    };
+  } catch { setTimeout(connectStream, 3000); }
+}
+
+function setStatus(on) {
+  document.getElementById('status-dot').className   = on ? 'on' : '';
+  document.getElementById('status-label').textContent = on ? 'Extension connected' : 'Disconnected — waiting…';
+}
+
+function activeTab() {
+  return document.querySelector('.tab-btn.active')?.dataset.tab || 'overview';
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────
+async function refreshSessions() {
+  try {
+    const res = await fetch(`${API}/api/sessions`);
+    sessions  = await res.json();
+    renderSessions();
+  } catch {}
+}
+
+function renderSessions() {
+  const list = document.getElementById('session-list');
+  if (!sessions.length) {
+    list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px">No active sessions</div>';
+    return;
+  }
+  list.innerHTML = sessions.map(s => `
+    <div class="session-item ${s.tabId === currentTabId ? 'active' : ''}" onclick="selectSession(${s.tabId})">
+      <div class="url">${s.url || '(unknown)'}</div>
+      <div class="meta">Tab ${s.tabId} · ${new Date(s.updatedAt).toLocaleTimeString()}</div>
+      <div class="adapters">${(s.summary?.detectedAdapters || []).map(a => `<span class="fw-tag">${a}</span>`).join('')}</div>
+    </div>
+  `).join('');
+}
+
+function selectSession(tabId) {
+  currentTabId = tabId;
+  renderSessions();
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('session-detail').style.display = '';
+  loadTabData('overview');
+}
+
+// ── Load tab data ─────────────────────────────────────────────────────────
+async function loadTabData(tab) {
+  if (!currentTabId) return;
+  switch (tab) {
+    case 'overview':  return loadOverview();
+    case 'text':      return loadTextCoords();
+    case 'framework': return loadFramework();
+    case 'network':   return loadNetwork();
+    case 'ui':        return loadFile('ui/elements.json', 'ui-data');
+    case 'css':       return loadFile('css/analysis.json', 'css-data');
+    case 'dom':       return loadFile('dom/snapshot.json', 'dom-data');
+    case 'config':    return loadConfig();
+  }
+}
+
+async function fetchSession(relPath) {
+  try {
+    const r = await fetch(`${API}/api/sessions/${currentTabId}/${relPath}`);
+    if (!r.ok) return null;
+    return r.json();
+  } catch { return null; }
+}
+
+async function loadOverview() {
+  const idx = await fetch(`${API}/api/sessions/${currentTabId}`).then(r => r.json()).catch(() => null);
+  if (!idx) return;
+  document.getElementById('ov-meta').innerHTML = `
+    <div style="color:var(--accent2);margin-bottom:8px">${idx.url || '—'}</div>
+    <div style="color:var(--muted);font-size:12px">Tab ${idx.tabId} · Session ${idx.sessionId} · Updated ${new Date(idx.updatedAt).toLocaleTimeString()}</div>
+  `;
+  const s = idx.summary || {};
+  document.getElementById('ov-stats').innerHTML = `
+    <div class="stat"><div class="stat-value">${s.textWordCount || 0}</div><div class="stat-label">Words</div></div>
+    <div class="stat"><div class="stat-value">${s.textBlockCount || 0}</div><div class="stat-label">Blocks</div></div>
+    <div class="stat"><div class="stat-value">${s.networkRequests || 0}</div><div class="stat-label">Requests</div></div>
+    <div class="stat"><div class="stat-value">${(s.detectedAdapters || []).length}</div><div class="stat-label">Adapters</div></div>
+  `;
+  document.getElementById('ov-files').textContent = JSON.stringify(idx.files || {}, null, 2);
+}
+
+async function loadTextCoords() {
+  const data = await fetchSession('visual/text-coords.json');
+  const words = data?.words || [];
+  currentWords = words;
+  document.getElementById('text-count').textContent = `${words.length} words`;
+  renderWords(words);
+}
+
+function renderWords(words) {
+  const container = document.getElementById('text-words');
+  container.innerHTML = words.slice(0, 2000).map(w => `
+    <div class="word-row">
+      <span>${esc(w.text)}</span>
+      <span class="coord">${w.absoluteX}</span>
+      <span class="coord">${w.absoluteY}</span>
+      <span class="coord">${w.width}</span>
+      <span class="coord">${w.height}</span>
+    </div>
+  `).join('');
+  if (words.length > 2000) {
+    container.innerHTML += `<div style="padding:8px;color:var(--muted)">… ${words.length - 2000} more words</div>`;
+  }
+}
+
+function filterText(q) {
+  const filtered = q ? currentWords.filter(w => w.text.toLowerCase().includes(q.toLowerCase())) : currentWords;
+  renderWords(filtered);
+}
+
+async function loadFramework() {
+  // Try framework files in priority order
+  const fwFiles = ['react/snapshot.json','vue/snapshot.json','angular/snapshot.json','svelte/snapshot.json','dom/snapshot.json'];
+  for (const f of fwFiles) {
+    const data = await fetchSession(f);
+    if (data) {
+      document.getElementById('fw-data').textContent = JSON.stringify(data, null, 2);
+      return;
+    }
+  }
+  document.getElementById('fw-data').textContent = 'No framework data available yet.';
+}
+
+async function loadNetwork() {
+  const data = await fetchSession('network/requests.json');
+  const reqs = data?.requests || [];
+  document.getElementById('net-count').textContent = `${reqs.length} requests`;
+  renderNet(reqs);
+}
+
+function renderNet(reqs) {
+  document.getElementById('net-list').innerHTML = reqs.map(r => `
+    <div class="net-row">
+      <span class="method ${r.method}">${r.method || '?'}</span>
+      <span class="${(r.status||0) < 400 ? 'status-ok' : 'status-err'}">${r.status || '—'}</span>
+      <span class="net-url" title="${esc(r.url)}">${esc(r.url)}</span>
+      <span class="net-dur">${r.duration ? r.duration + 'ms' : '—'}</span>
+      <span style="color:var(--muted)">${r.initiatorType || ''}</span>
+    </div>
+  `).join('');
+}
+
+function filterNet(q) {
+  if (!q) { loadNetwork(); return; }
+  fetchSession('network/requests.json').then(data => {
+    const reqs = (data?.requests || []).filter(r => r.url?.includes(q));
+    renderNet(reqs);
+  });
+}
+
+async function loadFile(relPath, elId) {
+  const data = await fetchSession(relPath);
+  document.getElementById(elId).textContent = data ? JSON.stringify(data, null, 2) : '(not available yet)';
+}
+
+async function loadConfig() {
+  const cfg = await fetch(`${API}/api/config`).then(r => r.json()).catch(() => ({}));
+  document.getElementById('cfg-mode').value = cfg.mode || 'always_on';
+  const plugins = ['react-fiber','vue3-devtool','vue2-devtool','angular-ng','svelte-meta','preact-fiber','alpine-js','solid-js','dom-generic','text-coords','css-analysis','ui-catalog','network-hook','perf-observer','dom-mutations'];
+  document.getElementById('plugin-toggles').innerHTML = plugins.map(id => `
+    <label class="plugin-toggle">
+      <input type="checkbox" id="p-${id}" ${(cfg.plugins?.[id] !== false) ? 'checked' : ''}>
+      <span>${id}</span>
+    </label>
+  `).join('');
+  document.getElementById('cfg-raw').textContent = JSON.stringify(cfg, null, 2);
+}
+
+async function saveConfig() {
+  const mode    = document.getElementById('cfg-mode').value;
+  const plugins = {};
+  document.querySelectorAll('#plugin-toggles input').forEach(cb => {
+    plugins[cb.id.replace('p-', '')] = cb.checked;
+  });
+  await fetch(`${API}/api/config`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ mode, plugins }),
+  });
+  loadConfig();
+}
+
+async function triggerCollect() {
+  if (!currentTabId) { alert('Select a session first'); return; }
+  await fetch(`${API}/api/collect`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ tabId: currentTabId }),
+  });
+}
+
+// ── Stream ────────────────────────────────────────────────────────────────
+function addStream(msg) {
+  const el   = document.getElementById('stream');
+  const ts   = new Date().toLocaleTimeString();
+  const size = JSON.stringify(msg).length;
+  el.insertAdjacentHTML('afterbegin', `
+    <div class="stream-entry">
+      <span class="stream-ts">${ts}</span>
+      <span class="stream-type">${msg.type || '?'}</span>
+      <span style="color:var(--muted)">tabId=${msg.tabId || '?'} · ${size}B</span>
+    </div>
+  `);
+  // Keep max 200 entries
+  while (el.children.length > 200) el.removeChild(el.lastChild);
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+refreshSessions();
+connectStream();
+setInterval(refreshSessions, 5000);
+</script>
+</body>
+</html>

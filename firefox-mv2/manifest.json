@@ -1,0 +1,62 @@
+{
+  "manifest_version": 2,
+  "name": "browser-whiskor",
+  "version": "3.2.0",
+  "description": "Agent-grade browser instrumentation for Firefox with state navigation: actions, ARIA, storage, console, semantic state graph, MCP-ready.",
+  "devtools_page": "devtools/devtools.html",
+  "background": {
+    "scripts": ["background/background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "injected/version-helper.js",
+        "injected/plugin-system.js",
+        "lib/bippy.iife.js",
+        "injected/adapters/react.js",
+        "injected/adapters/vue3.js",
+        "injected/adapters/vue2.js",
+        "injected/adapters/angular.js",
+        "injected/adapters/svelte.js",
+        "injected/adapters/preact.js",
+        "injected/adapters/alpine.js",
+        "injected/adapters/solid.js",
+        "injected/adapters/dom-generic.js",
+        "injected/analyzers/text-coords.js",
+        "injected/analyzers/network.js",
+        "injected/analyzers/css.js",
+        "injected/analyzers/ui-catalog.js",
+        "injected/analyzers/perf.js",
+        "injected/analyzers/dom-mutations.js",
+        "injected/analyzers/accessibility.js",
+        "injected/analyzers/console-logger.js",
+        "injected/analyzers/storage-reader.js",
+        "injected/executor.js",
+        "injected/explorer.js",
+        "injected/collector.js",
+        "injected/state-reporter.js"
+      ],
+      "run_at": "document_start",
+      "match_about_blank": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["injected/bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "permissions": [
+    "activeTab", "storage", "tabs", "webNavigation", "<all_urls>"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "browser-whiskor@local",
+      "strict_min_version": "109.0"
+    }
+  },
+  "web_accessible_resources": [
+    "injected/*", "injected/adapters/*", "injected/analyzers/*", "lib/*"
+  ]
+}

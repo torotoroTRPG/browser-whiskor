@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Site Inspector</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1e1e1e;--bg2:#252526;--bg3:#2d2d30;--bg4:#3e3e42;
+  --border:#3c3c3c;--fg:#ccc;--dim:#777;--accent:#0e7fd6;
+  --green:#4ec9b0;--red:#f48771;--yellow:#dcdcaa;--purple:#c586c0;--blue:#61dafb;
+  --font:-apple-system,'Segoe UI',system-ui,sans-serif;
+  --mono:'Cascadia Code',Consolas,'Courier New',monospace;
+}
+body{font-family:var(--font);font-size:12px;background:var(--bg);color:var(--fg);
+     height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--bg2);
+         border-bottom:1px solid var(--border);flex-shrink:0}
+.toolbar h1{font-size:12px;font-weight:600;letter-spacing:.04em;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;transition:background .3s}
+.dot.on{background:var(--green)}
+.server-status{font-size:10px;color:var(--dim);white-space:nowrap}
+.spacer{flex:1}
+button{font-family:var(--font);font-size:11px;font-weight:500;border:none;border-radius:3px;
+       padding:3px 8px;cursor:pointer;background:var(--bg3);color:var(--fg)}
+button:hover{background:var(--bg4)}
+button.primary{background:var(--accent);color:#fff}
+button.danger{background:var(--red);color:#fff}
+
+/* Mode selector */
+select{font-family:var(--font);font-size:10px;background:var(--bg3);color:var(--fg);
+       border:1px solid var(--border);border-radius:3px;padding:2px 4px;cursor:pointer}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);
+      overflow-x:auto}
+.tabs::-webkit-scrollbar{height:3px}
+.tabs::-webkit-scrollbar-thumb{background:var(--border)}
+.tab{padding:5px 12px;cursor:pointer;font-size:11px;border-bottom:2px solid transparent;
+     color:var(--dim);white-space:nowrap;transition:color .1s,border-color .1s}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--fg);border-bottom-color:var(--accent)}
+.tab-badge{font-size:9px;background:var(--bg3);border-radius:8px;padding:1px 4px;margin-left:3px}
+
+/* Panels */
+.panels{flex:1;overflow:hidden;position:relative}
+.panel{display:none;height:100%;overflow-y:auto;padding:10px}
+.panel.active{display:block}
+.panel::-webkit-scrollbar{width:6px}
+.panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-bottom:12px}
+.card{background:var(--bg2);border-radius:4px;padding:8px;border:1px solid var(--border)}
+.card-val{font-size:18px;font-weight:700;color:var(--accent)}
+.card-label{font-size:9px;color:var(--dim);margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+
+/* Section titles */
+.section-title{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+               margin:10px 0 5px;border-bottom:1px solid var(--border);padding-bottom:3px}
+
+/* Badges */
+.badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;
+       background:var(--bg3);border:1px solid var(--border);margin:2px}
+.badge.react{border-color:var(--blue);color:var(--blue)}
+.badge.vue{border-color:#42b883;color:#42b883}
+.badge.angular{border-color:#dd0031;color:#dd0031}
+.badge.svelte{border-color:#ff3e00;color:#ff3e00}
+.badge.generic{border-color:var(--dim);color:var(--dim)}
+
+/* Stream */
+.stream{font-family:var(--mono);font-size:10px;display:flex;flex-direction:column;gap:2px}
+.event{padding:2px 5px;border-radius:2px;background:var(--bg2);display:flex;gap:8px;
+       align-items:baseline;border-left:2px solid var(--border)}
+.event.realtime{border-left-color:var(--green)}
+.event.react{border-left-color:var(--blue)}
+.event.css{border-left-color:var(--yellow)}
+.event.text{border-left-color:var(--purple)}
+.event.network{border-left-color:var(--green)}
+.event .etype{color:var(--accent);min-width:170px;font-weight:600;flex-shrink:0}
+.event .etime{color:var(--dim);min-width:65px;text-align:right;flex-shrink:0}
+.event .epayload{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+
+/* Tree */
+.tree-node{margin-left:12px;line-height:1.6}
+.tree-node>.label{cursor:pointer;display:flex;align-items:center;gap:3px}
+.tree-node>.label:hover .comp-name{color:#fff}
+.tree-caret{font-size:9px;color:var(--dim);width:10px}
+.comp-name{color:var(--blue)}
+.comp-tag{color:var(--dim);font-size:9px}
+.comp-fw{font-size:9px;padding:0 3px;border-radius:2px;background:#ffffff10;margin-left:2px}
+
+/* Network */
+.net-row{display:flex;gap:6px;align-items:center;padding:2px 5px;border-radius:2px;
+         font-family:var(--mono);font-size:10px;cursor:pointer}
+.net-row:hover{background:var(--bg2)}
+.method{min-width:45px;font-weight:700;font-size:9px}
+.method.GET{color:var(--green)}.method.POST{color:var(--yellow)}.method.PUT{color:var(--purple)}
+.method.DELETE{color:var(--red)}.method.BEACON{color:var(--dim)}
+.status-2{color:var(--green)}.status-3{color:var(--yellow)}.status-4,.status-5{color:var(--red)}
+.net-url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
+.token-badge{background:#c586c030;color:var(--purple);padding:1px 4px;border-radius:2px;font-size:9px}
+
+/* CSS tokens */
+.token-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.token-row{display:flex;align-items:center;gap:5px;padding:2px 4px;border-radius:2px;
+           font-family:var(--mono);font-size:10px}
+.color-swatch{width:11px;height:11px;border-radius:2px;border:1px solid #ffffff15;flex-shrink:0}
+
+/* Text Coords */
+.text-word-row{display:flex;gap:8px;align-items:baseline;padding:2px 5px;border-radius:2px;
+               font-family:var(--mono);font-size:10px}
+.text-word-row:hover{background:var(--bg2)}
+.text-word{color:var(--fg);min-width:120px}
+.text-coords{color:var(--dim);font-size:9px;min-width:160px}
+.text-elem{color:var(--yellow);font-size:9px}
+.text-style{color:var(--purple);font-size:9px}
+.text-search{width:100%;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);
+             border-radius:3px;color:var(--fg);font-size:11px;margin-bottom:6px;outline:none}
+.text-search:focus{border-color:var(--accent)}
+
+/* Misc */
+.empty{color:var(--dim);font-size:11px;padding:20px;text-align:center}
+pre{background:var(--bg2);border-radius:3px;padding:6px;font-family:var(--mono);font-size:10px;
+    overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+a.ext{color:var(--accent);text-decoration:none;font-size:10px}
+a.ext:hover{text-decoration:underline}
+.mode-label{font-size:9px;color:var(--dim);margin-right:2px}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="dot" id="dot"></div>
+  <h1>Site Inspector</h1>
+  <span class="server-status" id="server-status">disconnected</span>
+  <div class="spacer"></div>
+  <span class="mode-label">Mode:</span>
+  <select id="mode-select">
+    <option value="always_on">Always On</option>
+    <option value="manual">Manual</option>
+    <option value="selective">Selective</option>
+    <option value="off">Off</option>
+  </select>
+  <button id="btn-collect" title="Manually trigger all analyzers">▶ Collect</button>
+  <a class="ext" href="http://localhost:7892" target="_blank">Dashboard ↗</a>
+  <button class="primary" id="btn-export">ZIP</button>
+  <button id="btn-clear">Clear</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="frameworks">Frameworks</div>
+  <div class="tab" data-tab="text">Text<span class="tab-badge" id="badge-text">0</span></div>
+  <div class="tab" data-tab="network">Network<span class="tab-badge" id="badge-net">0</span></div>
+  <div class="tab" data-tab="css">CSS</div>
+  <div class="tab" data-tab="ui">UI</div>
+  <div class="tab" data-tab="stream">Stream</div>
+</div>
+
+<div class="panels">
+
+  <!-- Overview -->
+  <div class="panel active" id="tab-overview">
+    <div class="cards">
+      <div class="card"><div class="card-val" id="ov-sources">–</div><div class="card-label">Sources</div></div>
+      <div class="card"><div class="card-val" id="ov-requests">–</div><div class="card-label">Requests</div></div>
+      <div class="card"><div class="card-val" id="ov-tokens">–</div><div class="card-label">Auth Tokens</div></div>
+      <div class="card"><div class="card-val" id="ov-words">–</div><div class="card-label">Text Words</div></div>
+      <div class="card"><div class="card-val" id="ov-components">–</div><div class="card-label">Components</div></div>
+      <div class="card"><div class="card-val" id="ov-lcp">–</div><div class="card-label">LCP (ms)</div></div>
+    </div>
+    <div class="section-title">Detected Frameworks</div>
+    <div id="ov-frameworks"><span class="empty">Detecting…</span></div>
+    <div class="section-title">Page URL</div>
+    <div id="ov-url" style="font-family:var(--mono);font-size:10px;color:var(--dim);word-break:break-all"></div>
+    <div class="section-title">Cache</div>
+    <div id="ov-cache" style="font-family:var(--mono);font-size:10px;color:var(--dim)">Waiting for server…</div>
+  </div>
+
+  <!-- Frameworks -->
+  <div class="panel" id="tab-frameworks">
+    <div class="section-title">React</div>
+    <div id="fw-react"><span class="empty">No React detected</span></div>
+    <div class="section-title">Vue</div>
+    <div id="fw-vue"><span class="empty">No Vue detected</span></div>
+    <div class="section-title">Angular</div>
+    <div id="fw-angular"><span class="empty">No Angular detected</span></div>
+    <div class="section-title">Svelte / Alpine / Preact / Solid</div>
+    <div id="fw-other"><span class="empty">None detected</span></div>
+    <div class="section-title">Generic DOM / Globals</div>
+    <div id="fw-generic"><span class="empty">Waiting…</span></div>
+  </div>
+
+  <!-- Text Coords -->
+  <div class="panel" id="tab-text">
+    <input type="search" class="text-search" id="text-search" placeholder="Filter words…">
+    <div class="section-title">Words <span id="text-word-count" style="color:var(--dim)"></span></div>
+    <div id="text-words"></div>
+    <div class="section-title">Lines <span id="text-line-count" style="color:var(--dim)"></span></div>
+    <div id="text-lines"></div>
+    <div class="section-title">Full Text</div>
+    <pre id="text-full" style="max-height:150px;overflow:auto"></pre>
+  </div>
+
+  <!-- Network -->
+  <div class="panel" id="tab-network">
+    <div class="section-title">Requests <span id="req-count" style="color:var(--dim)"></span></div>
+    <div id="net-requests"><span class="empty">Waiting…</span></div>
+    <div class="section-title">Auth Tokens</div>
+    <div id="net-tokens"><span class="empty">None detected</span></div>
+    <div class="section-title">Unique Endpoints</div>
+    <div id="net-endpoints"><span class="empty">None yet</span></div>
+  </div>
+
+  <!-- CSS -->
+  <div class="panel" id="tab-css">
+    <div class="section-title">Frameworks Detected</div>
+    <div id="css-frameworks"><span class="empty">Analyzing…</span></div>
+    <div class="section-title">Colors</div>
+    <div id="css-colors" class="token-grid"></div>
+    <div class="section-title">Spacing &amp; Radii</div>
+    <div id="css-spacing"></div>
+    <div class="section-title">Typography</div>
+    <div id="css-type"></div>
+  </div>
+
+  <!-- UI -->
+  <div class="panel" id="tab-ui">
+    <div class="section-title">Buttons <span id="ui-btn-count" style="color:var(--dim)"></span></div>
+    <div id="ui-buttons"></div>
+    <div class="section-title">Inputs</div>
+    <div id="ui-inputs"></div>
+    <div class="section-title">Links</div>
+    <div id="ui-links"></div>
+  </div>
+
+  <!-- Stream -->
+  <div class="panel" id="tab-stream">
+    <div class="stream" id="stream-list"></div>
+  </div>
+
+</div>
+
+<script src="panel.js"></script>
+</body>
+</html>
