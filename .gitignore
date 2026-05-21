@@ -10,3 +10,10 @@ GIT-HISTORY.md
 browser-whiskor-v3/
 直前のログ.txt
 参考/
+
+# Generated / temporary
+.idea/
+cache/
+playwright-report/
+test-results/
+session-*.md

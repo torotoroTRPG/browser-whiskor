@@ -1,0 +1,214 @@
+name: CI - Extension Sync & Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Detect what changed ───────────────────────────────────────────────
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      extension: ${{ steps.filter.outputs.extension }}
+      server: ${{ steps.filter.outputs.server }}
+      shared: ${{ steps.filter.outputs.shared }}
+      tests: ${{ steps.filter.outputs.tests }}
+      any-code: ${{ steps.filter.outputs.any-code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed paths
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          DIFF=$(git diff --name-only "$BASE" "$HEAD" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
+
+          echo "--- Changed files ---"
+          echo "$DIFF"
+
+          EXT=$(echo "$DIFF" | grep -c "^extension/" || true)
+          FF=$(echo "$DIFF" | grep -c "^firefox-mv2/" || true)
+          SRV=$(echo "$DIFF" | grep -c "^server/" || true)
+          SHR=$(echo "$DIFF" | grep -c "^shared/" || true)
+          TST=$(echo "$DIFF" | grep -c "^tests/" || true)
+
+          echo "extension=$(( EXT + FF ))" >> $GITHUB_OUTPUT
+          echo "server=$SRV" >> $GITHUB_OUTPUT
+          echo "shared=$SHR" >> $GITHUB_OUTPUT
+          echo "tests=$TST" >> $GITHUB_OUTPUT
+          echo "any-code=$(( (EXT + FF + SRV + SHR + TST) > 0 ? 1 : 0 ))" >> $GITHUB_OUTPUT
+
+  # ── 2. Chrome vs Firefox size comparison ─────────────────────────────────
+  extension-sync-check:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any-code == '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare Chrome vs Firefox file sizes
+        id: size-check
+        run: |
+          echo "## Extension Size Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Chrome | Firefox | Diff |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|---------|------|" >> $GITHUB_STEP_SUMMARY
+
+          DRIFT=0
+
+          # Compare all JS files in injected directories
+          for f in $(find extension/injected -name "*.js" -o -name "*.json" | sort); do
+            REL="${f#extension/}"
+            FF_FILE="firefox-mv2/$REL"
+
+            if [ -f "$FF_FILE" ]; then
+              CH_SIZE=$(wc -c < "$f")
+              FF_SIZE=$(wc -c < "$FF_FILE")
+              DIFF=$((CH_SIZE - FF_SIZE))
+              ABS_DIFF=${DIFF#-}
+
+              STATUS=""
+              if [ "$ABS_DIFF" -gt 100 ]; then
+                STATUS="⚠️"
+                DRIFT=$((DRIFT + 1))
+              elif [ "$ABS_DIFF" -gt 0 ]; then
+                STATUS="📝"
+              else
+                STATUS="✅"
+              fi
+
+              echo "| $REL | $CH_SIZE B | $FF_SIZE B | ${DIFF:+$DIFF} B $STATUS |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $REL | $(wc -c < "$f") B | *missing* | 🔴 |" >> $GITHUB_STEP_SUMMARY
+              DRIFT=$((DRIFT + 1))
+            fi
+          done
+
+          # Check Firefox-only files
+          for f in $(find firefox-mv2/injected -name "*.js" -o -name "*.json" | sort); do
+            REL="${f#firefox-mv2/}"
+            CH_FILE="extension/$REL"
+            if [ ! -f "$CH_FILE" ]; then
+              echo "| $REL | *missing* | $(wc -c < "$f") B | 🔴 Firefox-only |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$DRIFT" -gt 0 ]; then
+            echo "**⚠️ $DRIFT file(s) have significant drift (>100B) or are missing**" >> $GITHUB_STEP_SUMMARY
+            echo "::warning::$DRIFT file(s) have significant drift between Chrome and Firefox extensions"
+          else
+            echo "**✅ All files in sync**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "drift=$DRIFT" >> $GITHUB_OUTPUT
+
+      - name: Upload size report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-size-report
+          path: ${{ github.workspace }}
+          retention-days: 7
+
+  # ── 3. Shared/ sync verification ─────────────────────────────────────────
+  shared-sync-check:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any-code == '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify shared/ files match both extensions
+        run: |
+          echo "## Shared/ Sync Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          ERRORS=0
+
+          if [ -d "shared/injected" ]; then
+            for f in $(find shared/injected -type f | sort); do
+              REL="${f#shared/}"
+              CH_FILE="extension/$REL"
+              FF_FILE="firefox-mv2/$REL"
+
+              if [ -f "$CH_FILE" ] && [ -f "$FF_FILE" ]; then
+                if ! diff -q "$f" "$CH_FILE" > /dev/null 2>&1; then
+                  echo "❌ $REL differs from extension/$REL" >> $GITHUB_STEP_SUMMARY
+                  ERRORS=$((ERRORS + 1))
+                elif ! diff -q "$f" "$FF_FILE" > /dev/null 2>&1; then
+                  echo "❌ $REL differs from firefox-mv2/$REL" >> $GITHUB_STEP_SUMMARY
+                  ERRORS=$((ERRORS + 1))
+                else
+                  echo "✅ $REL synced" >> $GITHUB_STEP_SUMMARY
+                fi
+              else
+                echo "⚠️ $REL exists in shared/ but missing in one extension" >> $GITHUB_STEP_SUMMARY
+                ERRORS=$((ERRORS + 1))
+              fi
+            done
+          else
+            echo "ℹ️ No shared/ directory found (not yet set up)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "**⚠️ $ERRORS sync error(s) detected**" >> $GITHUB_STEP_SUMMARY
+            echo "::error::$ERRORS shared/ sync error(s)"
+            exit 1
+          else
+            echo "**✅ All shared files in sync**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ── 4. Run tests ─────────────────────────────────────────────────────────
+  run-tests:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any-code == '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts 2>/dev/null || npm install
+
+      - name: Run tests
+        run: node --test tests/unit/*.test.js tests/integration/*.test.js tests/stress/*.test.js
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Run each category separately for summary
+          for cat in unit integration stress; do
+            OUTPUT=$(node --test tests/$cat/*.test.js 2>&1)
+            PASS=$(echo "$OUTPUT" | grep -c "^ok " || true)
+            FAIL=$(echo "$OUTPUT" | grep -c "^not ok " || true)
+            if [ "$FAIL" -gt 0 ]; then
+              echo "| $cat | ❌ $PASS pass, $FAIL fail |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $cat | ✅ $PASS pass |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
