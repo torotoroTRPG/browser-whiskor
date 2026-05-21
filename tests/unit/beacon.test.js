@@ -190,7 +190,7 @@ describe('3.1 Beacon Tracking', () => {
   // ── Debounced scan ───────────────────────────────────────────────────────────
 
   describe('debounced scan', () => {
-    test('rapid onScroll calls → scan runs once (debounce)', done => {
+    test('rapid onScroll calls → scan runs once (debounce)', async () => {
       const t = new BeaconTracker({ debounceMs: 50 });
       t.start(generateTextCoords(50).words);
 
@@ -198,11 +198,9 @@ describe('3.1 Beacon Tracking', () => {
         t.onScroll({ scrollX: 0, scrollY: i * 50, width: 1280, height: 800 });
       }
 
-      setTimeout(() => {
-        assert.strictEqual(t.scanCount, 1, 'debounce must reduce 20 scroll events to 1 scan');
-        t.stop();
-        done();
-      }, 100);
+      await new Promise(r => setTimeout(r, 100));
+      assert.strictEqual(t.scanCount, 1, 'debounce must reduce 20 scroll events to 1 scan');
+      t.stop();
     });
   });
 

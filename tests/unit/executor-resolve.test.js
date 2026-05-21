@@ -44,9 +44,8 @@ function findByText(text, { exact = false } = {}) {
 }
 
 function findByCoords(x, y) {
-  const el = document.elementFromPoint(x, y);
-  // elementFromPoint returns null if coords are out-of-bounds
-  // In the real executor, this wraps the browser API
+  // Real executor converts page coords to client coords
+  const el = document.elementFromPoint(x - (window.scrollX || 0), y - (window.scrollY || 0));
   return el ?? null;
 }
 

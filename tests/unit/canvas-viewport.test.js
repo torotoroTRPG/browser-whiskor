@@ -186,11 +186,11 @@ describe('2.1 Viewport Consistency', () => {
   test('isInView: uses liveVp.scrollX/Y not zero origin', () => {
     vp.initFromSnapshot({ scrollX: 1000, scrollY: 500, width: 1280, height: 800 });
 
-    // Word only visible when scrollX=1000
-    const word = { left: 1050, top: 550, right: 1200, bottom: 580 };
+    // Word only visible when scrollX=1000 (viewport spans 1000–2280)
+    const word = { left: 1500, top: 550, right: 1600, bottom: 580 };
     assert.strictEqual(vp.isInView(word), true, 'must use live scroll offset');
 
-    // Same word with scroll reset to 0 would be out of view
+    // Same word with scroll reset to 0 (viewport spans 0–1280) → out of view
     vp.onLiveUpdate({ scrollX: 0, scrollY: 0 });
     assert.strictEqual(vp.isInView(word), false, 'must recalculate after scroll change');
   });

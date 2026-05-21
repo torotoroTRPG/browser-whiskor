@@ -165,17 +165,17 @@ describe('4.1 Write Tools', () => {
       const btn = new MockElement('button');
       btn.id = 'loaded';
       
-      // Simulate delayed appearance
-      setTimeout(() => document.body.append(btn), 10);
+      // Simulate delayed appearance (matches real 100ms poll interval)
+      setTimeout(() => document.body.append(btn), 50);
       
-      const find = () => document.querySelector('#loaded');
-      
-      // Simple poll
+      // Mirror real executor: poll every 100ms with 10s timeout
+      const timeout = 5000;
+      const start = Date.now();
       let found = null;
-      for (let i = 0; i < 10; i++) {
-        found = find();
+      while (Date.now() - start < timeout) {
+        found = document.querySelector('#loaded');
         if (found) break;
-        await new Promise(r => setTimeout(r, 5));
+        await new Promise(r => setTimeout(r, 100));
       }
       
       assert.ok(found !== null);

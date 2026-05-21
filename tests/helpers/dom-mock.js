@@ -266,17 +266,41 @@ function createMockDocumentObj() {
     },
 
     querySelector(sel) {
-      if (sel.startsWith('#')) return doc._elements[sel.slice(1)] ?? null;
-      return body._queryOne(sel);
+      if (sel.startsWith('#')) {
+        // Check registry first, then fall back to tree search
+        const id = sel.slice(1);
+        if (doc._elements[id]) return doc._elements[id];
+        return doc._searchTree(body, sel);
+      }
+      return doc._searchTree(body, sel);
     },
 
     querySelectorAll(sel) {
-      return body._queryAll(sel);
+      const results = [];
+      doc._collectAll(body, sel, results);
+      return results;
+    },
+
+    _searchTree(root, sel) {
+      if (root._matchesSel && root._matchesSel(sel)) return root;
+      for (const child of root.children || []) {
+        const found = doc._searchTree(child, sel);
+        if (found) return found;
+      }
+      return null;
+    },
+
+    _collectAll(root, sel, results) {
+      if (root._matchesSel && root._matchesSel(sel)) results.push(root);
+      for (const child of root.children || []) {
+        doc._collectAll(child, sel, results);
+      }
     },
 
     elementFromPoint(x, y) {
-      // Return a registered hit-test element or a default div
-      return doc._hitElement ?? new MockElement('div');
+      // Return explicitly set hit element (including null), or fall back to default
+      if ('_hitElement' in doc) return doc._hitElement;
+      return new MockElement('div');
     },
 
     createEvent(type) { return new MockEvent(type); },
@@ -366,6 +390,15 @@ function createMockWindowObj(doc) {
       event.currentTarget = win;
       const fns = win._listeners[event.type] ?? [];
       for (const fn of fns) fn(event);
+    },
+
+    postMessage(data, targetOrigin) {
+      // Synchronously dispatch 'message' event on window (matches browser behavior)
+      const event = new MockEvent('message', { bubbles: false });
+      event.source = null;
+      event.origin = targetOrigin || 'null';
+      event.data = data;
+      win.dispatchEvent(event);
     },
 
     scrollBy(x, y) { win.scrollX += x; win.scrollY += y; },
