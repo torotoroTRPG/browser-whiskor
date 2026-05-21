@@ -23,8 +23,8 @@ if ($coverage.Success) {
     $coverageSummary = "N/A"
 }
 
-# Parse per-file coverage details
-$coverageLines = $output -split "`n" | Where-Object { $_ -match '^#\s+tests\\.*\|' }
+# Parse per-file coverage details (exclude test files)
+$coverageLines = $output -split "`n" | Where-Object { $_ -match '^#\s+tests\\.*\|' -and $_ -notmatch '\.test\.js\s*\|' }
 $detailRows = @()
 foreach ($line in $coverageLines) {
     $parts = $line -split '\|'
@@ -34,7 +34,9 @@ foreach ($line in $coverageLines) {
         $branch = $parts[2].Trim()
         $funcs = $parts[3].Trim()
         $uncovered = $parts[4].Trim()
-        $detailRows += "| $file | ${stmt}% | ${branch}% | ${funcs}% | $uncovered |"
+        # Mark mocks/fixtures with a note
+        $isMock = if ($file -match 'mock|fixture') { ' (mock)' } else { '' }
+        $detailRows += "| $file${isMock} | ${stmt}% | ${branch}% | ${funcs}% | $uncovered |"
     }
 }
 $detailTable = $detailRows -join "`n"
