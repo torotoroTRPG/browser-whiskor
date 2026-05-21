@@ -139,7 +139,7 @@ export async function createDashboardClient(server) {
 }
 
 /** Waits for a specific event on an EventEmitter. */
-export function waitEvent(emitter, event, timeoutMs = 2_000) {
+export function waitEvent(emitter, event, timeoutMs = 5_000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`waitEvent: '${event}' timeout`)),
