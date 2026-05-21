@@ -18,6 +18,7 @@
 
 const registry  = require('./mcp/registry');
 const transport = require('./mcp/transport');
+const toolManager = require('./tool-manager');
 
 // ツールカテゴリを登録
 require('./mcp/tools/read')(registry);
@@ -26,6 +27,9 @@ require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
 
 // ── Callbacks from index.js ───────────────────────────────────────────────────
+let _config = {};
+let _sessionId = 'default';
+
 function setCallbacks(pushConfig, triggerCollect, triggerExplorer) {
   registry.setCallbacks({ _pushConfig: pushConfig, _triggerCollect: triggerCollect, _triggerExplorer: triggerExplorer });
 }
@@ -48,6 +52,25 @@ function setStartupWarnings(warnings) {
 
 function setSecurity(sec) {
   registry.setCallbacks({ _security: sec });
+}
+
+function setConfig(config) {
+  _config = config;
+}
+
+function setSessionId(id) {
+  _sessionId = id;
+}
+
+// ── Tool Manager Integration ──────────────────────────────────────────────────
+function initToolManager() {
+  toolManager.initSession(_sessionId);
+  registry.setToolManager(toolManager, _sessionId, _config);
+}
+
+function processToolCall(toolName, args) {
+  const allTools = registry.getAllTools();
+  return toolManager.processTurn(_sessionId, { name: toolName, args }, allTools, _config);
 }
 
 // ── Config management ─────────────────────────────────────────────────────────
@@ -79,6 +102,9 @@ module.exports = {
   setMcpToolsConfig,
   getMcpToolsConfig,
   applyPreset,
-  getToolNames: () => registry.getToolNames(),
-  getFilteredTools: () => registry.getFilteredTools(),
+  setConfig,
+  setSessionId,
+  initToolManager,
+  processToolCall,
+  toolManager,
 };

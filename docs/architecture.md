@@ -34,15 +34,16 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    45 tools available, organized in a layered architecture:                  │
+│    49 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
 │    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
-│    mcp/tools/read.js      ← 21 read tools (sessions → get_delta)            │
+│    tool-manager.js        ← Dynamic profile management, auto-load/unload     │
+│    mcp/tools/read.js      ← 21 read tools (sessions → lookup_pattern)       │
 │    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page)      │
 │    mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh_data)      │
-│    mcp/tools/control.js   ← 6 control tools (set_config → get_nav_path)     │
+│    mcp/tools/control.js   ← 10 control tools (set_config → profile_status)  │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
 │    │  READ (21)       │ get_sessions, get_index, get_text_coords,        │  │
@@ -61,9 +62,10 @@
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CAPTURE (2)     │ capture_screenshot (± SoM marks), refresh_data   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  CONTROL (6)     │ set_config, get_config_changes, trigger_collect, │  │
+│    │  CONTROL (10)    │ set_config, get_config_changes, trigger_collect, │  │
 │    │                  │ trigger_explorer, navigate_to_state,             │  │
-│    │                  │ get_navigation_path                              │  │
+│    │                  │ get_navigation_path, load_profile,               │  │
+│    │                  │ unload_profile, search_tools, profile_status     │  │
 │    └──────────────────┴──────────────────────────────────────────────────┘  │
 │                                                                              │
 │    Tool visibility: per-tool on/off, category toggle, presets                │
@@ -392,16 +394,12 @@
       transport.js        — stdio JSON-RPC 2.0 transport layer
       tools/
         read.js           — 21 READ tools (sessions → lookup_pattern)
-        write.js          — 13 WRITE tools (navigate_to → reload_page)
+        write.js          — 16 WRITE tools (navigate_to → reload_page)
         capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
-        control.js        — 6 CONTROL tools (set_config → get_nav_path)
-    cache-writer.js       — Disk persistence, session index, freshness tracking
-    delta-engine.js       — Smart delta aggregation, motion clustering
-    pattern-registry.js   — UI pattern storage, hashing, lookup
-    config-change-log.js  — Config audit trail, validation, auto-revert
-    config-loader.js      — Loads config.json + .env + configs/mcp-tools.json
+        control.js        — 10 CONTROL tools (set_config → profile_status)
     configs/
       mcp-tools.json      — MCP tool visibility config (categories, tools, presets)
+      tool-profiles.json  — Dynamic tool profile definitions and triggers
     state-machine.js      — Backward-compat wrapper → state-store.js
     state-store.js        — State graph management, gzip persistence, LRU
     state-fingerprint.js  — FNV32 hash, ND filter, composite hash

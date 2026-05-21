@@ -437,6 +437,9 @@ httpServer.listen(HTTP_PORT, () => {
 const mcpToolsConfig = loadMcpToolsConfig();
 mcp.setMcpToolsConfig(mcpToolsConfig);
 mcp.setCallbacks(pushConfig, triggerCollect, triggerExplorer);
+mcp.setConfig(_cfg);
+mcp.setSessionId(`mcp-${Date.now()}`);
+mcp.initToolManager();
 
 // Action helper for MCP tools
 async function _callAction(tabId, action, timeoutMs) {

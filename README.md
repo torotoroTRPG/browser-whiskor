@@ -204,7 +204,28 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.5: 45 tools)
+## MCP Tools (v3.6: 49 tools)
+
+### Dynamic Tool Profiles
+
+Instead of exposing all 49 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+
+| Profile | Tools | Auto-Trigger | Idle Unload |
+|---------|-------|-------------|-------------|
+| **core** (12) | sessions, text_coords, viewport, framework_state, ui_catalog, network, screenshot, refresh_data, click, type_text, navigate_to, get_index | Always loaded | Never |
+| **debug** (+6) | console_logs, storage, perf_metrics, css_analysis, dom_snapshot, accessibility | "console", "debug", "error" | 10 turns |
+| **state-nav** (+7) | state_map, list_states, search_states, state_detail, pin_state, navigate_to_state, navigation_path | "state", "graph", "navigate" | 8 turns |
+| **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
+| **advanced-actions** (+10) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page | "drag", "hover", "select" | 5 turns |
+| **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
+| **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
+
+**How it works:**
+1. **Core tools** are always available.
+2. **Auto-detection**: When you call a tool that matches a profile's triggers, the server automatically loads that profile.
+3. **Idle unloading**: Profiles not used for N turns are automatically removed.
+4. **Warnings**: If a profile stays active too long, you'll get a warning suggesting unload→reload.
+5. **Manual control**: Use `load_profile`, `unload_profile`, `search_tools`, and `profile_status` for explicit management.
 
 ### Perception (READ)
 

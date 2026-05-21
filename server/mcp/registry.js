@@ -14,6 +14,20 @@ let _tools = [];
 let _handlers = {};
 let _config = loadMcpToolsConfig();
 let _callbacks = {};
+let _toolManager = null;
+let _sessionId = null;
+let _serverConfig = {};
+
+// ── Tool Manager Integration ──────────────────────────────────────────────────
+function setToolManager(manager, sessionId, config) {
+  _toolManager = manager;
+  _sessionId = sessionId;
+  _serverConfig = config;
+}
+
+function getAllTools() {
+  return _tools.map(t => ({ definition: t, handler: _handlers[t.name] }));
+}
 
 // ── Tool Registration ─────────────────────────────────────────────────────────
 function registerTool(definition, handler) {
@@ -60,7 +74,15 @@ function isToolEnabled(toolName) {
 }
 
 function getFilteredTools() {
-  return _tools.filter(tool => isToolEnabled(tool.name));
+  let tools = _tools.filter(tool => isToolEnabled(tool.name));
+
+  // Apply tool manager filtering if available
+  if (_toolManager && _sessionId) {
+    tools = _toolManager.getVisibleTools(_sessionId, tools.map(t => ({ definition: t })), _serverConfig)
+      .map(t => t.definition);
+  }
+
+  return tools;
 }
 
 function getToolNames() {
@@ -71,11 +93,43 @@ function getToolNames() {
 async function callTool(name, args) {
   const handler = _handlers[name];
   if (!handler) {
-    return { error: `Unknown tool: ${name}` };
+    return { error: `Unknown tool: ${name}. Use search_tools to discover available tools.` };
   }
 
   if (!isToolEnabled(name)) {
-    return { error: `Tool "${name}" is disabled by MCP tools configuration.` };
+    return { error: `Tool "${name}" is disabled by configuration.` };
+  }
+
+  // Check tool manager visibility
+  if (_toolManager && _sessionId) {
+    const visible = _toolManager.getVisibleTools(_sessionId, getAllTools(), _serverConfig);
+    const isVisible = visible.some(t => t.definition.name === name);
+    if (!isVisible) {
+      return {
+        error: `Tool "${name}" is not currently loaded.`,
+        hint: `Use load_profile to enable this tool's category, or search_tools("${name}") to find alternatives.`,
+      };
+    }
+
+    // Process turn for auto-load/unload/warnings
+    const turnResult = _toolManager.processTurn(_sessionId, { name, args }, getAllTools(), _serverConfig);
+    const responseExtras = {};
+    if (turnResult.warnings?.length) {
+      responseExtras._warnings = turnResult.warnings;
+    }
+    if (turnResult.autoLoaded?.length) {
+      responseExtras._autoLoaded = turnResult.autoLoaded;
+    }
+    if (turnResult.unloaded?.length) {
+      responseExtras._autoUnloaded = turnResult.unloaded;
+    }
+
+    try {
+      const result = await handler(args, { ..._callbacks, _toolManager, _sessionId, _allTools: getAllTools(), _config: _serverConfig });
+      return { ...result, ...responseExtras };
+    } catch (e) {
+      return { ok: false, error: e.message, ...responseExtras };
+    }
   }
 
   try {
@@ -130,4 +184,6 @@ module.exports = {
   getToolNames,
   callTool,
   applyPreset,
+  setToolManager,
+  getAllTools,
 };

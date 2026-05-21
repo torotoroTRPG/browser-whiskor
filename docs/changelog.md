@@ -2,6 +2,36 @@
 
 All notable changes to browser-whiskor.
 
+## [3.6.0] — 2026-05-22
+
+### Added
+- **Dynamic Tool Profile Manager** (`tool-manager.js`) — Manages MCP tool visibility based on context, auto-detection, and AI requests. Core tools (12) are always available. Other profiles load on demand or auto-trigger, and auto-unload after idle turns.
+- **Tool Profiles** (`configs/tool-profiles.json`):
+  - `core` (12 tools) — Basic perception and interaction. Always loaded.
+  - `debug` (+6) — Console, storage, perf, CSS, DOM, accessibility. Auto-loads on debug triggers.
+  - `state-nav` (+7) — State graph navigation. Auto-loads on state-related calls.
+  - `delta` (+3) — UI change tracking. Auto-loads after page interactions.
+  - `advanced-actions` (+10) — Drag, hover, select, etc. Auto-loads when needed.
+  - `admin` (+4) — Server config. Requires `allowAgentConfig`.
+  - `power` (+2) — JS execution, explicit waits. Requires `allowExecuteJs`.
+- **4 new MCP tools:**
+  - `load_profile` — Load a tool profile dynamically
+  - `unload_profile` — Unload a profile to free context
+  - `search_tools` — Discover available tools without loading them
+  - `profile_status` — Check active profiles and idle turns
+- **Auto-detection**: Server infers intent from tool calls and loads relevant profiles automatically.
+- **Idle unloading**: Profiles not used for N turns are automatically removed to keep AI context lean.
+- **Usage warnings**: AI receives warnings when a profile has been active for many turns, encouraging load→use→unload→reload best practices.
+- **Session reset**: All profiles reset on MCP reconnect for clean state.
+- **14 unit tests** for tool manager (session management, profile loading, auto-detection, idle unload, warnings).
+
+### Changed
+- **MCP tool count: 45 → 49**
+- **Tool filtering**: Registry now uses tool manager for dynamic visibility.
+- **Server integration**: Tool manager initialized on MCP startup with session ID.
+
+---
+
 ## [3.5.0] — 2026-05-21
 
 ### Added

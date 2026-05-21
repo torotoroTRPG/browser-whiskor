@@ -165,5 +165,85 @@ module.exports = function registerControlTools(registry) {
     },
   });
 
+  // 40. load_profile
+  tools.push({
+    definition: {
+      name: 'load_profile',
+      description: 'Load a tool profile to make additional MCP tools available. Profiles group related tools (debug, state-nav, delta, etc.). Tools are automatically unloaded after idle turns to keep context lean. Use search_tools to discover available tools without loading them.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          profile: { type: 'string', enum: ['debug', 'state-nav', 'delta', 'advanced-actions', 'admin', 'power'], description: 'Profile name to load' },
+        },
+        required: ['profile'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._toolManager) return { error: 'Tool manager not available.' };
+      const result = cb._toolManager.loadProfile(cb._sessionId, args.profile, cb._allTools, cb._config);
+      if (!result.success) return { error: result.error };
+      return {
+        ok: true,
+        profile: args.profile,
+        loadedTools: result.loadedTools.map(t => t.definition.name),
+        auto: result.auto ? true : undefined,
+        note: result.note,
+      };
+    },
+  });
+
+  // 41. unload_profile
+  tools.push({
+    definition: {
+      name: 'unload_profile',
+      description: 'Unload a previously loaded tool profile. Core tools cannot be unloaded. Use this to free context when you no longer need specialized tools.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          profile: { type: 'string', enum: ['debug', 'state-nav', 'delta', 'advanced-actions', 'admin', 'power'], description: 'Profile name to unload' },
+        },
+        required: ['profile'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._toolManager) return { error: 'Tool manager not available.' };
+      const result = cb._toolManager.unloadProfile(cb._sessionId, args.profile, cb._allTools);
+      if (!result.success) return { error: result.error };
+      return { ok: true, unloaded: args.profile };
+    },
+  });
+
+  // 42. search_tools
+  tools.push({
+    definition: {
+      name: 'search_tools',
+      description: 'Search all available MCP tools by name or description without loading their profiles. Use this to discover what tools exist and what they do. Returns name and description only — use load_profile to make tools callable.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search term (e.g. "accessibility", "drag", "state"). Omit to list all tools.' },
+        },
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._toolManager) return { error: 'Tool manager not available.' };
+      const tools = cb._toolManager.searchTools(args.query || '', cb._allTools);
+      return { totalTools: tools.length, tools };
+    },
+  });
+
+  // 43. profile_status
+  tools.push({
+    definition: {
+      name: 'profile_status',
+      description: 'Get the current status of loaded tool profiles, including idle turns and active warnings. Use this to understand which tool groups are currently available.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    handler: async (args, cb) => {
+      if (!cb._toolManager) return { error: 'Tool manager not available.' };
+      return cb._toolManager.getProfileStatus(cb._sessionId);
+    },
+  });
+
   registry.registerTools(tools);
 };

@@ -1,0 +1,76 @@
+{
+  "_comment_en": "Tool profiles for dynamic loading. Core tools are always available. Other profiles load on demand or auto-trigger.",
+  "_comment_ja": "動的ロード用ツールプロファイル。コアツールは常に利用可能。他のプロファイルはオンデマンドまたは自動トリガーでロード。",
+
+  "core": {
+    "description": "Basic perception and interaction. Always loaded.",
+    "tools": [
+      "get_sessions", "get_index", "get_text_coords", "get_viewport",
+      "get_framework_state", "get_ui_catalog", "get_network",
+      "refresh_data", "capture_screenshot",
+      "click", "type_text", "navigate_to"
+    ],
+    "autoUnload": false
+  },
+
+  "debug": {
+    "description": "Debugging and deep inspection. Auto-loads when AI asks for console, storage, or performance data.",
+    "tools": [
+      "get_console_logs", "get_storage", "get_perf_metrics",
+      "get_css_analysis", "get_dom_snapshot", "get_accessibility"
+    ],
+    "autoUnload": true,
+    "idleTurns": 10,
+    "triggers": ["console", "storage", "perf", "css", "dom", "accessibility", "debug", "error"]
+  },
+
+  "state-nav": {
+    "description": "State graph navigation and time-travel. Auto-loads when AI interacts with state graph.",
+    "tools": [
+      "get_state_map", "list_states", "search_states",
+      "get_state_detail", "pin_state",
+      "navigate_to_state", "get_navigation_path"
+    ],
+    "autoUnload": true,
+    "idleTurns": 8,
+    "triggers": ["state", "graph", "navigate", "history", "backtrack", "time-travel"]
+  },
+
+  "delta": {
+    "description": "UI change tracking and pattern recognition. Auto-loads after page interactions.",
+    "tools": ["get_delta", "list_patterns", "lookup_pattern"],
+    "autoUnload": true,
+    "idleTurns": 6,
+    "triggers": ["delta", "change", "scroll", "motion", "pattern", "appeared", "updated"]
+  },
+
+  "advanced-actions": {
+    "description": "Complex browser interactions. Auto-loads when AI needs drag, hover, or select.",
+    "tools": [
+      "drag", "hover", "select_option", "check_box",
+      "mouse_scroll", "right_click", "press_key",
+      "go_back", "go_forward", "reload_page"
+    ],
+    "autoUnload": true,
+    "idleTurns": 5,
+    "triggers": ["drag", "hover", "select", "checkbox", "scroll", "right-click", "key", "back", "forward", "reload"]
+  },
+
+  "admin": {
+    "description": "Server and extension configuration. Requires agentControl.allowAgentConfig.",
+    "tools": ["set_config", "get_config_changes", "trigger_collect", "trigger_explorer"],
+    "autoUnload": true,
+    "idleTurns": 3,
+    "triggers": ["config", "collect", "explore", "settings"],
+    "requiresConfig": "allowAgentConfig"
+  },
+
+  "power": {
+    "description": "Advanced control (JS execution, explicit waits). Requires security.allowExecuteJs.",
+    "tools": ["execute_js", "wait_for_element"],
+    "autoUnload": true,
+    "idleTurns": 2,
+    "triggers": ["execute", "eval", "script", "wait", "element"],
+    "requiresConfig": "allowExecuteJs"
+  }
+}
