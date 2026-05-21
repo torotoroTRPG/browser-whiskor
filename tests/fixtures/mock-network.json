@@ -1,0 +1,19 @@
+[
+  {
+    "id": "req1",
+    "method": "GET",
+    "url": "https://api.example.com/data",
+    "status": 200,
+    "type": "fetch",
+    "timestamp": 1621584000000
+  },
+  {
+    "id": "req2",
+    "method": "POST",
+    "url": "https://api.example.com/login",
+    "status": 200,
+    "type": "xmlhttprequest",
+    "timestamp": 1621584005000,
+    "hasToken": true
+  }
+]

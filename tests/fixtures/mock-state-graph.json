@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    { "hash": "h1", "label": "Home", "url": "https://example.com/" },
+    { "hash": "h2", "label": "About", "url": "https://example.com/about" }
+  ],
+  "edges": [
+    { "from": "h1", "to": "h2", "action": { "type": "click", "selector": "a[href='/about']" } }
+  ]
+}

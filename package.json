@@ -2,12 +2,18 @@
   "name": "browser-whiskor",
   "version": "3.0.0",
   "description": "Agent-grade browser instrumentation with MCP server",
+  "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "start":   "node server/index.js",
-    "mcp":     "node server/index.js --mcp",
-    "verbose": "node server/index.js --verbose",
-    "mock":    "node server/index.js --mock"
+    "start":       "node server/index.js",
+    "mcp":         "node server/index.js --mcp",
+    "verbose":     "node server/index.js --verbose",
+    "mock":        "node server/index.js --mock",
+    "test":        "node --test tests/**/*.test.js",
+    "test:unit":   "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
+    "test:stress": "node --test tests/stress/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

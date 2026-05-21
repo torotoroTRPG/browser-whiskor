@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>browser-whiskor Test Page</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 20px; }
+    #long-content { height: 4000px; }
+    #drag-source  { width: 80px; height: 40px; background: #4af; cursor: grab; display: inline-block; padding: 8px; }
+    #drop-target  { width: 200px; height: 80px; border: 2px dashed #999; display: inline-block; padding: 8px; margin-left: 20px; }
+    #context-menu-target { width: 200px; height: 60px; background: #ffe; border: 1px solid #ccc; padding: 8px; }
+    .item         { padding: 8px; border: 1px solid #ddd; margin: 4px 0; cursor: pointer; }
+    .item:hover   { background: #f0f0f0; }
+    #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); }
+    #modal         { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: white; padding: 20px; border-radius: 8px; }
+    .hidden        { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav id="nav">
+  <a id="nav-home"   href="/">Home</a>
+  <a id="nav-list"   href="/list">List</a>
+  <a id="nav-search" href="/search">Search</a>
+</nav>
+
+<!-- ── Buttons ── -->
+<section id="buttons">
+  <h2>Buttons</h2>
+  <button id="btn-primary"  type="button">Primary Action</button>
+  <button id="btn-secondary" type="button">Secondary</button>
+  <button id="btn-disabled" type="button" disabled>Disabled</button>
+  <button id="btn-modal"    type="button">Open Modal</button>
+  <button id="btn-login"    type="button">Login</button>
+  <button id="btn-submit-form" type="submit" form="main-form">Submit Form</button>
+</section>
+
+<!-- ── Forms ── -->
+<section id="forms">
+  <h2>Forms</h2>
+  <form id="main-form" action="/submit" method="post">
+    <label for="input-text">Text</label>
+    <input id="input-text"     type="text"     name="text"     placeholder="Enter text" />
+
+    <label for="input-email">Email</label>
+    <input id="input-email"    type="email"    name="email"    placeholder="email@example.com" />
+
+    <label for="input-password">Password</label>
+    <input id="input-password" type="password" name="password" placeholder="••••••••" />
+
+    <label for="input-number">Number</label>
+    <input id="input-number"   type="number"   name="count"    value="0" min="0" max="100" />
+
+    <label for="textarea-desc">Description</label>
+    <textarea id="textarea-desc" name="description" rows="4" placeholder="Enter description..."></textarea>
+
+    <label for="select-color">Color</label>
+    <select id="select-color" name="color">
+      <option value="">Select a color</option>
+      <option value="red">Red</option>
+      <option value="green">Green</option>
+      <option value="blue">Blue</option>
+    </select>
+
+    <label><input id="checkbox-agree" type="checkbox" name="agree" /> I agree</label>
+    <label><input id="checkbox-newsletter" type="checkbox" name="newsletter" checked /> Newsletter</label>
+
+    <label><input type="radio" name="priority" value="low" />  Low</label>
+    <label><input type="radio" name="priority" value="med" />  Medium</label>
+    <label><input id="radio-high" type="radio" name="priority" value="high" /> High</label>
+
+    <button id="btn-reset"  type="reset">Reset</button>
+    <button id="btn-submit" type="submit">Submit</button>
+  </form>
+</section>
+
+<!-- ── Search ── -->
+<section id="search-section">
+  <h2>Search</h2>
+  <input id="search" type="search" placeholder="Search items..." />
+  <ul id="search-results"></ul>
+</section>
+
+<!-- ── Item List ── -->
+<section id="list-section">
+  <h2>Items</h2>
+  <ul id="item-list">
+    <li class="item" id="item-1" data-id="1">Item One — click to view detail</li>
+    <li class="item" id="item-2" data-id="2">Item Two — another list item</li>
+    <li class="item" id="item-3" data-id="3">Item Three — third entry</li>
+    <li class="item" id="item-4" data-id="4">Item Four — fourth entry</li>
+    <li class="item" id="item-5" data-id="5">Item Five — fifth entry</li>
+  </ul>
+  <button id="btn-load-more" type="button">Load More</button>
+</section>
+
+<!-- ── Drag & Drop ── -->
+<section id="dnd-section">
+  <h2>Drag & Drop</h2>
+  <div id="drag-source" draggable="true">Drag me</div>
+  <div id="drop-target">Drop here</div>
+</section>
+
+<!-- ── Context Menu Target ── -->
+<section id="context-section">
+  <h2>Context Menu</h2>
+  <div id="context-menu-target">Right-click me</div>
+</section>
+
+<!-- ── Scrollable Container ── -->
+<section id="scroll-section">
+  <h2>Scrollable</h2>
+  <div id="scrollable" style="height:200px;overflow-y:auto;border:1px solid #ccc;">
+    <div id="long-content">
+      <!-- 500+ words for text-coords collection -->
+      <p id="long-p-1">
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
+        incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
+        exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure
+        dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+        Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt
+        mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit
+        voluptatem accusantium doloremque laudantium totam rem aperiam eaque ipsa quae ab illo
+        inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+      </p>
+      <p id="long-p-2">
+        Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit sed quia
+        consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt neque porro
+        quisquam est qui dolorem ipsum quia dolor sit amet consectetur adipisci velit sed quia
+        non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat
+        voluptatem. Ut enim ad minima veniam quis nostrum exercitationem ullam corporis
+        suscipit laboriosam nisi ut aliquid ex ea commodi consequatur.
+      </p>
+      <p id="long-p-3">
+        At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium
+        voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint
+        occaecati cupiditate non provident similique sunt in culpa qui officia deserunt
+        mollitia animi id est laborum et dolorum fuga. Et harum quidem rerum facilis est et
+        expedita distinctio. Nam libero tempore cum soluta nobis est eligendi optio cumque
+        nihil impedit quo minus id quod maxime placeat facere possimus omnis voluptas
+        assumenda est omnis dolor repellendus.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Async element (added after 200ms by JS) ── -->
+<section id="async-section">
+  <h2>Async Content</h2>
+  <span id="async-status">Loading...</span>
+  <!-- #async-loaded will appear after delay -->
+</section>
+
+<!-- ── Modal ── -->
+<div id="modal-overlay"></div>
+<div id="modal" role="dialog" aria-modal="true">
+  <h3>Modal Title</h3>
+  <p>Modal content here.</p>
+  <button id="btn-close" type="button">Close</button>
+</div>
+
+<!-- ── Footer ── -->
+<footer id="footer" style="margin-top:3000px;">
+  <p>Footer content — far below viewport</p>
+  <a id="link-back-top" href="#nav">Back to top</a>
+</footer>
+
+<script>
+  // Modal open/close
+  document.getElementById('btn-modal').addEventListener('click', () => {
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('modal').style.display = 'block';
+  });
+  document.getElementById('btn-close').addEventListener('click', () => {
+    document.getElementById('modal-overlay').style.display = 'none';
+    document.getElementById('modal').style.display = 'none';
+  });
+
+  // Async element: appears after 200ms
+  setTimeout(() => {
+    const el = document.createElement('div');
+    el.id = 'async-loaded';
+    el.textContent = 'Async content loaded';
+    document.getElementById('async-section').appendChild(el);
+    document.getElementById('async-status').textContent = 'Done';
+  }, 200);
+
+  // Search filter
+  document.getElementById('search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.item').forEach(li => {
+      li.style.display = li.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+
+  // Form submit prevention for test page
+  document.getElementById('main-form').addEventListener('submit', e => e.preventDefault());
+
+  // Drag & Drop feedback
+  document.getElementById('drop-target').addEventListener('dragover', e => e.preventDefault());
+  document.getElementById('drop-target').addEventListener('drop', e => {
+    e.preventDefault();
+    document.getElementById('drop-target').textContent = 'Dropped!';
+  });
+
+  // Context menu suppression test target
+  document.getElementById('context-menu-target').addEventListener('contextmenu', e => {
+    e.preventDefault();
+    document.getElementById('context-menu-target').textContent = 'Right-clicked!';
+  });
+</script>
+</body>
+</html>
