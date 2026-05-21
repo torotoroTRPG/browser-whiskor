@@ -34,13 +34,13 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    39 tools available, organized in a layered architecture:                  │
+│    42 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
 │    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
 │    mcp/tools/read.js      ← 18 read tools (sessions → pin_state)            │
-│    mcp/tools/write.js     ← 13 write tools (navigate_to → reload_page)      │
+│    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page)      │
 │    mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh_data)      │
 │    mcp/tools/control.js   ← 6 control tools (set_config → get_nav_path)     │
 │                                                                              │
@@ -53,10 +53,10 @@
 │    │                  │ list_states, search_states, get_state_detail,     │  │
 │    │                  │ pin_state                                        │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  WRITE (13)      │ navigate_to, click, type_text, press_key,        │  │
-│    │                  │ hover, scroll_page, select_option, check_box,    │  │
-│    │                  │ execute_js, wait_for_element, go_back/forward,   │  │
-│    │                  │ reload_page                                      │  │
+│    │  WRITE (16)      │ navigate_to, click, right_click, type_text,      │  │
+│    │                  │ press_key, hover, scroll_page, mouse_scroll,     │  │
+│    │                  │ drag, select_option, check_box, execute_js,      │  │
+│    │                  │ wait_for_element, go_back/forward, reload_page   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CAPTURE (2)     │ capture_screenshot (± SoM marks), refresh_data   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │

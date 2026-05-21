@@ -178,6 +178,11 @@ wss.on('connection', (ws, req) => {
         broadcastToDashboard(msg);
         break;
 
+      // Beacon delta: realtime-only, no cache
+      case 'TEXT_COORD_DELTA':
+        broadcastToDashboard(msg);
+        break;
+
       // Action result → action-executor resolves pending promise
       case 'ACTION_RESULT':
         actions.handleResult(msg);

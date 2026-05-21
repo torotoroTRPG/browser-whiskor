@@ -448,6 +448,12 @@
       const lines = aggregateLines(words);
       const blocks = aggregateBlocks(words);
 
+      // Start beacon tracking on first collect
+      if (!registry._beaconStarted) {
+        registry._beaconStarted = true;
+        startBeaconTracking(words);
+      }
+
       return {
         capturedAt:  Date.now(),
         pageUrl:     location.href,
@@ -472,6 +478,8 @@
       clearTimeout(this._reextractTimer);
       if (this._scrollHandler) window.removeEventListener('scroll', this._scrollHandler, true);
       if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
+      stopBeaconTracking();
+      registry._beaconStarted = false;
     },
   });
 
@@ -495,6 +503,106 @@
   }
   window.addEventListener('scroll', emitViewport, { passive: true, capture: true });
   window.addEventListener('resize', emitViewport, { passive: true });
+
+  // ── Beacon tracking: lightweight viewport-state tracker ───────────────────
+  // Not a full re-scan — just tracks which words are in/out of viewport
+  // based on scroll position. Used as fallback/sanity check, not primary.
+  let _beaconWords = [];       // { beaconId, text, xpath, element, lastX, lastY, lastW, lastH, inView }
+  let _beaconRunning = false;
+  const BEACON_SCAN_MS = 500;  // slow interval — fallback only, not primary
+
+  function hashBeaconId(text, xpath, element) {
+    let h = 0;
+    const s = text + '|' + xpath + '|' + element;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    }
+    return 'b' + (h >>> 0).toString(36);
+  }
+
+  function isInViewport(x, y, w, h) {
+    const sx = window.scrollX, sy = window.scrollY;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const cx = x - sx, cy = y - sy;
+    return cx + w >= 0 && cx <= vw && cy + h >= 0 && cy <= vh;
+  }
+
+  function startBeaconTracking(words) {
+    // Only track a subset to keep it light (every 10th word, max 200)
+    const step = Math.max(1, Math.floor(words.length / 200));
+    _beaconWords = [];
+    for (let i = 0; i < words.length; i += step) {
+      const w = words[i];
+      _beaconWords.push({
+        beaconId: hashBeaconId(w.text, w.xpath || '', w.element || ''),
+        text: w.text,
+        xpath: w.xpath || '',
+        element: w.element || '',
+        lastX: w.absoluteX || 0,
+        lastY: w.absoluteY || 0,
+        lastW: w.width || 0,
+        lastH: w.height || 0,
+        inView: isInViewport(w.absoluteX || 0, w.absoluteY || 0, w.width || 0, w.height || 0),
+      });
+    }
+    _beaconRunning = true;
+  }
+
+  // Lazy scan: only runs on scroll/resize, throttled
+  let _beaconScanTimer = null;
+  let _beaconDirty = [];
+
+  function _beaconScan() {
+    if (!_beaconRunning) return;
+    _beaconDirty = [];
+    for (let i = 0; i < _beaconWords.length; i++) {
+      const b = _beaconWords[i];
+      const nowInView = isInViewport(b.lastX, b.lastY, b.lastW, b.lastH);
+      if (b.inView !== nowInView) {
+        b.inView = nowInView;
+        _beaconDirty.push(b.beaconId);
+      }
+    }
+    if (_beaconDirty.length > 0) {
+      window.postMessage({
+        __BROWSER_WHISKOR__: true,
+        type: 'TEXT_COORD_DELTA',
+        payload: {
+          deltas: _beaconDirty.map(id => {
+            const b = _beaconWords.find(w => w.beaconId === id);
+            return b ? { beaconId: b.beaconId, inView: b.inView, absoluteX: b.lastX, absoluteY: b.lastY, width: b.lastW, height: b.lastH } : null;
+          }).filter(Boolean),
+          capturedAt: Date.now(),
+          viewStateOnly: true,
+        }
+      }, '*');
+    }
+  }
+
+  function scheduleBeaconScan() {
+    if (!_beaconRunning) return;
+    clearTimeout(_beaconScanTimer);
+    _beaconScanTimer = setTimeout(_beaconScan, BEACON_SCAN_MS);
+  }
+  window.addEventListener('scroll', scheduleBeaconScan, { passive: true, capture: true });
+  window.addEventListener('resize', scheduleBeaconScan, { passive: true });
+
+  function stopBeaconTracking() {
+    _beaconRunning = false;
+    _beaconWords = [];
+    _beaconDirty = [];
+    clearTimeout(_beaconScanTimer);
+  }
+
+  // On-demand query (lightweight — just reads cached state)
+  window.__SI_BEACON_QUERY__ = {
+    getViewState() {
+      if (!_beaconRunning || !_beaconWords.length) return null;
+      let inView = 0;
+      for (const b of _beaconWords) { if (b.inView) inView++; }
+      return { total: _beaconWords.length, inView, outOfView: _beaconWords.length - inView };
+    },
+  };
 
   // ── Expose fuzzy search for server-side use ───────────────────────────────
   // The server can call this via execute_js for on-demand fuzzy matching

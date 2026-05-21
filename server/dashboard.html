@@ -648,7 +648,6 @@
       ws: null,
       activeTab: 'overview',
       words: [],
-      viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
       liveVp: null,
       netCache: null,
       canvas: {
@@ -775,6 +774,8 @@
               S.liveVp = msg.payload;
               invalidateAreaCache();
               scheduleCanvasRender();
+            } else if (msg.type === 'TEXT_COORD_DELTA') {
+              applyBeaconDelta(msg.payload);
             } else {
               setTimeout(function(){ loadPane(S.activeTab); }, 300);
             }
@@ -874,8 +875,15 @@
       var data = await fetchSess('raw/visual/text-coords.json');
       var words = data && data.words || [];
       S.words = words;
-      S.viewport = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
-      if (!S.liveVp) S.liveVp = Object.assign({}, S.viewport);
+      // Always use live viewport — snapshot viewport is just initial fallback
+      var snapVp = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+      if (!S.liveVp) {
+        S.liveVp = { width: snapVp.width, height: snapVp.height, scrollX: snapVp.scrollX, scrollY: snapVp.scrollY };
+      } else {
+        // Update dimensions from snapshot but keep live scroll position
+        S.liveVp.width = snapVp.width;
+        S.liveVp.height = snapVp.height;
+      }
       D['txt-n'].textContent = words.length + ' nodes';
       if (isFirstLoad) resetCanvasView();
       scheduleCanvasRender();
@@ -892,6 +900,41 @@
       S.canvas.panY = 0;
       D['cv-zoom'].value = 1;
       D['cv-zoom-v'].textContent = 'auto';
+    }
+
+    // ── Beacon delta: update word positions in-place ─────────────────────
+    function applyBeaconDelta(payload) {
+      if (!payload || !payload.deltas || !S.words.length) return;
+      var updated = 0;
+      // Build lookup by beaconId for speed
+      var beaconMap = {};
+      for (var i = 0; i < S.words.length; i++) {
+        var w = S.words[i];
+        var key = w.text + '|' + (w.xpath || '') + '|' + (w.element || '');
+        beaconMap[key] = i;
+      }
+
+      for (var j = 0; j < payload.deltas.length; j++) {
+        var d = payload.deltas[j];
+        var key2 = d.text + '|' + (d.xpath || '') + '|' + (d.element || '');
+        var idx = beaconMap[key2];
+        if (idx !== undefined) {
+          S.words[idx].absoluteX = d.absoluteX;
+          S.words[idx].absoluteY = d.absoluteY;
+          S.words[idx].width = d.width;
+          S.words[idx].height = d.height;
+          S.words[idx].viewportX = d.absoluteX - (S.liveVp ? S.liveVp.scrollX : 0);
+          S.words[idx].viewportY = d.absoluteY - (S.liveVp ? S.liveVp.scrollY : 0);
+          S.words[idx].left = S.words[idx].viewportX;
+          S.words[idx].top = S.words[idx].viewportY;
+          updated++;
+        }
+      }
+
+      if (updated > 0) {
+        invalidateAreaCache();
+        scheduleCanvasRender();
+      }
     }
 
     // ── Canvas Renderer (DPR-aware, rAF-throttled) ─────────────────────
@@ -944,21 +987,24 @@
 
     function getCanvasArea() {
       if (S.canvas.areaCacheValid) return S.canvas.areaCache;
-      var vp = S.viewport;
-      var lv = S.liveVp || vp;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var words = S.words;
       if (S.canvas.crop === 'viewport') {
         S.canvas.areaCache = { x: lv.scrollX, y: lv.scrollY, w: lv.width, h: lv.height };
         S.canvas.areaCacheValid = true;
         return S.canvas.areaCache;
       }
-      var maxX = vp.width, maxY = vp.height;
+      // Page mode: bounds from word positions, not viewport size
+      var maxX = 0, maxY = 0;
       for (var i = 0; i < words.length; i++) {
         var wx = (words[i].absoluteX || 0) + (words[i].width || 0);
         var wy = (words[i].absoluteY || 0) + (words[i].height || 0);
         if (wx > maxX) maxX = wx;
         if (wy > maxY) maxY = wy;
       }
+      // Ensure at least viewport size
+      if (maxX < lv.width) maxX = lv.width;
+      if (maxY < lv.height) maxY = lv.height;
       S.canvas.areaCache = { x: 0, y: 0, w: maxX + 40, h: maxY + 40 };
       S.canvas.areaCacheValid = true;
       return S.canvas.areaCache;
@@ -994,22 +1040,15 @@
       var zoom = S.canvas.zoom;
       if (zoom === null) {
         zoom = Math.min(cssW / area.w, cssH / area.h, 1);
-        if (S.canvas.crop === 'page' && S.liveVp && S.liveVp.scrollY > 0) {
-          // Center initial view on the live viewport rather than the page top-left
-          var lv0 = S.liveVp;
-          var vpCX = lv0.scrollX + lv0.width / 2;
-          var vpCY = lv0.scrollY + lv0.height / 2;
-          S.canvas.panX = Math.max(area.x, Math.min(vpCX - cssW / (2 * zoom), area.x + area.w - cssW / zoom));
-          S.canvas.panY = Math.max(area.y, Math.min(vpCY - cssH / (2 * zoom), area.y + area.h - cssH / zoom));
-        } else {
-          S.canvas.panX = area.x;
-          S.canvas.panY = area.y;
-        }
+        var lv0 = S.liveVp || S.viewport;
+        var vpCX = lv0.scrollX + lv0.width / 2;
+        var vpCY = lv0.scrollY + lv0.height / 2;
+        S.canvas.panX = Math.max(area.x, Math.min(vpCX - cssW / (2 * zoom), area.x + area.w - cssW / zoom));
+        S.canvas.panY = Math.max(area.y, Math.min(vpCY - cssH / (2 * zoom), area.y + area.h - cssH / zoom));
       }
 
       var panX = S.canvas.panX, panY = S.canvas.panY;
-      var lv = S.liveVp || S.viewport;
-      var vp = S.viewport;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var words = S.words;
 
       var showBounds = D['cv-bounds'].checked;
@@ -1057,15 +1096,6 @@
         ctx.globalAlpha = 0.7;
         ctx.font = '300 9px "JetBrains Mono", monospace';
         ctx.fillText('VP (' + lv.scrollX + ',' + lv.scrollY + ') ' + lv.width + '×' + lv.height, lx + 4, ly + 11);
-        ctx.globalAlpha = 1;
-      }
-
-      // Snapshot viewport indicator
-      if (S.canvas.crop === 'page') {
-        ctx.strokeStyle = acC;
-        ctx.globalAlpha = 0.15;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(toX(vp.scrollX), toY(vp.scrollY), vp.width * zoom, vp.height * zoom);
         ctx.globalAlpha = 1;
       }
 
@@ -1122,7 +1152,7 @@
 
     // ── Canvas Controls ──────────────────────────────────────────────────
     function focusOnViewport() {
-      var lv = S.liveVp || S.viewport;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var wrap = D['cv-wrap'];
       var rect = wrap.getBoundingClientRect();
       var cssW = rect.width, cssH = rect.height;
@@ -1355,7 +1385,7 @@
 
     // ── Word List ─────────────────────────────────────────────────────────
     function renderWordList(words) {
-      var lv = S.liveVp || S.viewport;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var visOnly = D['cv-oov-mode'].value === 'hide';
       var list = [];
       for (var i = 0; i < words.length; i++) {
@@ -1383,7 +1413,7 @@
     }
 
     function filterWords(q) {
-      var lv = S.liveVp || S.viewport;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var visOnly = D['cv-oov-mode'].value === 'hide';
       var ql = q.toLowerCase();
       var list = [];

@@ -42,10 +42,13 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 |------|---------|-------------------|--------|
 | `navigate_to` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.update) | — |
 | `click` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `right_click` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `type_text` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `press_key` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `hover` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `scroll_page` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `mouse_scroll` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `drag` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `select_option` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `check_box` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
 | `execute_js` | `mcp/tools/write.js` | `executor.js` (MAIN world eval) | `injected/executor.js` |
