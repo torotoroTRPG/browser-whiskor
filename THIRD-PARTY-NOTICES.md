@@ -37,6 +37,17 @@ SOFTWARE.
 
 ---
 
+## Playwright
+
+- **Version:** ^1.50.0
+- **Author:** Microsoft
+- **Repository:** https://github.com/microsoft/playwright
+- **License:** Apache-2.0
+
+Playwright is used as an **optional** end-to-end (E2E) testing framework. It is installed as a devDependency and only used when running `npm run test:e2e`. It is not required for normal operation or the primary test suite (`npm test`).
+
+---
+
 ## ws
 
 - **Version:** ^8.18.0
