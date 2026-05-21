@@ -2,6 +2,32 @@
 
 All notable changes to browser-whiskor.
 
+## [3.7.0] — 2026-05-22
+
+### Added
+- **Shared Code Infrastructure** (`shared/injected/`) — 19 common files extracted from Chrome/Firefox extensions into a single source of truth. Eliminates manual sync overhead.
+- **Auto-Sync CI** (`.github/workflows/ci.yml`) — Automatically copies `shared/` changes to both `extension/` and `firefox-mv2/` on push. Verifies sync integrity via hash comparison.
+- **Sync Script** (`scripts/sync-shared.ps1`) — Local tool to propagate `shared/` changes to both extensions (`-CheckOnly`, `-DryRun` modes supported).
+- **Scroll-Triggered Text Collection** — `IntersectionObserver` in `text-coords.js` now triggers `collect()` when new text elements enter the viewport, ensuring offscreen texts are cached.
+- **11 unit tests** for IntersectionObserver scroll-triggered collection (`seen-text-tracker.test.js`).
+
+### Fixed
+- **HOST binding security issue** — `WebSocketServer` and `httpServer` now bind to configured `HOST` (default: `127.0.0.1`) instead of `0.0.0.0`.
+- **CI flaky tests on Linux** — WebSocket disconnect tests now use polling (`waitFor`) instead of event waiting, fixing timeout failures on GitHub Actions runners.
+- **Scroll-triggered collection not working** — Added debounced `api.emit()` call when `IntersectionObserver` detects new elements.
+
+### Changed
+- **CI report format** — Per-file test results with ASCII-formatted summary, pass rate, and sync status.
+- **Test timeout** — `waitEvent` default timeout increased from 2s to 5s for CI stability.
+- **Documentation**: Archived `DESIGN_V2.md` to `docs/archive/`, updated `update-report.md` to v3.6.0.
+- **`.gitignore`** — Added temporary directories (`.idea/`, `cache/`, `playwright-report/`, `test-results/`).
+
+### Removed
+- **Duplicate files** — 19 identical files removed from `extension/injected/` and `firefox-mv2/injected/`. Now sourced from `shared/injected/`.
+- **Stale test archive** — `tests/archive/` (5 skeleton tests) removed; full versions exist in `integration/` and `stress/`.
+
+---
+
 ## [3.6.0] — 2026-05-22
 
 ### Added
