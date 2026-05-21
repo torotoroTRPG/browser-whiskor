@@ -26,138 +26,217 @@ jobs:
           DIFF=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
           SHARED_CHANGED=$(echo "$DIFF" | grep -c "^shared/" || true)
           echo "changed=$SHARED_CHANGED" >> $GITHUB_OUTPUT
-          echo "shared_changed=$SHARED_CHANGED"
 
       - name: Sync shared/ to Chrome and Firefox extensions
         if: steps.check.outputs.changed == '1'
         run: |
-          echo "## Auto-Sync Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
+          echo "╔══════════════════════════════════════════════════════╗"
+          echo "║          Auto-Sync: shared/ → Extensions            ║"
+          echo "╚══════════════════════════════════════════════════════╝"
+          echo ""
           COPIED=0
-
           for f in $(find shared/injected -type f | sort); do
             REL="${f#shared/}"
-            CH="extension/$REL"
-            FF="firefox-mv2/$REL"
-
-            # Ensure target directories exist
+            CH="extension/$REL"; FF="firefox-mv2/$REL"
             mkdir -p "$(dirname "$CH")" "$(dirname "$FF")"
-
-            # Only copy if content differs (avoids unnecessary commits)
             NEEDS_UPDATE=false
-
-            if [ ! -f "$CH" ] || ! diff -q "$f" "$CH" > /dev/null 2>&1; then
-              NEEDS_UPDATE=true
-            fi
-            if [ ! -f "$FF" ] || ! diff -q "$f" "$FF" > /dev/null 2>&1; then
-              NEEDS_UPDATE=true
-            fi
-
+            if [ ! -f "$CH" ] || ! diff -q "$f" "$CH" > /dev/null 2>&1; then NEEDS_UPDATE=true; fi
+            if [ ! -f "$FF" ] || ! diff -q "$f" "$FF" > /dev/null 2>&1; then NEEDS_UPDATE=true; fi
             if [ "$NEEDS_UPDATE" = true ]; then
-              cp "$f" "$CH"
-              cp "$f" "$FF"
-              echo "  📦 $REL" >> $GITHUB_STEP_SUMMARY
-              COPIED=$((COPIED + 1))
+              cp "$f" "$CH"; cp "$f" "$FF"
+              echo "  📦 $REL"; COPIED=$((COPIED + 1))
             fi
           done
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**$COPIED file(s) synced**" >> $GITHUB_STEP_SUMMARY
-          echo "copied=$COPIED" >> $GITHUB_OUTPUT
+          echo "  Total: $COPIED file(s) synced"
 
       - name: Commit and push synced files
         if: steps.check.outputs.changed == '1'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           if git diff --quiet extension/ firefox-mv2/; then
             echo "No changes to commit"
           else
             git add extension/ firefox-mv2/
             git commit -m "chore: sync shared/ to Chrome and Firefox extensions [skip ci]"
             git push
-            echo "## Sync committed and pushed" >> $GITHUB_STEP_SUMMARY
           fi
 
-  # ── 2. Verify sync integrity (always runs) ─────────────────────────────────
+  # ── 2. Verify sync integrity ───────────────────────────────────────────────
   verify-sync:
     runs-on: ubuntu-latest
+    outputs:
+      sync_total: ${{ steps.sync.outputs.total }}
+      sync_errors: ${{ steps.sync.outputs.errors }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Verify shared/ matches both extensions
+        id: sync
         run: |
-          echo "## Sync Verification" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          ERRORS=0
-
+          ERRORS=0; TOTAL=0
           if [ -d "shared/injected" ]; then
             for f in $(find shared/injected -type f | sort); do
-              REL="${f#shared/}"
-              CH="extension/$REL"
-              FF="firefox-mv2/$REL"
-
+              REL="${f#shared/}"; CH="extension/$REL"; FF="firefox-mv2/$REL"
+              TOTAL=$((TOTAL + 1))
               if [ -f "$CH" ] && [ -f "$FF" ]; then
-                if ! diff -q "$f" "$CH" > /dev/null 2>&1; then
-                  echo "❌ $REL differs from extension/" >> $GITHUB_STEP_SUMMARY
-                  ERRORS=$((ERRORS + 1))
-                elif ! diff -q "$f" "$FF" > /dev/null 2>&1; then
-                  echo "❌ $REL differs from firefox-mv2/" >> $GITHUB_STEP_SUMMARY
-                  ERRORS=$((ERRORS + 1))
-                else
-                  echo "✅ $REL" >> $GITHUB_STEP_SUMMARY
-                fi
+                if ! diff -q "$f" "$CH" > /dev/null 2>&1; then ERRORS=$((ERRORS + 1)); fi
+                if ! diff -q "$f" "$FF" > /dev/null 2>&1; then ERRORS=$((ERRORS + 1)); fi
               else
-                echo "⚠️ $REL missing in one extension" >> $GITHUB_STEP_SUMMARY
                 ERRORS=$((ERRORS + 1))
               fi
             done
           fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "**⚠️ $ERRORS error(s)**" >> $GITHUB_STEP_SUMMARY
-            echo "::error::$ERRORS sync error(s)"
-            exit 1
-          else
-            echo "**✅ All files in sync**" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          if [ "$ERRORS" -gt 0 ]; then echo "::error::$ERRORS sync error(s)"; exit 1; fi
+          echo "✅ All $TOTAL shared files in sync with both extensions"
 
   # ── 3. Run tests ───────────────────────────────────────────────────────────
   run-tests:
     runs-on: ubuntu-latest
+    needs: [verify-sync]
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
       - name: Install dependencies
         run: npm ci --ignore-scripts 2>/dev/null || npm install
 
-      - name: Run tests
-        run: node --test tests/unit/*.test.js tests/integration/*.test.js tests/stress/*.test.js
-
-      - name: Test summary
-        if: always()
+      - name: Run tests and generate report
         run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Category | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          # ── Collect per-file results ──────────────────────────────────────
+          UNIT_PASS=0; UNIT_FAIL=0; UNIT_FILES=0
+          INTG_PASS=0; INTG_FAIL=0; INTG_FILES=0
+          STRS_PASS=0; STRS_FAIL=0; STRS_FILES=0
 
-          for cat in unit integration stress; do
-            OUTPUT=$(node --test tests/$cat/*.test.js 2>&1)
-            PASS=$(echo "$OUTPUT" | grep -c "^ok " || true)
-            FAIL=$(echo "$OUTPUT" | grep -c "^not ok " || true)
-            if [ "$FAIL" -gt 0 ]; then
-              echo "| $cat | ❌ $PASS pass, $FAIL fail |" >> $GITHUB_STEP_SUMMARY
+          UNIT_DETAILS=""; INTG_DETAILS=""; STRS_DETAILS=""
+
+          for f in tests/unit/*.test.js; do
+            UNIT_FILES=$((UNIT_FILES + 1))
+            OUT=$(node --test "$f" 2>&1)
+            P=$(echo "$OUT" | grep -c "^    ok " || true)
+            F=$(echo "$OUT" | grep -c "^    not ok " || true)
+            UNIT_PASS=$((UNIT_PASS + P)); UNIT_FAIL=$((UNIT_FAIL + F))
+            NAME=$(basename "$f" .test.js)
+            if [ "$F" -gt 0 ]; then
+              UNIT_DETAILS="${UNIT_DETAILS}| \`${NAME}\` | ${P} | ${F} |
+"
             else
-              echo "| $cat | ✅ $PASS pass |" >> $GITHUB_STEP_SUMMARY
+              UNIT_DETAILS="${UNIT_DETAILS}| \`${NAME}\` | ${P} | — |
+"
             fi
           done
+
+          for f in tests/integration/*.test.js; do
+            INTG_FILES=$((INTG_FILES + 1))
+            OUT=$(node --test "$f" 2>&1)
+            P=$(echo "$OUT" | grep -c "^    ok " || true)
+            F=$(echo "$OUT" | grep -c "^    not ok " || true)
+            INTG_PASS=$((INTG_PASS + P)); INTG_FAIL=$((INTG_FAIL + F))
+            NAME=$(basename "$f" .test.js)
+            if [ "$F" -gt 0 ]; then
+              INTG_DETAILS="${INTG_DETAILS}| \`${NAME}\` | ${P} | ${F} |
+"
+            else
+              INTG_DETAILS="${INTG_DETAILS}| \`${NAME}\` | ${P} | — |
+"
+            fi
+          done
+
+          for f in tests/stress/*.test.js; do
+            STRS_FILES=$((STRS_FILES + 1))
+            OUT=$(node --test "$f" 2>&1)
+            P=$(echo "$OUT" | grep -c "^    ok " || true)
+            F=$(echo "$OUT" | grep -c "^    not ok " || true)
+            STRS_PASS=$((STRS_PASS + P)); STRS_FAIL=$((STRS_FAIL + F))
+            NAME=$(basename "$f" .test.js)
+            if [ "$F" -gt 0 ]; then
+              STRS_DETAILS="${STRS_DETAILS}| \`${NAME}\` | ${P} | ${F} |
+"
+            else
+              STRS_DETAILS="${STRS_DETAILS}| \`${NAME}\` | ${P} | — |
+"
+            fi
+          done
+
+          TOTAL_PASS=$((UNIT_PASS + INTG_PASS + STRS_PASS))
+          TOTAL_FAIL=$((UNIT_FAIL + INTG_FAIL + STRS_FAIL))
+          TOTAL_TESTS=$((TOTAL_PASS + TOTAL_FAIL))
+          TOTAL_FILES=$((UNIT_FILES + INTG_FILES + STRS_FILES))
+
+          # ── Determine pass rate ──────────────────────────────────────────
+          if [ "$TOTAL_TESTS" -gt 0 ]; then
+            PASS_RATE=$(( TOTAL_PASS * 100 / TOTAL_TESTS ))
+          else
+            PASS_RATE=0
+          fi
+
+          # ── Write summary ────────────────────────────────────────────────
+          cat >> $GITHUB_STEP_SUMMARY << SUMMARY
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║                                                                  ║
+  ║                     browser-whiskor CI                           ║
+  ║                  Test Results & Sync Status                      ║
+  ║                                                                  ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    OVERVIEW
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  **Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files** — $([ "$TOTAL_FAIL" -eq 0 ] && echo "✅ All passed" || echo "❌ ${TOTAL_FAIL} failed")
+  **Pass rate: ${PASS_RATE}%**
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    UNIT TESTS  (${UNIT_FILES} files)
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  **${UNIT_PASS} pass, ${UNIT_FAIL} fail**
+
+  | File | Pass | Fail |
+  |------|------|------|
+  ${UNIT_DETAILS}
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    INTEGRATION TESTS  (${INTG_FILES} files)
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  **${INTG_PASS} pass, ${INTG_FAIL} fail**
+
+  | File | Pass | Fail |
+  |------|------|------|
+  ${INTG_DETAILS}
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    STRESS TESTS  (${STRS_FILES} files)
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  **${STRS_PASS} pass, ${STRS_FAIL} fail**
+
+  | File | Pass | Fail |
+  |------|------|------|
+  ${STRS_DETAILS}
+  SUMMARY
+
+          # ── Sync status ──────────────────────────────────────────────────
+          SYNC_TOTAL="${{ needs.verify-sync.outputs.sync_total }}"
+          SYNC_ERRORS="${{ needs.verify-sync.outputs.sync_errors }}"
+          if [ -n "$SYNC_TOTAL" ] && [ "$SYNC_TOTAL" -gt 0 ] 2>/dev/null; then
+            cat >> $GITHUB_STEP_SUMMARY << SYNC
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    SHARED/ SYNC STATUS
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  | Metric | Value |
+  |--------|-------|
+  | Shared files tracked | ${SYNC_TOTAL} |
+  | Sync errors | $([ "$SYNC_ERRORS" -eq 0 ] && echo "0 ✅" || echo "${SYNC_ERRORS} ❌") |
+  SYNC
+          fi
+
+          # ── Fail if tests failed ─────────────────────────────────────────
+          if [ "$TOTAL_FAIL" -gt 0 ]; then
+            echo "::error::${TOTAL_FAIL} test(s) failed"
+            exit 1
+          fi
