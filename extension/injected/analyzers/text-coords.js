@@ -221,6 +221,59 @@
     return '/html/body/' + parts.join('/');
   }
 
+  // ── Seen Texts Cache (IntersectionObserver) ───────────────────────────────
+  // Tracks text elements that have entered the viewport at least once.
+  // Allows AI to search for text that is currently offscreen but was seen before.
+  const seenTexts = new Map(); // key: xpath -> { text, absoluteX, absoluteY, width, height, element, contextHint, lastSeen }
+  let _seenObserver = null;
+
+  function initSeenObserver() {
+    if (_seenObserver) return;
+    _seenObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const el = entry.target;
+          const xpath = getSimpleXPath(el);
+          const rect = el.getBoundingClientRect();
+          const scrollX = window.scrollX, scrollY = window.scrollY;
+          seenTexts.set(xpath, {
+            text: el.textContent?.trim().slice(0, 200) || '',
+            absoluteX: Math.round(rect.left + scrollX),
+            absoluteY: Math.round(rect.top + scrollY),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            element: el.tagName.toLowerCase(),
+            contextHint: getContextHint(el),
+            lastSeen: Date.now(),
+          });
+        }
+      }
+    }, { threshold: 0.1 });
+
+    // Observe all text-containing elements
+    const textElements = document.body.querySelectorAll(':not(script):not(style):not(noscript)');
+    for (const el of textElements) {
+      if (el.textContent?.trim()) {
+        _seenObserver.observe(el);
+      }
+    }
+
+    // Also observe new elements via MutationObserver
+    const mutationObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE && node.textContent?.trim()) {
+            _seenObserver.observe(node);
+            node.querySelectorAll(':not(script):not(style):not(noscript)').forEach(el => {
+              if (el.textContent?.trim()) _seenObserver.observe(el);
+            });
+          }
+        }
+      }
+    });
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
   // ── Core extraction ───────────────────────────────────────────────────────
   function extractTextWithCoords(options = {}) {
     const {
@@ -228,6 +281,12 @@
       includeOffscreen = false,
       maxWords         = 5000,
     } = options;
+
+    // Initialize seen texts cache on first run
+    if (!window.__SI_SEEN_TEXTS_INITIALIZED__) {
+      initSeenObserver();
+      window.__SI_SEEN_TEXTS_INITIALIZED__ = true;
+    }
 
     const scrollX = window.scrollX, scrollY = window.scrollY;
     const vw = window.innerWidth,   vh = window.innerHeight;
@@ -338,6 +397,29 @@
           // ── AI context hint ─────────────────────────────────────
           contextHint:      getContextHint(parent),
         });
+      }
+    }
+
+    // Merge with seen texts cache (offscreen but previously seen)
+    if (!includeOffscreen && seenTexts.size > 0) {
+      const currentXPaths = new Set(words.map(w => w.xpath));
+      for (const [xpath, info] of seenTexts.entries()) {
+        if (!currentXPaths.has(xpath) && words.length < maxWords) {
+          // Add seen text as offscreen word
+          words.push({
+            level: 5, page_num: 1, block_num: 0, par_num: 0, line_num: 0, word_num: ++wordNum,
+            left: info.absoluteX, top: info.absoluteY, width: info.width, height: info.height, conf: 90,
+            text: info.text.slice(0, 50), // Limit text length for cache
+            element: info.element, elementId: null, elementClasses: null, xpath,
+            fontSize: null, fontFamily: null, fontWeight: null, fontStyle: null,
+            color: null, backgroundColor: null, isLink: false,
+            inViewport: false, isHidden: false,
+            viewportX: info.absoluteX - scrollX, viewportY: info.absoluteY - scrollY,
+            absoluteX: info.absoluteX, absoluteY: info.absoluteY,
+            contextHint: info.contextHint,
+            fromCache: true,
+          });
+        }
       }
     }
 

@@ -169,11 +169,48 @@ function handleMessage(msg) {
 
     case 'TEXT_COORDS': {
       const fp = path.join(s.dir, 'raw/visual/text-coords.json');
-      writeJson(fp, payload);
+      
+      // Merge with existing cache to retain offscreen/seen texts
+      let existing = {};
+      try {
+        if (fs.existsSync(fp)) {
+          existing = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        }
+      } catch (_) {}
+
+      const merged = { ...payload };
+      
+      if (existing.words && existing.words.length > 0) {
+        const existingByXpath = new Map();
+        for (const w of existing.words) {
+          if (w.xpath) existingByXpath.set(w.xpath, w);
+        }
+
+        // Update with new words, keep old ones if not present in new payload
+        const newXPaths = new Set((payload.words || []).map(w => w.xpath));
+        const mergedWords = [...(payload.words || [])];
+
+        for (const [xpath, oldWord] of existingByXpath.entries()) {
+          if (!newXPaths.has(xpath) && oldWord.fromCache !== true) {
+            // Mark as cached and add to merged list
+            mergedWords.push({ ...oldWord, fromCache: true, inViewport: false });
+          }
+        }
+
+        merged.words = mergedWords;
+        merged.totalWords = mergedWords.length;
+        // Regenerate fullText from merged words
+        merged.fullText = mergedWords.map(w => w.text).join(' ');
+        
+        // Re-aggregate lines/blocks if needed (simplified: keep new payload's aggregation for now)
+        // In a full implementation, we'd re-run aggregateLines/Blocks here.
+      }
+
+      writeJson(fp, merged);
       s.index.files.raw.text_coords = 'raw/visual/text-coords.json';
-      s.index.summary.textWordCount = payload.totalWords || 0;
+      s.index.summary.textWordCount = merged.totalWords || 0;
       markFresh(s, 'text-coords', payload.capturedAt);
-      console.error(`[cache] TEXT_COORDS tabId=${tabId} words=${payload.totalWords}`);
+      console.error(`[cache] TEXT_COORDS tabId=${tabId} words=${merged.totalWords} (merged: ${existing.words?.length || 0} old)`);
       break;
     }
 
