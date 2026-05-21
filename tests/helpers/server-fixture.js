@@ -92,6 +92,17 @@ export class ServerFixture extends EventEmitter {
         this.emit('dashboard:disconnect');
       }
     });
+
+    ws.on('error', () => {
+      // Treat error as disconnect (handles abrupt termination on Linux/GHA)
+      if (isSW) {
+        this.swSockets.delete(ws);
+        this.emit('sw:disconnect');
+      } else {
+        this.dashboardSockets.delete(ws);
+        this.emit('dashboard:disconnect');
+      }
+    });
   }
 
   _route(msg, fromWs, fromSW) {

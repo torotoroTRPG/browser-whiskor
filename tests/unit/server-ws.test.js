@@ -24,6 +24,7 @@ import {
   createSWClient,
   createDashboardClient,
   waitEvent,
+  waitFor,
   sleep,
 } from '../helpers/ws-client.js';
 import { createPortPool } from '../helpers/port-pool.js';
@@ -190,7 +191,8 @@ describe('1.1 WebSocket Connection Management', () => {
       const dash = await createDashboardClient(server);
 
       await sw.close();
-      await waitEvent(server, 'sw:disconnect');
+      // Use polling instead of event waiting (more reliable on CI/Linux)
+      await waitFor(() => server.swSockets.size === 0, 5_000);
 
       // Server must not crash when broadcasting to empty SW set
       assert.doesNotThrow(() => server.broadcastToSW({ type: 'NOP' }));
@@ -248,7 +250,8 @@ describe('1.1 WebSocket Connection Management', () => {
       const dash = await createDashboardClient(server);
 
       await sw.close();
-      await waitEvent(server, 'sw:disconnect');
+      // Use polling instead of event waiting (more reliable on CI/Linux)
+      await waitFor(() => server.swSockets.size === 0, 5_000);
 
       // Server must not forward anything to dashboard when SW disconnects
       const strayMsgs = await dash.collect(150);

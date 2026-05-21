@@ -149,5 +149,19 @@ export function waitEvent(emitter, event, timeoutMs = 5_000) {
   });
 }
 
+/** Waits for a condition to become true by polling. More reliable than event-based waiting on CI. */
+export function waitFor(condition, timeoutMs = 5_000, intervalMs = 50) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('waitFor: timeout')), timeoutMs);
+    const check = () => {
+      try {
+        if (condition()) { clearTimeout(timer); resolve(); }
+        else { setTimeout(check, intervalMs); }
+      } catch { setTimeout(check, intervalMs); }
+    };
+    check();
+  });
+}
+
 /** Sleeps for `ms` milliseconds. */
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
