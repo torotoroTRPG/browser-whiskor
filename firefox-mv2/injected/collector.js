@@ -12,7 +12,7 @@
 
   // ── Emit helper ────────────────────────────────────────────────────────────
   function emit(type, payload) {
-    window.postMessage({ __SITE_INSPECTOR__: true, type, payload }, '*');
+    window.postMessage({ __BROWSER_WHISKOR__: true, type, payload }, '*');
   }
 
   // ── Wire console-logger ────────────────────────────────────────────────────
@@ -37,7 +37,7 @@
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const d = event.data;
-    if (!d?.__SITE_INSPECTOR__) return;
+    if (!d?.__BROWSER_WHISKOR__) return;
 
     switch (d.type) {
       case 'CONFIG_UPDATE':
@@ -94,6 +94,13 @@
       }));
       emit('SOURCE_CATALOG', { capturedAt: Date.now(), resources });
     }, 600);
+
+    // SPA delayed re-collect: re-run DOM-dependent plugins after SPA hydration/async render
+    setTimeout(() => {
+      registry.runAt('DOMContentLoaded');
+      registry.runAt('load');
+      collectStorage();
+    }, 3000);
   }
 
   function collectStorage() {

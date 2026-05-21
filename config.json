@@ -30,6 +30,169 @@
     "_comment_history":        "React/UI状態変化の最大保存数 (0 = 無制限)"
   },
 
+  "updateFrequencies": [
+    {
+      "id": "viewport",
+      "label": "Viewport (scroll/resize tracking)",
+      "description": "ユーザーのスクロール位置とウィンドウサイズ変更の追跡間隔。リアルタイムに近い値。",
+      "type": "debounce",
+      "defaultMs": 100,
+      "valueMs": 100,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "textCoords",
+      "label": "Text Coordinates",
+      "description": "ページ上のテキスト座標の再収集間隔。MutationObserverのデバウンス時間。",
+      "type": "debounce",
+      "defaultMs": 200,
+      "valueMs": 200,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "domMutations",
+      "label": "DOM Mutations",
+      "description": "DOM変更のバッチ送信間隔。変更をまとめてストリーミングする。",
+      "type": "debounce",
+      "defaultMs": 100,
+      "valueMs": 100,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "network",
+      "label": "Network (fetch/XHR interception)",
+      "description": "ネットワークリクエストのキャプチャ。基本はリアルタイム（イベント駆動）。",
+      "type": "event-driven",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "consoleLogs",
+      "label": "Console Logs",
+      "description": "console.log/warn/errorのキャプチャ。基本はリアルタイム（イベント駆動）。",
+      "type": "event-driven",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "reactSnapshot",
+      "label": "React Fiber Snapshot",
+      "description": "Reactコンポーネントツリーの収集間隔。bippyによるFiberトラバーサル。",
+      "type": "debounce",
+      "defaultMs": 500,
+      "valueMs": 500,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "uiCatalog",
+      "label": "UI Catalog (buttons, links, inputs)",
+      "description": "インタラクティブ要素のカタログ化間隔。",
+      "type": "debounce",
+      "defaultMs": 500,
+      "valueMs": 500,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "cssAnalysis",
+      "label": "CSS Analysis",
+      "description": "CSSカスタムプロパティとフレームワーク信号の解析間隔。",
+      "type": "debounce",
+      "defaultMs": 1000,
+      "valueMs": 1000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "accessibility",
+      "label": "Accessibility Tree",
+      "description": "ARIAツリーとランドマークの収集間隔。",
+      "type": "debounce",
+      "defaultMs": 1000,
+      "valueMs": 1000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "storage",
+      "label": "Storage (localStorage, sessionStorage, cookies)",
+      "description": "ストレージのスナップショット収集間隔。",
+      "type": "debounce",
+      "defaultMs": 2000,
+      "valueMs": 2000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "perfMetrics",
+      "label": "Performance Metrics",
+      "description": "パフォーマンスメトリクスの収集間隔。",
+      "type": "debounce",
+      "defaultMs": 5000,
+      "valueMs": 5000,
+      "enabled": true,
+      "category": "infrequent"
+    },
+    {
+      "id": "frameworkDetection",
+      "label": "Framework Detection",
+      "description": "フレームワーク検出。window.load時に一度だけ実行。",
+      "type": "once-on-load",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "once"
+    },
+    {
+      "id": "sourceCatalog",
+      "label": "Source Catalog (resource timing)",
+      "description": "リソースタイミングAPIによるスクリプト/スタイル読み込みカタログ。",
+      "type": "once-on-load",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "once"
+    },
+    {
+      "id": "spaRecollect",
+      "label": "SPA Re-collect (delayed)",
+      "description": "SPAハイドレーション後の再収集遅延時間。DOMContentLoaded/load後に追加で収集。",
+      "type": "delay",
+      "defaultMs": 3000,
+      "valueMs": 3000,
+      "enabled": true,
+      "category": "special"
+    },
+    {
+      "id": "dashboardRefresh",
+      "label": "Dashboard Session Refresh",
+      "description": "ダッシュボードのセッションリスト自動更新間隔。",
+      "type": "interval",
+      "defaultMs": 5000,
+      "valueMs": 5000,
+      "enabled": true,
+      "category": "dashboard"
+    },
+    {
+      "id": "staleThreshold",
+      "label": "Stale Data Threshold",
+      "description": "データが「古い」と判定されるまでの時間。これを超えるとisStale=true。",
+      "type": "threshold",
+      "defaultMs": 30000,
+      "valueMs": 30000,
+      "enabled": true,
+      "category": "threshold"
+    }
+  ],
+
   "plugins": {
     "react-fiber":     true,
     "vue3":            true,
@@ -85,6 +248,33 @@
     "_comment_agentConfig": "allowAgentConfig=true: agentがset_configで設定変更可能",
     "_comment_autoRevert":  "autoRevertConfig=true: 非推奨変更を次回起動時に自動復元",
     "_comment_marks":       "screenshotMarks=true: スクリーンショットに要素番号マーカーを重畳"
+  },
+
+  "permissions": {
+    "agentWritablePaths": [
+      "updateFrequencies[].valueMs",
+      "updateFrequencies[].enabled",
+      "textCoords.level",
+      "textCoords.includeHidden",
+      "textCoords.includeOffscreen",
+      "textCoords.maxWords",
+      "react.debounceMs",
+      "react.maxDepth",
+      "react.maxProps",
+      "react.maxHooks",
+      "collection.maxConsoleLogs",
+      "collection.maxNetworkRequests",
+      "collection.networkBodyMaxBytes"
+    ],
+    "agentReadOnlyPaths": [
+      "server",
+      "security",
+      "agentControl",
+      "permissions"
+    ],
+    "warnOnUnauthorized": true,
+    "_comment_writable":  "agentWritablePaths: agentが変更可能なパス。[]は配列内の全要素を意味する",
+    "_comment_readOnly":  "agentReadOnlyPaths: agentが絶対に変更できないパス。ここにある変更試行は拒否+警告"
   },
 
   "stateGraph": {

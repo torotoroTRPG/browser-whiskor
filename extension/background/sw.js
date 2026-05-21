@@ -141,7 +141,7 @@ async function handleServerMessage(msg) {
       for (const tab of tabs) {
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: (cfg) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'CONFIG_UPDATE', payload: cfg }, '*'),
+          func: (cfg) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'CONFIG_UPDATE', payload: cfg }, '*'),
           args: [msg.config],
           world: 'MAIN',
         }).catch(() => {});
@@ -157,7 +157,7 @@ async function handleServerMessage(msg) {
       for (const tab of targets) {
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: (pl) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: pl } }, '*'),
+          func: (pl) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: pl } }, '*'),
           args: [plugins],
           world: 'MAIN',
         }).catch(() => {});
@@ -281,7 +281,7 @@ async function handleServerMessage(msg) {
       const { tabId, active, strategy } = msg;
       chrome.scripting.executeScript({
         target: { tabId },
-        func: (act, strat) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXPLORER_CONTROL', payload: { active: act, strategy: strat } }, '*'),
+        func: (act, strat) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXPLORER_CONTROL', payload: { active: act, strategy: strat } }, '*'),
         args: [active, strategy],
         world: 'MAIN',
       }).catch(() => {});
@@ -292,7 +292,7 @@ async function handleServerMessage(msg) {
       const { tabId } = msg;
       chrome.scripting.executeScript({
         target: { tabId },
-        func: (payload) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXPLORER_NEXT_ACTION', payload }, '*'),
+        func: (payload) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXPLORER_NEXT_ACTION', payload }, '*'),
         args: [msg.payload],
         world: 'MAIN',
       }).catch(() => {});
@@ -306,7 +306,7 @@ async function handleServerMessage(msg) {
       const { tabId, requestId, watchMode } = msg;
       chrome.scripting.executeScript({
         target: { tabId: tabId || msg.tabId },
-        func: (rid, wm) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'REQUEST_STATE_HASH', requestId: rid, watchMode: wm }, '*'),
+        func: (rid, wm) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'REQUEST_STATE_HASH', requestId: rid, watchMode: wm }, '*'),
         args: [requestId, watchMode],
         world: 'MAIN',
       }).catch(() => {});
@@ -317,7 +317,7 @@ async function handleServerMessage(msg) {
       const tabId = msg.tabId;
       chrome.scripting.executeScript({
         target: { tabId },
-        func: () => window.postMessage({ __SITE_INSPECTOR__: true, type: 'CANCEL_WATCH' }, '*'),
+        func: () => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'CANCEL_WATCH' }, '*'),
         world: 'MAIN',
       }).catch(() => {});
       break;
@@ -347,7 +347,7 @@ function executeInPage(tabId, action) {
     chrome.scripting.executeScript({
       target: { tabId },
       func: (act, lid) => {
-        window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXECUTE_ACTION_IN_PAGE', payload: act, listenerId: lid }, '*');
+        window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXECUTE_ACTION_IN_PAGE', payload: act, listenerId: lid }, '*');
       },
       args: [action, listenerId],
       world: 'MAIN',
@@ -386,7 +386,7 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === 'MANUAL_COLLECT') {
       chrome.scripting.executeScript({
         target: { tabId },
-        func: (pl) => window.postMessage({ __SITE_INSPECTOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: pl } }, '*'),
+        func: (pl) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: pl } }, '*'),
         args: [msg.plugins || null],
         world: 'MAIN',
       }).catch(() => {});

@@ -295,7 +295,7 @@
 
   window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
-    if (!event.data?.__SITE_INSPECTOR__) return;
+    if (!event.data?.__BROWSER_WHISKOR__) return;
     if (event.data.type !== 'EXECUTE_ACTION_IN_PAGE') return;
 
     const { payload: act, listenerId } = event.data;

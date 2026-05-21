@@ -313,7 +313,7 @@
 
     install(api) {
       window.addEventListener('message', (e) => {
-        if (!e.data?.__SITE_INSPECTOR__) return;
+        if (!e.data?.__BROWSER_WHISKOR__) return;
         if (e.data.type === 'MANUAL_COLLECT') {
           const plugins = e.data.payload?.plugins;
           if (!plugins || plugins.includes('accessibility')) {

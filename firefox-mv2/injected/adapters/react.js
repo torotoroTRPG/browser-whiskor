@@ -645,7 +645,7 @@
       var self = this;
 
       B.instrument({
-        name: 'site-inspector',
+        name: 'browser-whiskor',
 
         onActive: function() {
           try {

@@ -10,64 +10,67 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 
 | Tool | Handler | Data Source | Cache File |
 |------|---------|-------------|------------|
-| `get_sessions` | `mcp-server.js` | `cache.getSessionList()` | `cache/{tabId}/_index.json` |
-| `get_index` | `mcp-server.js` | `cache.getSessionData(tabId)` | `cache/{tabId}/_index.json` |
-| `get_text_coords` | `mcp-server.js` | `text-coords.js` (extension) | `cache/{tabId}/raw/visual/text-coords.json` |
-| `get_framework_state` | `mcp-server.js` | Framework adapters | `cache/{tabId}/raw/react_snapshot.json` etc. |
-| `get_network` | `mcp-server.js` | `network.js` analyzer | `cache/{tabId}/raw/network/requests.json` |
-| `get_ui_catalog` | `mcp-server.js` | `ui-catalog.js` analyzer | `cache/{tabId}/raw/ui/elements.json` |
-| `get_accessibility` | `mcp-server.js` | `accessibility.js` analyzer | `cache/{tabId}/raw/accessibility/tree.json` |
-| `get_storage` | `mcp-server.js` | `storage-reader.js` analyzer | `cache/{tabId}/raw/storage/data.json` |
-| `get_console_logs` | `mcp-server.js` | `console-logger.js` analyzer | `cache/{tabId}/raw/console/logs.json` |
-| `get_perf_metrics` | `mcp-server.js` | `perf.js` analyzer | `cache/{tabId}/raw/perf/metrics.json` |
-| `get_css_analysis` | `mcp-server.js` | `css.js` analyzer | `cache/{tabId}/raw/css/analysis.json` |
-| `get_dom_snapshot` | `mcp-server.js` | `dom-generic.js` adapter | `cache/{tabId}/raw/dom/snapshot.json` |
-| `get_state_map` | `mcp-server.js` | `state-machine.js` | `cache/graphs/{siteVersion}.json.gz` |
+| `get_sessions` | `mcp/tools/read.js` | `cache.getSessionList()` | `cache/{tabId}/_index.json` |
+| `get_index` | `mcp/tools/read.js` | `cache.getSessionData(tabId)` | `cache/{tabId}/_index.json` |
+| `get_text_coords` | `mcp/tools/read.js` | `text-coords.js` (extension) | `cache/{tabId}/raw/visual/text-coords.json` |
+| `get_viewport` | `mcp/tools/read.js` | viewport realtime | `cache/{tabId}/raw/visual/viewport.json` |
+| `get_framework_state` | `mcp/tools/read.js` | Framework adapters | `cache/{tabId}/raw/react_snapshot.json` etc. |
+| `get_network` | `mcp/tools/read.js` | `network.js` analyzer | `cache/{tabId}/raw/network/requests.json` |
+| `get_ui_catalog` | `mcp/tools/read.js` | `ui-catalog.js` analyzer | `cache/{tabId}/raw/ui/elements.json` |
+| `get_accessibility` | `mcp/tools/read.js` | `accessibility.js` analyzer | `cache/{tabId}/raw/accessibility/tree.json` |
+| `get_storage` | `mcp/tools/read.js` | `storage-reader.js` analyzer | `cache/{tabId}/raw/storage/data.json` |
+| `get_console_logs` | `mcp/tools/read.js` | `console-logger.js` analyzer | `cache/{tabId}/raw/console/logs.json` |
+| `get_perf_metrics` | `mcp/tools/read.js` | `perf.js` analyzer | `cache/{tabId}/raw/perf/metrics.json` |
+| `get_css_analysis` | `mcp/tools/read.js` | `css.js` analyzer | `cache/{tabId}/raw/css/analysis.json` |
+| `get_dom_snapshot` | `mcp/tools/read.js` | `dom-generic.js` adapter | `cache/{tabId}/raw/dom/snapshot.json` |
+| `get_state_map` | `mcp/tools/read.js` | `state-machine.js` | `cache/graphs/{siteVersion}.json.gz` |
+| `list_states` | `mcp/tools/read.js` | `state-store.getAllNodesFlat()` | in-memory + disk |
+| `search_states` | `mcp/tools/read.js` | `state-semantic.searchStates()` | in-memory + disk |
+| `get_state_detail` | `mcp/tools/read.js` | `state-store.getNodeByHash()` + `loadSnapshot()` | in-memory + disk |
+| `pin_state` | `mcp/tools/read.js` | `state-store.pinNode()` | in-memory + disk |
 
-### State Navigation Tools
+### State Navigation Tools (moved to CONTROL category)
 
 | Tool | Handler | Source |
 |------|---------|--------|
-| `list_states` | `mcp-server.js` | `state-store.getAllNodesFlat()` |
-| `search_states` | `mcp-server.js` | `state-semantic.searchStates()` |
-| `get_state_detail` | `mcp-server.js` | `state-store.getNodeByHash()` + `loadSnapshot()` |
-| `pin_state` | `mcp-server.js` | `state-store.pinNode()` |
-| `navigate_to_state` | `mcp-server.js` | `state-navigator.navigate()` |
-| `get_navigation_path` | `mcp-server.js` | `state-navigator.findPath()` |
+| `navigate_to_state` | `mcp/tools/control.js` | `state-navigator.navigate()` |
+| `get_navigation_path` | `mcp/tools/control.js` | `state-navigator.findPath()` |
 
 ### WRITE Tools
 
 | Tool | Handler | Extension Handler | Source |
 |------|---------|-------------------|--------|
-| `navigate_to` | `mcp-server.js` | `sw.js` (chrome.tabs.update) | — |
-| `click` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `type_text` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `press_key` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `hover` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `scroll_page` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `select_option` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `check_box` | `mcp-server.js` | `executor.js` (MAIN world) | `injected/executor.js` |
-| `execute_js` | `mcp-server.js` | `executor.js` (MAIN world eval) | `injected/executor.js` |
-| `wait_for_element` | `mcp-server.js` | `executor.js` (MutationObserver) | `injected/executor.js` |
-| `go_back` | `mcp-server.js` | `sw.js` (chrome.tabs.goBack) | — |
-| `go_forward` | `mcp-server.js` | `sw.js` (chrome.tabs.goForward) | — |
-| `reload_page` | `mcp-server.js` | `sw.js` (chrome.tabs.reload) | — |
+| `navigate_to` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.update) | — |
+| `click` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `type_text` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `press_key` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `hover` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `scroll_page` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `select_option` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `check_box` | `mcp/tools/write.js` | `executor.js` (MAIN world) | `injected/executor.js` |
+| `execute_js` | `mcp/tools/write.js` | `executor.js` (MAIN world eval) | `injected/executor.js` |
+| `wait_for_element` | `mcp/tools/write.js` | `executor.js` (MutationObserver) | `injected/executor.js` |
+| `go_back` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.goBack) | — |
+| `go_forward` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.goForward) | — |
+| `reload_page` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.reload) | — |
 
 ### CAPTURE Tools
 
 | Tool | Handler | Extension Handler | Source |
 |------|---------|-------------------|--------|
-| `capture_screenshot` | `mcp-server.js` | `sw.js` + `drawMarksOnImage` | `background/sw.js` |
-| `refresh_data` | `mcp-server.js` | Triggers collect via `index.js` | `server/index.js` |
+| `capture_screenshot` | `mcp/tools/capture.js` | `sw.js` + `drawMarksOnImage` | `background/sw.js` |
+| `refresh_data` | `mcp/tools/capture.js` | Triggers collect via `index.js` | `server/index.js` |
 
 ### CONTROL Tools
 
 | Tool | Handler | Extension Handler | Source |
 |------|---------|-------------------|--------|
-| `set_config` | `mcp-server.js` | `sw.js` (SET_CONFIG) | `server/config-change-log.js` |
-| `get_config_changes` | `mcp-server.js` | — | `server/config-change-log.js` |
-| `trigger_collect` | `mcp-server.js` | `sw.js` (MANUAL_COLLECT) | `injected/collector.js` |
-| `trigger_explorer` | `mcp-server.js` | `sw.js` (EXPLORER_CONTROL) | `injected/explorer.js` |
+| `set_config` | `mcp/tools/control.js` | `sw.js` (SET_CONFIG) | `server/config-change-log.js` |
+| `get_config_changes` | `mcp/tools/control.js` | — | `server/config-change-log.js` |
+| `trigger_collect` | `mcp/tools/control.js` | `sw.js` (MANUAL_COLLECT) | `injected/collector.js` |
+| `trigger_explorer` | `mcp/tools/control.js` | `sw.js` (EXPLORER_CONTROL) | `injected/explorer.js` |
+| `navigate_to_state` | `mcp/tools/control.js` | `sw.js` (action replay) | `server/state-navigator.js` |
+| `get_navigation_path` | `mcp/tools/control.js` | — | `server/state-navigator.js` |
 
 ---
 
@@ -198,9 +201,20 @@ Edge confidence = base_score × recency_factor × consistency_factor
 ```
 server/
   index.js              — Main server: HTTP + WebSocket + cache writer
-  mcp-server.js         — MCP tool definitions (35 tools) and callTool() handlers
+  mcp-server.js         — Entry point: wires registry, transport, tool modules
+  mcp/
+    registry.js         — Tool registration, filtering, preset management
+    transport.js        — stdio JSON-RPC 2.0 transport
+    tools/
+      read.js           — 18 READ tools (sessions → pin_state)
+      write.js          — 13 WRITE tools (navigate_to → reload_page)
+      capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
+      control.js        — 6 CONTROL tools (set_config → get_nav_path)
   cache-writer.js       — Session cache, freshness tracking, console log buffer
   config-change-log.js  — Config audit, validation rules, auto-revert logic
+  config-loader.js      — Loads config.json + .env + configs/mcp-tools.json
+  configs/
+    mcp-tools.json      — MCP tool visibility: categories, tools, presets
   state-machine.js      — Backward-compat wrapper → state-store.js
   state-store.js        — State graph: nodes, edges, gzip persistence, LRU eviction
   state-fingerprint.js  — FNV32 hash engine, ND filter, composite hash

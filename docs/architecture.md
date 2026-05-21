@@ -32,29 +32,44 @@
                                │  MCP stdio (JSON-RPC 2.0)
                                ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  LAYER 1 : MCP Server  ( server/mcp-server.js )                              │
+│  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    35 tools available:                                                       │
+│    39 tools available, organized in a layered architecture:                  │
+│                                                                              │
+│    mcp-server.js          ← Entry point, wires all layers together           │
+│    mcp/registry.js        ← Tool registration, filtering, preset management  │
+│    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
+│    mcp/tools/read.js      ← 18 read tools (sessions → pin_state)            │
+│    mcp/tools/write.js     ← 13 write tools (navigate_to → reload_page)      │
+│    mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh_data)      │
+│    mcp/tools/control.js   ← 6 control tools (set_config → get_nav_path)     │
+│                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
-│    │  READ (13)       │ get_sessions, get_index, get_text_coords,        │  │
-│    │                  │ get_framework_state, get_network, get_ui_catalog, │  │
-│    │                  │ get_accessibility, get_storage, get_console_logs, │  │
-│    │                  │ get_perf_metrics, get_css_analysis,               │  │
-│    │                  │ get_dom_snapshot, get_state_map                  │  │
+│    │  READ (18)       │ get_sessions, get_index, get_text_coords,        │  │
+│    │                  │ get_viewport, get_framework_state, get_network,   │  │
+│    │                  │ get_ui_catalog, get_accessibility, get_storage,   │  │
+│    │                  │ get_console_logs, get_perf_metrics,               │  │
+│    │                  │ get_css_analysis, get_dom_snapshot, get_state_map,│  │
+│    │                  │ list_states, search_states, get_state_detail,     │  │
+│    │                  │ pin_state                                        │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  STATE NAV (6)   │ list_states, search_states, get_state_detail,    │  │
-│    │                  │ pin_state, navigate_to_state, get_navigation_path│  │
-│    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  WRITE (12)      │ navigate_to, click, type_text, press_key,        │  │
+│    │  WRITE (13)      │ navigate_to, click, type_text, press_key,        │  │
 │    │                  │ hover, scroll_page, select_option, check_box,    │  │
 │    │                  │ execute_js, wait_for_element, go_back/forward,   │  │
 │    │                  │ reload_page                                      │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CAPTURE (2)     │ capture_screenshot (± SoM marks), refresh_data   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  CONTROL (4)     │ set_config, get_config_changes, trigger_collect, │  │
-│    │                  │ trigger_explorer                                 │  │
+│    │  CONTROL (6)     │ set_config, get_config_changes, trigger_collect, │  │
+│    │                  │ trigger_explorer, navigate_to_state,             │  │
+│    │                  │ get_navigation_path                              │  │
 │    └──────────────────┴──────────────────────────────────────────────────┘  │
+│                                                                              │
+│    Tool visibility: per-tool on/off, category toggle, presets                │
+│    Config: server/configs/mcp-tools.json                                     │
+│    Presets: read_only, read_and_capture, full_access, no_execute_js,         │
+│             no_state_navigation                                              │
+│    Env override: WHISKOR_MCP_<TOOL_NAME>=false                               │
 │                                                                              │
 │    Fuzzy matching (token Jaccard + bigram similarity) for text search.      │
 │    Freshness warnings (STALE_DATA, ADAPTER_LIMITED, PARTIAL_TREE, NO_MATCH).│
@@ -332,9 +347,20 @@
 
   server/
     index.js              — HTTP + WS server, cache writer, config manager
-    mcp-server.js         — MCP tool definitions and handlers (35 tools)
+    mcp-server.js         — Entry point: wires registry, transport, tool modules
+    mcp/
+      registry.js         — Tool registration, filtering, preset management
+      transport.js        — stdio JSON-RPC 2.0 transport layer
+      tools/
+        read.js           — 18 READ tools (sessions → pin_state)
+        write.js          — 13 WRITE tools (navigate_to → reload_page)
+        capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
+        control.js        — 6 CONTROL tools (set_config → get_nav_path)
     cache-writer.js       — Disk persistence, session index, freshness tracking
     config-change-log.js  — Config audit trail, validation, auto-revert
+    config-loader.js      — Loads config.json + .env + configs/mcp-tools.json
+    configs/
+      mcp-tools.json      — MCP tool visibility config (categories, tools, presets)
     state-machine.js      — Backward-compat wrapper → state-store.js
     state-store.js        — State graph management, gzip persistence, LRU
     state-fingerprint.js  — FNV32 hash, ND filter, composite hash

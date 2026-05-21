@@ -1298,7 +1298,7 @@ export function detectAndRegister(registry) {
 ## 6. 新ディレクトリ構造
 
 ```
-site-inspector/
+browser-whiskor/
 ├── docs/
 │   ├── SPEC.md                    ← v1仕様書
 │   └── DESIGN_V2.md               ← このファイル（v2設計）

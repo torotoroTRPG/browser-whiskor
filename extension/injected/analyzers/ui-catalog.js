@@ -22,7 +22,7 @@
     install(api) {
       // Allow manual re-triggering
       window.addEventListener('message', (e) => {
-        if (e.data?.__SITE_INSPECTOR__ && e.data.type === 'MANUAL_COLLECT') {
+        if (e.data?.__BROWSER_WHISKOR__ && e.data.type === 'MANUAL_COLLECT') {
           const plugins = e.data.payload?.plugins;
           if (!plugins || plugins.includes('ui-catalog')) {
             const data = this.collect(api);

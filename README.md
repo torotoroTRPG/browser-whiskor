@@ -40,40 +40,60 @@ Not all frameworks are supported equally. Here is the real state of each adapter
 
 ```
 AI Agent (Claude / Cursor / etc.)
-    │ MCP (stdio)
+    │ MCP stdio (JSON-RPC 2.0)
     ▼
+┌─ server/mcp/ ──────────────────────────────────────────────────┐
+│  MCP Layer (39 tools, configurable visibility)                 │
+│                                                                │
+│  mcp-server.js          ← Entry point, wires layers together   │
+│  mcp/registry.js        ← Tool registration, filtering, presets│
+│  mcp/transport.js       ← stdio JSON-RPC transport             │
+│  mcp/tools/read.js      ← 18 read tools (sessions, DOM, etc.) │
+│  mcp/tools/write.js     ← 13 write tools (click, type, etc.)  │
+│  mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh)│
+│  mcp/tools/control.js   ← 6 control tools (config, explorer)  │
+│                                                                │
+│  Tool visibility: per-tool on/off, category toggle, presets    │
+│  Config: server/configs/mcp-tools.json                         │
+└────────────────────────┬───────────────────────────────────────┘
+                         │ callbacks
 ┌─ server/index.js ──────────────────────────────────────────────┐
-│  ←── WebSocket ──→  extension/background/sw.js                 │
+│  Server Core                                                   │
+│  HTTP :7892  ← cache API, config, screenshots, actions         │
+│  WebSocket :7891 ← extension bridge                            │
 │                                                                │
-│  ├─ mcp-server.js (35 tools)                                   │
-│  ├─ cache-writer.js                                            │
-│  ├─ action-executor.js                                         │
-│  ├─ screenshot-manager.js                                      │
-│  ├─ state-fingerprint.js    ← Unified hash engine (FNV32)      │
-│  ├─ state-store.js          ← State graph + LRU + gzip         │
-│  ├─ state-semantic.js       ← Labels, tags, keyState, search   │
-│  ├─ state-navigator.js      ← BFS path finding + action replay │
-│  └─ state-machine.js        ← Backward-compat wrapper           │
+│  cache-writer.js       ← Disk persistence, freshness tracking  │
+│  action-executor.js    ← Action routing to extension           │
+│  screenshot-manager.js ← Screenshot capture + SoM overlay      │
+│  config-change-log.js  ← Config audit, validation, auto-revert │
+│  config-loader.js      ← config.json + .env + mcp-tools.json   │
 │                                                                │
-│  extension/injected/                                           │
-│  ├─ collector.js                                               │
-│  ├─ state-reporter.js     ← Hash reporting + watchMode         │
-│  ├─ explorer.js           ← Unified composite hash             │
-│  ├─ analyzers/                                                 │
-│  │   ├─ text-coords.js                                         │
-│  │   ├─ network.js                                             │
-│  │   ├─ ui-catalog.js                                          │
-│  │   ├─ css.js                                                 │
-│  │   ├─ perf.js                                                │
-│  │   ├─ accessibility.js                                       │
-│  │   ├─ console-logger.js                                      │
-│  │   └─ storage-reader.js                                      │
-│  └─ adapters/                                                  │
-│      ├─ react.js (deep) ← writes __SI_REACT_HASH__            │
-│      ├─ vue3.js (deep)                                         │
-│      ├─ vue2.js / angular.js / svelte.js                       │
-│      └─ preact.js / alpine.js / solid.js                       │
-└────────────────────────────────────────────────────────────────┘
+│  state-store.js        ← State graph + LRU + gzip              │
+│  state-fingerprint.js  ← FNV32 hash engine                     │
+│  state-semantic.js     ← Labels, tags, keyState, search        │
+│  state-navigator.js    ← BFS path finding + action replay      │
+│  state-machine.js      ← Backward-compat wrapper               │
+└──────────┬──────────────────────────────┬──────────────────────┘
+           │ HTTP :7892                     │ WebSocket :7891
+           ▼                                ▼
+┌─ Cache ────────────┐    ┌─ Extension (Chrome MV3) ─────────────┐
+│ cache/{tabId}/     │    │ background/sw.js                     │
+│   _index.json      │    │ injected/collector.js                │
+│   raw/visual/      │    │ injected/bridge.js                   │
+│   raw/network/     │    │ injected/executor.js                 │
+│   raw/ui/          │    │ injected/explorer.js                 │
+│   raw/accessibility│    │ injected/state-reporter.js           │
+│   raw/storage/     │    │ injected/plugin-system.js            │
+│   raw/console/     │    │ injected/adapters/ (9 frameworks)    │
+│   raw/perf/        │    │ injected/analyzers/ (9 analyzers)    │
+│   raw/css/         │    │ lib/bippy.iife.js                    │
+│   raw/dom/         │    └──────────────────────────────────────┘
+│   raw/react_*.json │
+│                    │    ┌─ Extension (Firefox MV2) ────────────┐
+│ graphs/            │    │ background/background.js             │
+│   {ver}.json.gz    │    │ injected/ (synced with Chrome)       │
+│   snapshots/       │    └──────────────────────────────────────┘
+└────────────────────┘
 ```
 
 ## State Graph & Navigation
@@ -148,26 +168,15 @@ The autonomous exploration engine (`explorer.js`) uses a unified composite hash 
 
 **Recommendation:** Run the explorer to build the state graph, then use `navigate_to_state` for reliable state-based navigation.
 
-## Chrome (MV3) vs Firefox (MV2) — Adapter Parity Report
+## Chrome (MV3) vs Firefox (MV2) — Adapter Parity
 
-The Chrome and Firefox builds share the same architecture but **adapter implementations differ significantly**. Firefox MV2 uses a synchronous XHR injection model and ships with older, simpler adapter versions.
+The Chrome and Firefox builds share the same core architecture. **Injected scripts (analyzers, adapters, executor, state-reporter) are kept in sync between both builds.** The background layer differs due to manifest requirements (Service Worker vs Event Page).
 
-| Framework | Chrome (MV3) | Firefox (MV2) | Parity | Notes |
-|-----------|-------------|---------------|--------|-------|
-| **React** | 724 lines | 436 lines | ~60% | Firefox lacks MobX/Recoil detection. Core Fiber tree + Redux/Zustand/Jotai/React Query are identical |
-| **Vue 3** | 308 lines | 125 lines | ~40% | Firefox lacks: dynamicChildren traversal, Vuex extraction, Vue Router extraction, `__nuxt` selector |
-| **Vue 2** | 170 lines | 90 lines | ~53% | Firefox lacks: `_findRoot` multi-candidate scan, `_extractComputed`, `_extractRouter` |
-| **Angular** | 332 lines | 107 lines | ~32% | Firefox is a minimal stub: only detects AngularJS scope tree. No Ivy API, no NgRx, no Signals, no Router |
-| **Svelte** | 257 lines | 41 lines | ~16% | Firefox only counts `svelte-xxxxxx` class hashes. No component instance extraction, no store detection |
-| **Alpine.js** | 117 lines | 45 lines | ~39% | Firefox only extracts `[x-data]` attributes. No `_x_dataStack` merging, no store detection |
-| **Preact** | 197 lines | 42 lines | ~21% | Firefox only detects presence. No vnode traversal, no hook extraction |
-| **SolidJS** | 484 lines | 33 lines | ~7% | Firefox only reads `data-hk` attributes. No owner tree, no store detection, no router |
+**Adapter parity may diverge over time.** The Chrome MV3 adapters receive the most iteration as the primary development target. Firefox MV2 adapters are functionally equivalent for core features but may lag behind on newer framework-specific capabilities. The gap is not permanent — both builds share the same codebase for injected scripts, and adapter updates can be ported as needed.
 
-**Why the gap:** Firefox MV2 uses a synchronous XHR injection model (`injector.js`) which loads scripts at `document_start`. The adapters were initially written as minimal stubs to verify the injection pipeline worked. The Chrome MV3 adapters evolved with the project; Firefox adapters did not receive the same iteration.
+**What works the same on both:** React (core), network capture, text-coords, UI catalog, CSS analysis, perf metrics, accessibility tree, console logger, storage reader, action executor, state reporting, state navigation.
 
-**What works the same on both:** React (core), network capture, text-coords, UI catalog, CSS analysis, perf metrics, accessibility tree, console logger, storage reader, action executor, state reporting.
-
-**Recommendation:** If you need deep framework introspection on Firefox, use Chrome/Edge. Firefox is fully functional for DOM-level perception (text, UI catalog, network, accessibility) but framework adapters are best-effort.
+**Recommendation:** Chrome/Edge for the deepest framework introspection. Firefox is fully functional for DOM-level perception (text, UI catalog, network, accessibility) and all state navigation features.
 
 ## Data Quality Warnings
 
@@ -193,7 +202,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.2: 35 tools)
+## MCP Tools (v3.3: 39 tools)
 
 ### Perception (READ)
 
@@ -202,6 +211,7 @@ Warning codes:
 | `get_sessions` | Active tabs (tabId, URL, data freshness) |
 | `get_index` | Session file listing with summaries |
 | `get_text_coords` | Text + absolute coordinates with fuzzy search and similarity scoring |
+| `get_viewport` | Current viewport size and scroll position |
 | `get_framework_state` | Component tree + state for detected framework |
 | `get_network` | Captured HTTP requests/responses |
 | `get_ui_catalog` | Buttons, links, forms listing |
@@ -212,15 +222,15 @@ Warning codes:
 | `get_css_analysis` | CSS variables, stylesheets |
 | `get_dom_snapshot` | Generic DOM tree / global variables |
 | `get_state_map` | State transition graph from exploration |
+| `list_states` | List all recorded states with semantic labels, tags, visit counts |
+| `search_states` | Fuzzy-search states by label, tags, URL, or keyState |
+| `get_state_detail` | Full metadata for a specific state, optionally with snapshot |
+| `pin_state` | Bookmark a state with a custom label and tags |
 
 ### State Navigation
 
 | Tool | Description |
 |------|-------------|
-| `list_states` | List all recorded states with semantic labels, tags, and visit counts |
-| `search_states` | Fuzzy-search states by label, tags, URL, or keyState |
-| `get_state_detail` | Full metadata for a specific state, optionally with snapshot |
-| `pin_state` | Bookmark a state with a custom label and tags |
 | `navigate_to_state` | Navigate to a target state by replaying recorded actions (BFS path + hash verification) |
 | `get_navigation_path` | Dry-run: check if a path exists without executing actions |
 

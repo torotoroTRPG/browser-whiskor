@@ -430,13 +430,16 @@
             if (!registry._isEnabled('text-coords')) return;
             const data = self.collect(api);
             if (data) api.emit(self.emitType, data, false);
-          }, 500);
+          }, 200);
         });
         self._observer.observe(document.body, { childList: true, subtree: true, characterData: true });
       };
 
-      if (document.readyState === 'complete') setupObserver();
-      else window.addEventListener('load', setupObserver, { once: true });
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupObserver, { once: true });
+      } else {
+        setupObserver();
+      }
     },
 
     collect(api) {
@@ -467,8 +470,31 @@
     teardown() {
       this._observer?.disconnect();
       clearTimeout(this._reextractTimer);
+      if (this._scrollHandler) window.removeEventListener('scroll', this._scrollHandler, true);
+      if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
     },
   });
+
+  // ── Scroll & resize tracking (realtime viewport overlay) ──────────────────
+  let _vpTimer = null;
+  function emitViewport() {
+    clearTimeout(_vpTimer);
+    _vpTimer = setTimeout(() => {
+      window.postMessage({
+        __BROWSER_WHISKOR__: true,
+        type: 'VIEWPORT_UPDATE',
+        payload: {
+          width:   window.innerWidth,
+          height:  window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+          capturedAt: Date.now(),
+        }
+      }, '*');
+    }, 100);
+  }
+  window.addEventListener('scroll', emitViewport, { passive: true, capture: true });
+  window.addEventListener('resize', emitViewport, { passive: true });
 
   // ── Expose fuzzy search for server-side use ───────────────────────────────
   // The server can call this via execute_js for on-demand fuzzy matching

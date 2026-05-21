@@ -13,7 +13,7 @@
     return {
       emit(type, payload, realtime = false) {
         window.postMessage({
-          __SITE_INSPECTOR__: true,
+          __BROWSER_WHISKOR__: true,
           type,
           payload,
           realtime: !!realtime,
@@ -59,11 +59,11 @@
       this._plugins.set(plugin.id, plugin);
     }
 
-    // Called once in collector.js — installs document_start plugins
+    // Called once in collector.js — installs all enabled plugins
     installAll() {
       this._loadStoredConfig().then(() => {
         for (const plugin of this._plugins.values()) {
-          if (plugin.runAt === 'document_start' && this._isEnabled(plugin.id)) {
+          if (this._isEnabled(plugin.id)) {
             this._safeInstall(plugin);
           }
         }
@@ -97,9 +97,9 @@
         options: { ...this._config.options, ...(newConfig.options || {}) },
         plugins: { ...this._config.plugins, ...(newConfig.plugins || {}) },
       };
-      // Install any newly-enabled document_start plugins
+      // Install any newly-enabled plugins (regardless of runAt)
       for (const plugin of this._plugins.values()) {
-        if (plugin.runAt === 'document_start' && this._isEnabled(plugin.id)) {
+        if (this._isEnabled(plugin.id)) {
           this._safeInstall(plugin);
         }
       }

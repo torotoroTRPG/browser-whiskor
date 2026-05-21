@@ -100,7 +100,7 @@ async function handleServerMessage(msg) {
       const tabs = await browser.tabs.query({});
       for (const tab of tabs) {
         browser.tabs.executeScript(tab.id, {
-          code: `window.postMessage({ __SITE_INSPECTOR__: true, type: 'CONFIG_UPDATE', payload: ${JSON.stringify(msg.config)} }, '*');`,
+          code: `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'CONFIG_UPDATE', payload: ${JSON.stringify(msg.config)} }, '*');`,
         }).catch(() => {});
       }
       broadcastToPanels({ type: 'CONFIG_UPDATED', config: msg.config });
@@ -108,7 +108,7 @@ async function handleServerMessage(msg) {
     }
     case 'MANUAL_COLLECT': {
       const tabId = msg.tabId, plugins = JSON.stringify(msg.plugins || null);
-      const code = `window.postMessage({ __SITE_INSPECTOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: ${plugins} } }, '*');`;
+      const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: ${plugins} } }, '*');`;
       if (tabId) {
         browser.tabs.executeScript(tabId, { code }).catch(() => {});
       } else {
@@ -192,23 +192,23 @@ async function handleServerMessage(msg) {
       break;
     }
     case 'EXPLORER_CONTROL': {
-      const code = `window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXPLORER_CONTROL', payload: ${JSON.stringify(msg)} }, '*');`;
+      const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXPLORER_CONTROL', payload: ${JSON.stringify(msg)} }, '*');`;
       browser.tabs.executeScript(msg.tabId, { code }).catch(() => {});
       break;
     }
     case 'EXPLORER_NEXT_ACTION': {
-      const code = `window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXPLORER_NEXT_ACTION', payload: ${JSON.stringify(msg.payload)} }, '*');`;
+      const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXPLORER_NEXT_ACTION', payload: ${JSON.stringify(msg.payload)} }, '*');`;
       browser.tabs.executeScript(msg.tabId, { code }).catch(() => {});
       break;
     }
     case 'PONG': break;
     case 'REQUEST_STATE_HASH': {
-      var code = 'window.postMessage({ __SITE_INSPECTOR__: true, type: "REQUEST_STATE_HASH", requestId: ' + JSON.stringify(msg.requestId) + ', watchMode: ' + JSON.stringify(msg.watchMode) + ' }, "*");';
+      var code = 'window.postMessage({ __BROWSER_WHISKOR__: true, type: "REQUEST_STATE_HASH", requestId: ' + JSON.stringify(msg.requestId) + ', watchMode: ' + JSON.stringify(msg.watchMode) + ' }, "*");';
       browser.tabs.executeScript(msg.tabId, { code }).catch(function() {});
       break;
     }
     case 'CANCEL_WATCH': {
-      var code2 = 'window.postMessage({ __SITE_INSPECTOR__: true, type: "CANCEL_WATCH" }, "*");';
+      var code2 = 'window.postMessage({ __BROWSER_WHISKOR__: true, type: "CANCEL_WATCH" }, "*");';
       browser.tabs.executeScript(msg.tabId, { code: code2 }).catch(function() {});
       break;
     }
@@ -230,7 +230,7 @@ function executeInPage(tabId, action) {
       }
     }
     browser.runtime.onMessage.addListener(listener);
-    const code = `window.postMessage({ __SITE_INSPECTOR__: true, type: 'EXECUTE_ACTION_IN_PAGE', payload: ${JSON.stringify(action)}, listenerId: '${lid}' }, '*');`;
+    const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXECUTE_ACTION_IN_PAGE', payload: ${JSON.stringify(action)}, listenerId: '${lid}' }, '*');`;
     browser.tabs.executeScript(tabId, { code }).catch((e) => {
       clearTimeout(timer); browser.runtime.onMessage.removeListener(listener); reject(e);
     });
@@ -254,7 +254,7 @@ browser.runtime.onConnect.addListener((port) => {
   port.postMessage({ type: 'SERVER_STATUS', connected: wsReady });
   port.onMessage.addListener((msg) => {
     if (msg.type === 'MANUAL_COLLECT') {
-      const code = `window.postMessage({ __SITE_INSPECTOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: ${JSON.stringify(msg.plugins || null)} } }, '*');`;
+      const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: ${JSON.stringify(msg.plugins || null)} } }, '*');`;
       browser.tabs.executeScript(tabId, { code }).catch(() => {});
     }
   });

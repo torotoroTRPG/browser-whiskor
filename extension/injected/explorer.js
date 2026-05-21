@@ -166,7 +166,7 @@
           if (revisitCount >= this.loopThreshold) {
             console.warn('[SI Explorer] Loop detected at state ' + stateHash + ' (revisited ' + revisitCount + ' times). Backtracking.');
             window.postMessage({
-              __SITE_INSPECTOR__: true,
+              __BROWSER_WHISKOR__: true,
               type: 'EXPLORER_LOOP_DETECTED',
               payload: { stateHash: stateHash, reactHash: currentHashInfo.reactHash, domHash: currentHashInfo.domHash, revisitCount: revisitCount, depth: this.currentDepth }
             }, '*');
@@ -185,7 +185,7 @@
 
         // Ask server for next action
         window.postMessage({
-          __SITE_INSPECTOR__: true,
+          __BROWSER_WHISKOR__: true,
           type: 'EXPLORER_GET_NEXT_ACTION',
           siteVersion: window.__SI_VERSION__?.id,
           payload: {
@@ -255,10 +255,10 @@
     // Listen for actions from server (via bridge -> postMessage)
     window.addEventListener('message', function(event) {
       if (event.source !== window) return;
-      if (event.data?.__SITE_INSPECTOR__ && event.data.type === 'EXPLORER_NEXT_ACTION') {
+      if (event.data?.__BROWSER_WHISKOR__ && event.data.type === 'EXPLORER_NEXT_ACTION') {
         window.__SI_EXPLORER__.handleNextAction(event.data.payload);
       }
-      if (event.data?.__SITE_INSPECTOR__ && event.data.type === 'MANUAL_COLLECT' && event.data.payload?.explorer) {
+      if (event.data?.__BROWSER_WHISKOR__ && event.data.type === 'MANUAL_COLLECT' && event.data.payload?.explorer) {
         if (event.data.payload.explorer === 'start') {
           var opts = event.data.payload.options || {};
           window.__SI_EXPLORER__.start(opts);
@@ -266,14 +266,14 @@
         if (event.data.payload.explorer === 'stop') window.__SI_EXPLORER__.stop();
       }
       // Handle REQUEST_STATE_HASH from server
-      if (event.data?.__SITE_INSPECTOR__ && event.data.type === 'REQUEST_STATE_HASH') {
+      if (event.data?.__BROWSER_WHISKOR__ && event.data.type === 'REQUEST_STATE_HASH') {
         var hashInfo = window.__SI_CURRENT_HASH__ || {
           compositeHash: computeCompositeHash(),
           reactHash: window.__SI_REACT_HASH__ || null,
           domHash: computeDomHash(),
         };
         window.postMessage({
-          __SITE_INSPECTOR__: true,
+          __BROWSER_WHISKOR__: true,
           type: 'STATE_HASH_REPORT',
           requestId: event.data.requestId,
           payload: {

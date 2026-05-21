@@ -271,7 +271,16 @@ function handleMessage(msg) {
       s.index.dataFreshness = {};
       s.index.summary.networkRequests = 0;
       s.index.summary.consoleLogs = 0;
+      s.viewport = null;
       console.error(`[cache] PAGE_NAVIGATED tabId=${tabId} url=${payload.url}`);
+      break;
+    }
+
+    case 'VIEWPORT_UPDATE': {
+      s.viewport = payload;
+      const fp = path.join(s.dir, 'raw/visual/viewport.json');
+      writeJson(fp, payload);
+      s.index.files.raw.viewport = 'raw/visual/viewport.json';
       break;
     }
   }

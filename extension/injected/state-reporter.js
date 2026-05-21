@@ -25,7 +25,7 @@
     if (!hashInfo.compositeHash) return;
 
     window.postMessage({
-      __SITE_INSPECTOR__: true,
+      __BROWSER_WHISKOR__: true,
       type: 'STATE_HASH_REPORT',
       requestId: requestId,
       payload: {
@@ -50,7 +50,7 @@
 
       lastReportedHash = hashInfo.compositeHash;
       window.postMessage({
-        __SITE_INSPECTOR__: true,
+        __BROWSER_WHISKOR__: true,
         type: 'STATE_HASH_REPORT',
         requestId: 'watch',
         payload: {
@@ -74,7 +74,7 @@
 
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
-    if (!event.data?.__SITE_INSPECTOR__) return;
+    if (!event.data?.__BROWSER_WHISKOR__) return;
 
     if (event.data.type === 'REQUEST_STATE_HASH') {
       if (event.data.watchMode) {

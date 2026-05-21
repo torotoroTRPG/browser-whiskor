@@ -14,7 +14,7 @@ const _b = (typeof browser !== 'undefined') ? browser : chrome;
 // ── MAIN world → background SW ────────────────────────────────────────────
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
-  if (!event.data?.__SITE_INSPECTOR__) return;
+  if (!event.data?.__BROWSER_WHISKOR__) return;
   // Don't echo config updates back (prevents loop)
   if (event.data.type === 'CONFIG_UPDATE' || event.data.type === 'MANUAL_COLLECT') return;
 
@@ -32,7 +32,7 @@ window.addEventListener('message', (event) => {
 _b.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.SI_CONFIG) return;
   window.postMessage({
-    __SITE_INSPECTOR__: true,
+    __BROWSER_WHISKOR__: true,
     type:    'CONFIG_UPDATE',
     payload: changes.SI_CONFIG.newValue,
   }, '*');
@@ -41,6 +41,6 @@ _b.storage.onChanged.addListener((changes, area) => {
 // ── Background SW → MAIN world (commands: manual collect, etc.) ──────────
 _b.runtime.onMessage.addListener((message) => {
   if (message.type === 'CONFIG_UPDATE' || message.type === 'MANUAL_COLLECT') {
-    window.postMessage({ __SITE_INSPECTOR__: true, ...message }, '*');
+    window.postMessage({ __BROWSER_WHISKOR__: true, ...message }, '*');
   }
 });

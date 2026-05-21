@@ -19,6 +19,7 @@ const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 const DOTENV_PATH = path.join(__dirname, '..', '.env');
+const MCP_TOOLS_CONFIG_PATH = path.join(__dirname, 'configs', 'mcp-tools.json');
 
 // ── Load .env file (if present) ──────────────────────────────────────────────
 function loadDotEnv() {
@@ -113,4 +114,102 @@ function getDefaults() {
   };
 }
 
-module.exports = { loadConfig, getDefaults };
+// ── Load MCP tools config ───────────────────────────────────────────────────
+function loadMcpToolsConfig() {
+  const defaults = getMcpToolsDefaults();
+
+  try {
+    const raw = fs.readFileSync(MCP_TOOLS_CONFIG_PATH, 'utf8');
+    const config = JSON.parse(
+      raw
+        .replace(/,\s*"_comment[^"]*"\s*:\s*"[^"]*"/g, '')
+        .replace(/"_comment[^"]*"\s*:\s*"[^"]*"\s*,?/g, '')
+    );
+
+    // Apply env var overrides: WHISKOR_MCP_<TOOL_NAME>=false
+    for (const [envKey, envVal] of Object.entries(process.env)) {
+      if (!envKey.startsWith('WHISKOR_MCP_')) continue;
+      const toolName = envKey.slice('WHISKOR_MCP_'.length).toLowerCase();
+      if (config.tools && config.tools[toolName]) {
+        config.tools[toolName].enabled = parseValue(envVal) !== false;
+      }
+    }
+
+    // Merge with defaults (ensure all tools present)
+    const merged = {
+      categories: { ...defaults.categories, ...(config.categories || {}) },
+      tools: { ...defaults.tools, ...(config.tools || {}) },
+      presets: config.presets || defaults.presets,
+    };
+
+    // Ensure each tool has enabled and category
+    for (const [name, tool] of Object.entries(merged.tools)) {
+      if (tool.enabled === undefined) tool.enabled = true;
+      if (!tool.category) {
+        // Find category from defaults
+        tool.category = defaults.tools[name]?.category || 'read';
+      }
+    }
+
+    return merged;
+  } catch (e) {
+    console.error('[config] Failed to load mcp-tools.json:', e.message);
+    console.error('[config] Using built-in defaults.');
+    return defaults;
+  }
+}
+
+function getMcpToolsDefaults() {
+  return {
+    categories: {
+      read:     { enabled: true },
+      write:    { enabled: true },
+      capture:  { enabled: true },
+      control:  { enabled: true },
+    },
+    tools: {
+      get_sessions:       { enabled: true, category: 'read' },
+      get_index:          { enabled: true, category: 'read' },
+      get_text_coords:    { enabled: true, category: 'read' },
+      get_viewport:       { enabled: true, category: 'read' },
+      get_framework_state: { enabled: true, category: 'read' },
+      get_network:        { enabled: true, category: 'read' },
+      get_ui_catalog:     { enabled: true, category: 'read' },
+      get_accessibility:  { enabled: true, category: 'read' },
+      get_storage:        { enabled: true, category: 'read' },
+      get_console_logs:   { enabled: true, category: 'read' },
+      get_perf_metrics:   { enabled: true, category: 'read' },
+      get_css_analysis:   { enabled: true, category: 'read' },
+      get_dom_snapshot:   { enabled: true, category: 'read' },
+      get_state_map:      { enabled: true, category: 'read' },
+      list_states:        { enabled: true, category: 'read' },
+      search_states:      { enabled: true, category: 'read' },
+      get_state_detail:   { enabled: true, category: 'read' },
+      pin_state:          { enabled: true, category: 'read' },
+      navigate_to:        { enabled: true, category: 'write' },
+      click:              { enabled: true, category: 'write' },
+      type_text:          { enabled: true, category: 'write' },
+      press_key:          { enabled: true, category: 'write' },
+      hover:              { enabled: true, category: 'write' },
+      scroll_page:        { enabled: true, category: 'write' },
+      select_option:      { enabled: true, category: 'write' },
+      check_box:          { enabled: true, category: 'write' },
+      execute_js:         { enabled: true, category: 'write' },
+      wait_for_element:   { enabled: true, category: 'write' },
+      go_back:            { enabled: true, category: 'write' },
+      go_forward:         { enabled: true, category: 'write' },
+      reload_page:        { enabled: true, category: 'write' },
+      capture_screenshot: { enabled: true, category: 'capture' },
+      refresh_data:       { enabled: true, category: 'capture' },
+      set_config:         { enabled: true, category: 'control' },
+      get_config_changes: { enabled: true, category: 'control' },
+      trigger_collect:    { enabled: true, category: 'control' },
+      trigger_explorer:   { enabled: true, category: 'control' },
+      navigate_to_state:  { enabled: true, category: 'control' },
+      get_navigation_path: { enabled: true, category: 'control' },
+    },
+    presets: {},
+  };
+}
+
+module.exports = { loadConfig, getDefaults, loadMcpToolsConfig };

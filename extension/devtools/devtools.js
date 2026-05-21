@@ -1,2 +1,2 @@
 'use strict';
-chrome.devtools.panels.create('Site Inspector', '', '../panel/panel.html');
+chrome.devtools.panels.create('browser-whiskor', '', '../panel/panel.html');

@@ -25,7 +25,7 @@ const screenshots = require('./screenshot-manager');
 const stateMachine = require('./state-machine');
 const stateNavigator = require('./state-navigator');
 const configLog  = require('./config-change-log');
-const { loadConfig } = require('./config-loader');
+const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -173,6 +173,7 @@ wss.on('connection', (ws, req) => {
       case 'PERF_METRICS':
       case 'SOURCE_CATALOG':
       case 'PAGE_NAVIGATED':
+      case 'VIEWPORT_UPDATE':
         cache.handleMessage(msg);
         broadcastToDashboard(msg);
         break;
@@ -390,7 +391,23 @@ httpServer.listen(HTTP_PORT, () => {
 });
 
 // ── MCP ───────────────────────────────────────────────────────────────────────
+const mcpToolsConfig = loadMcpToolsConfig();
+mcp.setMcpToolsConfig(mcpToolsConfig);
 mcp.setCallbacks(pushConfig, triggerCollect, triggerExplorer);
+
+// Action helper for MCP tools
+async function _callAction(tabId, action, timeoutMs) {
+  if (!actions.execute) {
+    return { ok: false, error: 'No browser connected — action execution requires an active extension WebSocket connection.' };
+  }
+  try {
+    return await actions.execute(tabId, action, timeoutMs);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots));
 mcp.setSecurity(SECURITY);
 mcp.setConfigLog(configLog);
 mcp.setNavigateBroadcast(broadcast);

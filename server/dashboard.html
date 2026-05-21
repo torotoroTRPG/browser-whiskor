@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Site Inspector v2 — Dashboard</title>
+<title>browser-whiskor — Dashboard</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -65,12 +65,24 @@
   /* Text coords */
   .text-search { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none; }
   .text-search:focus { border-color: var(--accent); }
-  .word-grid { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 1px; font-size: 12px; }
+  .word-grid { display: grid; grid-template-columns: 1fr auto auto auto auto auto; gap: 1px; font-size: 12px; }
   .word-grid .hdr { color: var(--muted); font-weight: 600; padding: 4px 8px; }
   .word-row { display: contents; }
   .word-row > span { padding: 3px 8px; background: var(--bg); }
   .word-row > span:first-child { color: var(--accent2); }
   .coord { color: var(--muted); font-family: monospace; }
+
+  /* Text coords canvas */
+  .canvas-wrapper { position: relative; border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; background: #0a0f1a; margin-bottom: 12px; max-height: 60vh; cursor: grab; }
+  .canvas-wrapper.panning { cursor: grabbing; }
+  .canvas-wrapper canvas { display: block; max-width: 100%; }
+  .canvas-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .canvas-controls label { font-size: 12px; color: var(--muted); }
+  .canvas-controls input[type=range] { width: 120px; accent-color: var(--accent); }
+  .canvas-controls .zoom-val { font-size: 12px; color: var(--accent2); font-family: monospace; min-width: 40px; }
+  .canvas-info { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .btn-fit { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer; }
+  .btn-fit:hover { color: var(--text); border-color: var(--accent); }
 
   /* Network */
   .net-row { display: grid; grid-template-columns: 50px 60px 1fr 60px 70px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
@@ -109,7 +121,7 @@
 
 <header>
   <div id="status-dot"></div>
-  <h1>Site Inspector <span class="badge badge-blue">v2</span></h1>
+  <h1>browser-whiskor <span class="badge badge-blue">v3</span></h1>
   <span id="status-label">Waiting for extension…</span>
   <span class="spacer"></span>
   <button class="btn btn-secondary" onclick="refreshSessions()">↺ Refresh</button>
@@ -124,7 +136,7 @@
   <div class="content">
     <div id="empty-state" class="empty-state">
       <h2>No session selected</h2>
-      <p>Open a browser tab with the Site Inspector extension installed,<br>then select a session from the left panel.</p>
+      <p>Open a browser tab with the browser-whiskor extension installed,<br>then select a session from the left panel.</p>
     </div>
     <div id="session-detail" style="display:none">
       <div class="tabs">
@@ -159,9 +171,25 @@
       <div class="tab-pane" id="pane-text">
         <div class="card">
           <h3>Text Coordinates <span id="text-count" class="badge badge-blue"></span></h3>
+          <div class="canvas-controls">
+            <label>Zoom:</label>
+            <input type="range" id="canvas-zoom" min="0.1" max="3" step="0.1" value="1">
+            <span class="zoom-val" id="zoom-val">auto</span>
+            <button class="btn-fit" id="btn-fit" onclick="fitCanvas()">Fit</button>
+            <button class="btn-fit" id="btn-viewport" onclick="cropToViewport()">Viewport</button>
+            <label style="margin-left:12px"><input type="checkbox" id="show-bounds" checked> Show bounds</label>
+            <label><input type="checkbox" id="show-colors"> Font colors</label>
+            <label><input type="checkbox" id="show-viewport" checked> Live viewport overlay</label>
+            <label><input type="checkbox" id="show-visible-only"> Show only visible</label>
+            <label><input type="checkbox" id="dim-invisible" checked> Dim out-of-view words</label>
+          </div>
+          <div class="canvas-wrapper" id="canvas-wrapper">
+            <canvas id="text-canvas"></canvas>
+          </div>
+          <div class="canvas-info" id="canvas-info"></div>
           <input class="text-search" id="text-search" placeholder="Filter words…" oninput="filterText(this.value)">
           <div class="word-grid">
-            <span class="hdr">Text</span><span class="hdr">X</span><span class="hdr">Y</span><span class="hdr">W</span><span class="hdr">H</span>
+            <span class="hdr">Text</span><span class="hdr">X</span><span class="hdr">Y</span><span class="hdr">W</span><span class="hdr">H</span><span class="hdr">View</span>
           </div>
           <div id="text-words"></div>
         </div>
@@ -252,6 +280,9 @@ let currentTabId = null;
 let sessions = [];
 let wsStream  = null;
 let currentWords = [];
+let liveViewport = null;
+let canvasAnimFrame = null;
+let canvasFade = 1;
 
 // ── Tab switching ─────────────────────────────────────────────────────────
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -276,7 +307,17 @@ function connectStream() {
       const msg = JSON.parse(e.data);
       addStream(msg);
       if (msg.tabId === currentTabId) {
-        setTimeout(() => loadTabData(activeTab()), 300);
+        if (msg.type === 'VIEWPORT_UPDATE') {
+          liveViewport = msg.payload;
+          if (cropMode === 'viewport') {
+            // Re-render immediately in viewport crop mode
+            renderCanvas(currentWords);
+          } else {
+            renderCanvas(currentWords);
+          }
+        } else {
+          setTimeout(() => loadTabData(activeTab()), 300);
+        }
       }
       refreshSessions();
     };
@@ -311,7 +352,7 @@ function renderSessions() {
     <div class="session-item ${s.tabId === currentTabId ? 'active' : ''}" onclick="selectSession(${s.tabId})">
       <div class="url">${s.url || '(unknown)'}</div>
       <div class="meta">Tab ${s.tabId} · ${new Date(s.updatedAt).toLocaleTimeString()}</div>
-      <div class="adapters">${(s.summary?.detectedAdapters || []).map(a => `<span class="fw-tag">${a}</span>`).join('')}</div>
+      <div class="adapters">${(s.summary?.detectedFrameworks || []).map(a => `<span class="fw-tag">${a}</span>`).join('')}</div>
     </div>
   `).join('');
 }
@@ -332,9 +373,9 @@ async function loadTabData(tab) {
     case 'text':      return loadTextCoords();
     case 'framework': return loadFramework();
     case 'network':   return loadNetwork();
-    case 'ui':        return loadFile('ui/elements.json', 'ui-data');
-    case 'css':       return loadFile('css/analysis.json', 'css-data');
-    case 'dom':       return loadFile('dom/snapshot.json', 'dom-data');
+    case 'ui':        return loadFile('raw/ui/elements.json', 'ui-data');
+    case 'css':       return loadFile('raw/css/analysis.json', 'css-data');
+    case 'dom':       return loadFile('raw/dom/snapshot.json', 'dom-data');
     case 'config':    return loadConfig();
   }
 }
@@ -359,43 +400,284 @@ async function loadOverview() {
     <div class="stat"><div class="stat-value">${s.textWordCount || 0}</div><div class="stat-label">Words</div></div>
     <div class="stat"><div class="stat-value">${s.textBlockCount || 0}</div><div class="stat-label">Blocks</div></div>
     <div class="stat"><div class="stat-value">${s.networkRequests || 0}</div><div class="stat-label">Requests</div></div>
-    <div class="stat"><div class="stat-value">${(s.detectedAdapters || []).length}</div><div class="stat-label">Adapters</div></div>
+    <div class="stat"><div class="stat-value">${(s.detectedFrameworks || []).length}</div><div class="stat-label">Frameworks</div></div>
   `;
   document.getElementById('ov-files').textContent = JSON.stringify(idx.files || {}, null, 2);
 }
 
 async function loadTextCoords() {
-  const data = await fetchSession('visual/text-coords.json');
+    const data = await fetchSession('raw/visual/text-coords.json');
   const words = data?.words || [];
   currentWords = words;
+  currentViewport = data?.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+  // Initialize liveViewport from snapshot so overlay shows immediately
+  liveViewport = { ...currentViewport };
   document.getElementById('text-count').textContent = `${words.length} words`;
+  renderCanvas(words);
   renderWords(words);
 }
 
+// ── Canvas renderer ───────────────────────────────────────────────────────
+let currentViewport = { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+let canvasZoom = 0; // 0 = auto-fit
+let userZoomed = false;
+let cropMode = 'page'; // 'page' | 'viewport'
+
+function fitCanvas() {
+  cropMode = 'page';
+  canvasZoom = 0;
+  userZoomed = false;
+  document.getElementById('canvas-zoom').value = 1;
+  document.getElementById('zoom-val').textContent = 'auto';
+  renderCanvas(currentWords);
+}
+
+function cropToViewport() {
+  cropMode = 'viewport';
+  canvasZoom = 0;
+  userZoomed = false;
+  document.getElementById('canvas-zoom').value = 1;
+  document.getElementById('zoom-val').textContent = 'auto';
+  renderCanvas(currentWords);
+}
+
+function renderCanvas(words) {
+  const canvas = document.getElementById('text-canvas');
+  const wrapper = document.getElementById('canvas-wrapper');
+  const ctx = canvas.getContext('2d');
+  const vp = currentViewport;
+  const showBounds = document.getElementById('show-bounds')?.checked ?? true;
+  const showColors = document.getElementById('show-colors')?.checked ?? false;
+  const showOnlyVisible = document.getElementById('show-visible-only')?.checked ?? false;
+  const dimInvisible = document.getElementById('dim-invisible')?.checked ?? true;
+  const lv = liveViewport || vp;
+
+  // Determine render area based on crop mode
+  let areaX = 0, areaY = 0, areaW, areaH;
+  if (cropMode === 'viewport') {
+    areaX = lv.scrollX;
+    areaY = lv.scrollY;
+    areaW = lv.width;
+    areaH = lv.height;
+  } else {
+    areaW = Math.max(vp.width, ...words.map(w => (w.absoluteX || 0) + (w.width || 0))) + 40;
+    areaH = Math.max(vp.height, ...words.map(w => (w.absoluteY || 0) + (w.height || 0))) + 40;
+  }
+
+  let zoom = canvasZoom;
+  if (zoom === 0) {
+    const availW = wrapper.clientWidth - 4;
+    const availH = wrapper.clientHeight - 4;
+    zoom = Math.min(1, availW / areaW, availH / areaH);
+  }
+
+  canvas.width = Math.ceil(areaW * zoom);
+  canvas.height = Math.ceil(areaH * zoom);
+
+  // Background
+  ctx.fillStyle = '#0a0f1a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Calculate real-time visibility for each word
+  const visMap = new Map();
+  let visibleCount = 0;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const wx = w.absoluteX || 0;
+    const wy = w.absoluteY || 0;
+    const ww = w.width || 8;
+    const wh = w.height || 12;
+    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
+    visMap.set(i, inView);
+    if (inView) visibleCount++;
+  }
+
+  // Page mode: show full page with viewport overlay
+  if (cropMode === 'page') {
+    // Viewport indicator (from snapshot)
+    ctx.strokeStyle = 'rgba(99,102,241,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(vp.scrollX * zoom, vp.scrollY * zoom, vp.width * zoom, vp.height * zoom);
+
+    // Live viewport overlay
+    const showVp = document.getElementById('show-viewport')?.checked ?? true;
+    if (showVp && liveViewport) {
+      const lx = liveViewport.scrollX * zoom;
+      const ly = liveViewport.scrollY * zoom;
+      const lw = liveViewport.width * zoom;
+      const lh = liveViewport.height * zoom;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, 0, canvas.width, ly);
+      ctx.fillRect(0, ly + lh, canvas.width, canvas.height - ly - lh);
+      ctx.fillRect(0, ly, lx, lh);
+      ctx.fillRect(lx + lw, ly, canvas.width - lx - lw, lh);
+
+      ctx.strokeStyle = 'rgba(74,222,128,0.9)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(lx, ly, lw, lh);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = 'rgba(74,222,128,0.05)';
+      ctx.fillRect(lx, ly, lw, lh);
+
+      ctx.fillStyle = 'rgba(74,222,128,0.95)';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`VIEWPORT: (${liveViewport.scrollX}, ${liveViewport.scrollY}) ${liveViewport.width}×${liveViewport.height}`, lx + 6, ly + 16);
+    }
+  } else {
+    // Viewport crop mode: label
+    ctx.fillStyle = 'rgba(74,222,128,0.9)';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(`CROP: scroll(${lv.scrollX}, ${lv.scrollY}) ${lv.width}×${lv.height}`, 6, 14);
+  }
+
+  // Render words
+  const maxWords = Math.min(words.length, 5000);
+  for (let i = 0; i < maxWords; i++) {
+    const w = words[i];
+    const inView = visMap.get(i);
+
+    if (showOnlyVisible && !inView) continue;
+
+    // Position relative to current render area
+    const x = ((w.absoluteX || 0) - areaX) * zoom;
+    const y = ((w.absoluteY || 0) - areaY) * zoom;
+    const fw = Math.max(1, (w.width || 8) * zoom);
+    const fh = Math.max(1, (w.height || 12) * zoom);
+
+    // Skip if off-canvas
+    if (x + fw < 0 || x > canvas.width || y + fh < 0 || y > canvas.height) continue;
+
+    if (showBounds) {
+      ctx.strokeStyle = inView ? 'rgba(74,222,128,0.4)' : 'rgba(34,211,238,0.1)';
+      ctx.lineWidth = inView ? 1 : 0.5;
+      ctx.strokeRect(x, y, fw, fh);
+    }
+
+    let alpha = 1;
+    if (dimInvisible && !inView) alpha = 0.15;
+
+    if (showColors && w.color) {
+      ctx.fillStyle = w.color;
+      ctx.globalAlpha = alpha;
+    } else {
+      const brightness = Math.min(1, 0.4 + (w.fontSize || 14) / 40);
+      ctx.fillStyle = `rgba(241,245,249,${brightness * alpha})`;
+    }
+
+    const fontSize = Math.max(6, (w.fontSize || 12) * zoom);
+    ctx.font = `${fontSize}px sans-serif`;
+    ctx.fillText(w.text, x, y + fh * 0.85);
+    ctx.globalAlpha = 1;
+  }
+
+  const modeLabel = cropMode === 'viewport' ? 'Viewport crop' : 'Full page';
+  document.getElementById('canvas-info').textContent =
+    `${modeLabel} · Area: ${areaW}×${areaH}px · Viewport: ${lv.width}×${lv.height}px (scroll: ${lv.scrollX},${lv.scrollY}) · Visible: ${visibleCount}/${words.length} words`;
+}
+
+// Zoom slider
+document.getElementById('canvas-zoom')?.addEventListener('input', (e) => {
+  canvasZoom = parseFloat(e.target.value);
+  userZoomed = true;
+  document.getElementById('zoom-val').textContent = canvasZoom.toFixed(1) + 'x';
+  renderCanvas(currentWords);
+});
+
+document.getElementById('show-bounds')?.addEventListener('change', () => renderCanvas(currentWords));
+document.getElementById('show-colors')?.addEventListener('change', () => renderCanvas(currentWords));
+document.getElementById('show-viewport')?.addEventListener('change', () => renderCanvas(currentWords));
+document.getElementById('show-visible-only')?.addEventListener('change', () => renderCanvas(currentWords));
+document.getElementById('dim-invisible')?.addEventListener('change', () => renderCanvas(currentWords));
+
+// ── Canvas pan (mouse drag) ───────────────────────────────────────────────
+let isPanning = false, panStartX = 0, panStartY = 0;
+const wrapper = document.getElementById('canvas-wrapper');
+
+wrapper?.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  isPanning = true;
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+  wrapper.classList.add('panning');
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!isPanning) return;
+  const dx = e.clientX - panStartX;
+  const dy = e.clientY - panStartY;
+  wrapper.scrollLeft -= dx;
+  wrapper.scrollTop -= dy;
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+});
+
+window.addEventListener('mouseup', () => {
+  if (isPanning) {
+    isPanning = false;
+    wrapper.classList.remove('panning');
+  }
+});
+
+// ── Canvas wheel zoom ──────────────────────────────────────────────────────
+wrapper?.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+  canvasZoom = Math.max(0.1, Math.min(3, (canvasZoom || 1) + delta));
+  userZoomed = true;
+  document.getElementById('canvas-zoom').value = canvasZoom;
+  document.getElementById('zoom-val').textContent = canvasZoom.toFixed(1) + 'x';
+  renderCanvas(currentWords);
+}, { passive: false });
+
+// Re-fit on resize
+window.addEventListener('resize', () => { if (!userZoomed) renderCanvas(currentWords); });
+
 function renderWords(words) {
   const container = document.getElementById('text-words');
-  container.innerHTML = words.slice(0, 2000).map(w => `
-    <div class="word-row">
+  const lv = liveViewport || currentViewport;
+  const showOnlyVisible = document.getElementById('show-visible-only')?.checked ?? false;
+
+  const withVis = words.map(w => {
+    const wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
+    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
+    return { ...w, _inView: inView };
+  });
+
+  const filtered = showOnlyVisible ? withVis.filter(w => w._inView) : withVis;
+
+  container.innerHTML = filtered.slice(0, 2000).map(w => `
+    <div class="word-row" style="${w._inView ? '' : 'opacity:0.3'}">
       <span>${esc(w.text)}</span>
       <span class="coord">${w.absoluteX}</span>
       <span class="coord">${w.absoluteY}</span>
       <span class="coord">${w.width}</span>
       <span class="coord">${w.height}</span>
+      <span style="color:${w._inView ? 'var(--green)' : 'var(--muted)'};font-size:10px">${w._inView ? '●' : '○'}</span>
     </div>
   `).join('');
-  if (words.length > 2000) {
-    container.innerHTML += `<div style="padding:8px;color:var(--muted)">… ${words.length - 2000} more words</div>`;
+  if (filtered.length > 2000) {
+    container.innerHTML += `<div style="padding:8px;color:var(--muted)">… ${filtered.length - 2000} more words</div>`;
   }
 }
 
 function filterText(q) {
-  const filtered = q ? currentWords.filter(w => w.text.toLowerCase().includes(q.toLowerCase())) : currentWords;
+  const lv = liveViewport || currentViewport;
+  let filtered = currentWords.map(w => {
+    const wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
+    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
+    return { ...w, _inView: inView };
+  });
+  if (q) filtered = filtered.filter(w => w.text.toLowerCase().includes(q.toLowerCase()));
   renderWords(filtered);
 }
 
 async function loadFramework() {
   // Try framework files in priority order
-  const fwFiles = ['react/snapshot.json','vue/snapshot.json','angular/snapshot.json','svelte/snapshot.json','dom/snapshot.json'];
+    const fwFiles = ['raw/react/snapshot.json','raw/vue/snapshot.json','raw/angular/snapshot.json','raw/svelte/snapshot.json','raw/dom/snapshot.json'];
   for (const f of fwFiles) {
     const data = await fetchSession(f);
     if (data) {
@@ -407,7 +689,7 @@ async function loadFramework() {
 }
 
 async function loadNetwork() {
-  const data = await fetchSession('network/requests.json');
+    const data = await fetchSession('raw/network/requests.json');
   const reqs = data?.requests || [];
   document.getElementById('net-count').textContent = `${reqs.length} requests`;
   renderNet(reqs);
@@ -427,7 +709,7 @@ function renderNet(reqs) {
 
 function filterNet(q) {
   if (!q) { loadNetwork(); return; }
-  fetchSession('network/requests.json').then(data => {
+  fetchSession('raw/network/requests.json').then(data => {
     const reqs = (data?.requests || []).filter(r => r.url?.includes(q));
     renderNet(reqs);
   });
