@@ -339,6 +339,7 @@
       };
 
       try {
+        console.warn('[SECURITY] execute_js: running arbitrary JS in page context — code length:', action.code?.length);
         // eslint-disable-next-line no-new-func
         const result = new Function(`return (${action.code})`)();
         if (result instanceof Promise) {

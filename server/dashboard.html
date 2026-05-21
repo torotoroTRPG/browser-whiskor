@@ -1038,17 +1038,18 @@
 
       var area = getCanvasArea();
       var zoom = S.canvas.zoom;
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+
+      // Auto-fit: recalculate pan every frame to track live viewport scroll
       if (zoom === null) {
         zoom = Math.min(cssW / area.w, cssH / area.h, 1);
-        var lv0 = S.liveVp || S.viewport;
-        var vpCX = lv0.scrollX + lv0.width / 2;
-        var vpCY = lv0.scrollY + lv0.height / 2;
+        var vpCX = lv.scrollX + lv.width / 2;
+        var vpCY = lv.scrollY + lv.height / 2;
         S.canvas.panX = Math.max(area.x, Math.min(vpCX - cssW / (2 * zoom), area.x + area.w - cssW / zoom));
         S.canvas.panY = Math.max(area.y, Math.min(vpCY - cssH / (2 * zoom), area.y + area.h - cssH / zoom));
       }
 
       var panX = S.canvas.panX, panY = S.canvas.panY;
-      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       var words = S.words;
 
       var showBounds = D['cv-bounds'].checked;
@@ -1620,6 +1621,11 @@
     } else {
       document.addEventListener('DOMContentLoaded', init);
     }
+    // Expose state and functions for E2E testing
+    window.__dash = S;
+    window.__dash._scheduleCanvasRender = scheduleCanvasRender;
+    window.__dash._invalidateAreaCache = invalidateAreaCache;
+    window.__dash._renderCanvas = renderCanvas;
   })();
 </script>
 </body>

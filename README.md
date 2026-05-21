@@ -67,6 +67,8 @@ AI Agent (Claude / Cursor / etc.)
 │  screenshot-manager.js ← Screenshot capture + SoM overlay      │
 │  config-change-log.js  ← Config audit, validation, auto-revert │
 │  config-loader.js      ← config.json + .env + mcp-tools.json   │
+│  delta-engine.js       ← Smart delta aggregation, motion clustering │
+│  pattern-registry.js   ← UI pattern storage + lookup (ref IDs) │
 │                                                                │
 │  state-store.js        ← State graph + LRU + gzip              │
 │  state-fingerprint.js  ← FNV32 hash engine                     │
@@ -202,7 +204,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.4: 42 tools)
+## MCP Tools (v3.5: 45 tools)
 
 ### Perception (READ)
 
@@ -226,6 +228,9 @@ Warning codes:
 | `search_states` | Fuzzy-search states by label, tags, URL, or keyState |
 | `get_state_detail` | Full metadata for a specific state, optionally with snapshot |
 | `pin_state` | Bookmark a state with a custom label and tags |
+| `get_delta` | Latest aggregated UI changes (scroll, motion groups, content updates) |
+| `list_patterns` | List known UI patterns for a tab |
+| `lookup_pattern` | Look up full definition of a pattern by its reference ID |
 
 ### State Navigation
 
@@ -313,6 +318,44 @@ All data includes a `_freshness` field:
 ```
 
 Data older than 30 seconds is marked `isStale: true`. Use `refresh_data` to get fresh data.
+
+## Smart Delta & Pattern Registry
+
+Instead of streaming raw coordinate updates, browser-whiskor aggregates UI changes into **semantic events** that AI agents can understand efficiently.
+
+### How It Works
+
+1. **Delta Engine** (`delta-engine.js`): Collects `TEXT_COORD_DELTA` frames from the extension and aggregates them over a 1.5s window (or 5 frames).
+2. **Motion Clustering**: Elements moving with the same vector are grouped together. If 70%+ of elements move the same way, it's classified as a **scroll event** — individual element positions are omitted.
+3. **Pattern Registry** (`pattern-registry.js`): UI patterns (modals, toasts, loading spinners) are hashed and stored. The first time a pattern appears, its full definition is sent. Subsequent appearances are sent as a **reference ID** (`ref: "pat-a1b2c3d4"`).
+4. **Noise Filtering**: Pure CSS animations (opacity-only, color-only, shadow-only) are ignored. Only position, size, text, and state changes are reported.
+
+### AI Usage
+
+When you call `get_delta`, you get:
+
+```json
+{
+  "elapsed_ms": 1500,
+  "scroll": { "vector": { "x": 0, "y": -500 }, "affected_elements": 15 },
+  "motion_groups": [
+    { "ref": "pat-a1b2c3d4", "vector": { "x": 10, "y": 0 }, "count": 5 }
+  ],
+  "appearances": [
+    { "ref": "pat-e5f6g7h8", "id": "toast-1", "text": "Saved!" }
+  ],
+  "_patterns": {
+    "new": [{ "ref": "pat-e5f6g7h8", "def": { "type": "appearance", ... } }],
+    "known": [{ "ref": "pat-a1b2c3d4" }]
+  }
+}
+```
+
+- **`ref` IDs** are compact references. If you recognize the pattern from context, proceed normally.
+- **`lookup_pattern("pat-xxx")`** retrieves the full definition if you've forgotten what a pattern is.
+- **`list_patterns(tabId)`** shows all patterns observed for a tab.
+
+This design keeps token usage low while giving AI agents a clear understanding of **what changed and why**.
 
 ## HTTP API
 

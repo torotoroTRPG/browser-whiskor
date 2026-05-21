@@ -34,24 +34,25 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    42 tools available, organized in a layered architecture:                  │
+│    45 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
 │    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
-│    mcp/tools/read.js      ← 18 read tools (sessions → pin_state)            │
+│    mcp/tools/read.js      ← 21 read tools (sessions → get_delta)            │
 │    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page)      │
 │    mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh_data)      │
 │    mcp/tools/control.js   ← 6 control tools (set_config → get_nav_path)     │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
-│    │  READ (18)       │ get_sessions, get_index, get_text_coords,        │  │
+│    │  READ (21)       │ get_sessions, get_index, get_text_coords,        │  │
 │    │                  │ get_viewport, get_framework_state, get_network,   │  │
 │    │                  │ get_ui_catalog, get_accessibility, get_storage,   │  │
 │    │                  │ get_console_logs, get_perf_metrics,               │  │
 │    │                  │ get_css_analysis, get_dom_snapshot, get_state_map,│  │
 │    │                  │ list_states, search_states, get_state_detail,     │  │
-│    │                  │ pin_state                                        │  │
+│    │                  │ pin_state, get_delta, list_patterns,              │  │
+│    │                  │ lookup_pattern                                   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  WRITE (16)      │ navigate_to, click, right_click, type_text,      │  │
 │    │                  │ press_key, hover, scroll_page, mouse_scroll,     │  │
@@ -235,6 +236,44 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DATA FLOW: Smart Delta (UI Change Aggregation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Extension sends TEXT_COORD_DELTA (per-element coordinate changes)
+       │
+       ▼
+  server/index.js → broadcastToDashboard (real-time canvas update)
+       │
+       ▼
+  delta-engine.addFrame(tabId, {
+    timestamp,
+    viewport: { from, to },
+    deltas: [{ id, dx, dy, dw, dh, textChanged, ... }]
+  })
+       │
+       ├─ Frames buffered (max 5 or 1.5s window)
+       │
+       ├─ Decorative changes filtered (opacity/color/shadow-only)
+       │
+       ├─ Motion clustering: elements with same vector grouped
+       │
+       ├─ Scroll detection: 70%+ same vector → classified as scroll
+       │
+       ├─ Pattern registry: first appearance → full def + ref ID
+       │                    repeat appearance → ref ID only
+       │
+       ▼
+  delta-engine.flushBuffer() → aggregated smart delta
+       │
+       ▼
+  cache.storeSmartDelta(tabId, delta)
+       │
+       ▼
+  Agent calls get_delta(tabId) → returns latest aggregated delta
+  Agent calls lookup_pattern(ref) → retrieves full pattern definition
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   DATA FLOW: Screenshots (Set-of-Marks)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -352,11 +391,13 @@
       registry.js         — Tool registration, filtering, preset management
       transport.js        — stdio JSON-RPC 2.0 transport layer
       tools/
-        read.js           — 18 READ tools (sessions → pin_state)
+        read.js           — 21 READ tools (sessions → lookup_pattern)
         write.js          — 13 WRITE tools (navigate_to → reload_page)
         capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
         control.js        — 6 CONTROL tools (set_config → get_nav_path)
     cache-writer.js       — Disk persistence, session index, freshness tracking
+    delta-engine.js       — Smart delta aggregation, motion clustering
+    pattern-registry.js   — UI pattern storage, hashing, lookup
     config-change-log.js  — Config audit trail, validation, auto-revert
     config-loader.js      — Loads config.json + .env + configs/mcp-tools.json
     configs/

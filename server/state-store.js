@@ -233,11 +233,16 @@ function addNode(siteVersion, data) {
     return node;
   }
 
-  // Hash collision detection
+  // Hash collision detection — find unique suffix
   if (g.nodes[hash] && g.nodes[hash].url !== url) {
-    const newHash = hash + '_2';
-    console.warn(`[state-store] Hash collision detected: ${hash} for url ${url}. Using ${newHash}`);
-    return addNode(siteVersion, { ...data, hash: newHash });
+    let suffix = 2;
+    let candidate = `${hash}_${suffix}`;
+    while (g.nodes[candidate] && g.nodes[candidate].url !== url) {
+      suffix++;
+      candidate = `${hash}_${suffix}`;
+    }
+    console.warn(`[state-store] Hash collision: ${hash} → ${candidate} (url=${url})`);
+    return addNode(siteVersion, { ...data, hash: candidate });
   }
 
   // New node — generate semantic metadata

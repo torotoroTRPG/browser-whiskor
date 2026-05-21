@@ -25,6 +25,7 @@ const screenshots = require('./screenshot-manager');
 const stateMachine = require('./state-machine');
 const stateNavigator = require('./state-navigator');
 const configLog  = require('./config-change-log');
+const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ const HOST      = _cfg.server?.host     || '127.0.0.1';
 
 // Security flags — passed into action/mcp modules
 const SECURITY = {
-  allowExecuteJs:     _cfg.security?.allowExecuteJs     !== false,
+  allowExecuteJs:     _cfg.security?.allowExecuteJs     === true,
   allowActions:       _cfg.security?.allowActions       !== false,
   allowScreenshots:   _cfg.security?.allowScreenshots   !== false,
   allowExplorer:      _cfg.security?.allowExplorer      !== false,
@@ -173,15 +174,48 @@ wss.on('connection', (ws, req) => {
       case 'PERF_METRICS':
       case 'SOURCE_CATALOG':
       case 'PAGE_NAVIGATED':
-      case 'VIEWPORT_UPDATE':
         cache.handleMessage(msg);
         broadcastToDashboard(msg);
         break;
 
-      // Beacon delta: realtime-only, no cache
-      case 'TEXT_COORD_DELTA':
+      case 'VIEWPORT_UPDATE': {
+        cache.handleMessage(msg);
         broadcastToDashboard(msg);
+        // Feed viewport change into delta engine
+        const payload = msg.payload || {};
+        const s = cache.getSessionData(msg.tabId);
+        const prevVp = s?.viewport || null;
+        deltaEngine.addFrame(msg.tabId, {
+          timestamp: Date.now(),
+          viewport: {
+            from: prevVp,
+            to: payload,
+          },
+          deltas: [],
+        });
         break;
+      }
+
+      // Beacon delta: feed into delta engine for smart aggregation
+      case 'TEXT_COORD_DELTA': {
+        broadcastToDashboard(msg);
+        // Build frame from delta payload
+        const payload = msg.payload || {};
+        const frame = {
+          timestamp: Date.now(),
+          viewport: payload.viewStateOnly ? null : {
+            from: payload.prevViewport || null,
+            to: payload.viewport || null,
+          },
+          deltas: payload.deltas || [],
+        };
+        const smartDelta = deltaEngine.addFrame(msg.tabId, frame);
+        // If delta engine flushed, store for MCP access
+        if (smartDelta) {
+          cache.storeSmartDelta(msg.tabId, smartDelta);
+        }
+        break;
+      }
 
       // Action result → action-executor resolves pending promise
       case 'ACTION_RESULT':
@@ -278,6 +312,10 @@ wss.on('connection', (ws, req) => {
 });
 
 log('info', `[ws] Listening on ws://0.0.0.0:${WS_PORT}`);
+if (SECURITY.allowExecuteJs) {
+  console.warn('[SECURITY] ⚠ allowExecuteJs is ENABLED — execute_js tool can run arbitrary JS in page context');
+}
+console.warn('[SECURITY] State fingerprint uses FNV-1a 32-bit (base-36, 7 chars). Collisions possible on large graphs — handled via incremental suffix.');
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
 const httpServer = http.createServer((req, res) => {

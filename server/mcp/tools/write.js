@@ -321,6 +321,7 @@ module.exports = function registerWriteTools(registry) {
     },
     handler: async (args, cb) => {
       if (!cb._security?.allowExecuteJs) return { error: 'execute_js is disabled by server security config (allowExecuteJs=false).' };
+      console.warn('[SECURITY] execute_js invoked — arbitrary JS execution in page context (tabId=%s, code=%s)', args.tabId, args.code?.slice(0, 120));
       return cb._callAction(args.tabId, { type: 'execute_js', code: args.code, captureConsole: true }, args.timeoutMs);
     },
   });

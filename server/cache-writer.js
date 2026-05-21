@@ -356,7 +356,26 @@ function removeSession(tabId) {
   sessions.delete(tabId);
 }
 
+// Smart delta storage (aggregated from delta-engine)
+function storeSmartDelta(tabId, delta) {
+  const s = sessions.get(tabId);
+  if (!s) return;
+  s.smartDelta = delta;
+  s.smartDeltaAt = Date.now();
+}
+
+function getSmartDelta(tabId) {
+  const s = sessions.get(tabId);
+  if (!s || !s.smartDelta) return null;
+  return {
+    ...s.smartDelta,
+    ageMs: Date.now() - (s.smartDeltaAt || 0),
+    isStale: (Date.now() - (s.smartDeltaAt || 0)) > STALE_THRESHOLD_MS,
+  };
+}
+
 module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
+  storeSmartDelta, getSmartDelta,
 };

@@ -2,6 +2,24 @@
 
 All notable changes to browser-whiskor.
 
+## [3.5.0] — 2026-05-21
+
+### Added
+- **Smart Delta Engine** (`delta-engine.js`) — Aggregates `TEXT_COORD_DELTA` frames into semantic events. Motion clustering groups elements with identical movement vectors. Scroll detection classifies bulk movement (70%+ threshold). Decorative CSS animations (opacity/color/shadow-only) are filtered out.
+- **Pattern Registry** (`pattern-registry.js`) — UI patterns are hashed and stored on first appearance. Subsequent appearances are sent as compact reference IDs (`pat-xxxx`). Supports `lookup_pattern` for lazy detail retrieval when AI needs to "remember" a pattern.
+- **3 new MCP tools:**
+  - `get_delta` — Get latest aggregated UI changes (scroll, motion groups, content updates, appearances)
+  - `list_patterns` — List all known UI patterns for a tab
+  - `lookup_pattern` — Look up full definition of a pattern by reference ID
+- **Delta integration in server** — `TEXT_COORD_DELTA` and `VIEWPORT_UPDATE` messages feed into the delta engine. Aggregated deltas are stored in cache for MCP access.
+- **22 unit tests** for delta engine and pattern registry (motion clustering, scroll detection, pattern hashing, frame buffering).
+
+### Changed
+- **MCP tool count: 42 → 45**
+- **`TEXT_COORD_DELTA` handling** — Now feeds delta engine in addition to dashboard broadcast.
+
+---
+
 ## [3.2.0] — 2026-05-20
 
 ### Added

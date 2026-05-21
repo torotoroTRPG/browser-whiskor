@@ -804,5 +804,67 @@ module.exports = function registerReadTools(registry) {
     },
   });
 
+  // 19. lookup_pattern
+  tools.push({
+    definition: {
+      name: 'lookup_pattern',
+      description: 'Look up details of a known UI pattern by its reference ID (e.g. "pat-abc12345"). Use this when you see a "ref" in delta updates but need to recall its definition, behavior, or context. Returns the full pattern definition including movement vector, element types, and previous occurrences.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Pattern reference ID (e.g. "pat-abc12345", "modal-error-v1")' },
+        },
+        required: ['id'],
+      },
+    },
+    handler: async (args, cb) => {
+      const patternRegistry = require('../../pattern-registry');
+      const detail = patternRegistry.getPatternDetail(args.id);
+      if (!detail) return { error: `Pattern "${args.id}" not found. It may have been cleared or never registered.` };
+      return detail;
+    },
+  });
+
+  // 20. list_patterns
+  tools.push({
+    definition: {
+      name: 'list_patterns',
+      description: 'List all known UI patterns for a tab. Shows pattern refs, types, labels, and how many times each has been seen. Use this to understand what recurring UI behaviors have been observed.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Tab ID from get_sessions' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const patternRegistry = require('../../pattern-registry');
+      const patterns = patternRegistry.getPatternsForTab(args.tabId);
+      return { tabId: args.tabId, totalPatterns: patterns.length, patterns };
+    },
+  });
+
+  // 21. get_delta
+  tools.push({
+    definition: {
+      name: 'get_delta',
+      description: 'Get the latest aggregated UI changes (smart delta) for a tab. Includes scroll movements, element groups moving together, content updates, and new/appeared elements. Known patterns are returned as "ref" IDs — use lookup_pattern to get full definitions. Use this to understand what changed on the page since the last data collection.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Tab ID from get_sessions' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      const delta = cache.getSmartDelta(args.tabId);
+      if (!delta) return { note: 'No delta data available. Interact with the page and try again.' };
+      return delta;
+    },
+  });
+
   registry.registerTools(tools);
 };

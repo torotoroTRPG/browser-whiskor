@@ -1,33 +1,38 @@
 {
-  "_comment": "browser-whiskor 設定ファイル。値は .env で上書き可能 (WHISKOR_<SECTION>_<KEY>=<value>)。",
+  "_comment_en": "browser-whiskor configuration file. Values can be overridden via .env (WHISKOR_<SECTION>_<KEY>=<value>).",
+  "_comment_ja": "browser-whiskor 設定ファイル。値は .env で上書き可能 (WHISKOR_<SECTION>_<KEY>=<value>)。",
 
   "server": {
     "wsPort":   7891,
     "httpPort": 7892,
     "host":     "127.0.0.1",
-    "_comment": "host を 0.0.0.0 にすると LAN 全体に公開されます"
+    "_comment_en": "Setting host to 0.0.0.0 exposes the server to the entire LAN",
+    "_comment_ja": "host を 0.0.0.0 にすると LAN 全体に公開されます"
   },
 
   "security": {
-    "allowExecuteJs":      true,
+    "allowExecuteJs":      false,
     "allowActions":        true,
     "allowScreenshots":    true,
     "allowExplorer":       true,
     "executeJsTimeoutMs":  15000,
     "actionTimeoutMs":     15000,
     "allowedMcpOrigins":   ["*"],
-    "_comment_execute":    "allowExecuteJs=false にするとエージェントからの任意JS実行を無効化"
+    "_comment_execute_en": "Set allowExecuteJs=false to disable arbitrary JS execution from agents. For local use, set to true or use WHISKOR_SECURITY_ALLOWEXECUTEJS=true env var.",
+    "_comment_execute_ja": "エージェントからの任意JS実行を無効にするにはfalse。ローカルで有効にする場合はtrue、または環境変数WHISKOR_SECURITY_ALLOWEXECUTEJS=trueを設定"
   },
 
   "collection": {
     "staleThresholdMs":        30000,
     "pollingIntervalMs":       0,
-    "_comment_polling":        "0 = 自動ポーリング無効。ms数を指定するとその間隔で全タブ収集",
+    "_comment_polling_en": "0 = automatic polling disabled. Specify ms to collect from all tabs at that interval",
+    "_comment_polling_ja": "0 = 自動ポーリング無効。ms数を指定するとその間隔で全タブ収集",
     "maxConsoleLogs":          2000,
     "maxNetworkRequests":      500,
     "networkBodyMaxBytes":     4096,
     "maxReactStateHistory":    100,
-    "_comment_history":        "React/UI状態変化の最大保存数 (0 = 無制限)"
+    "_comment_history_en": "Maximum number of React/UI state changes to store (0 = unlimited)",
+    "_comment_history_ja": "React/UI状態変化の最大保存数 (0 = 無制限)"
   },
 
   "updateFrequencies": [
@@ -238,16 +243,20 @@
 
   "executeJs": {
     "captureConsoleDuringExec": true,
-    "_comment": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
+    "_comment_en": "When true, captures console.log/warn/error during execute_js execution and includes them in the result",
+    "_comment_ja": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
   },
 
   "agentControl": {
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,
     "screenshotMarks":      false,
-    "_comment_agentConfig": "allowAgentConfig=true: agentがset_configで設定変更可能",
-    "_comment_autoRevert":  "autoRevertConfig=true: 非推奨変更を次回起動時に自動復元",
-    "_comment_marks":       "screenshotMarks=true: スクリーンショットに要素番号マーカーを重畳"
+    "_comment_agentConfig_en": "allowAgentConfig=true: agent can modify settings via set_config",
+    "_comment_agentConfig_ja": "allowAgentConfig=true: agentがset_configで設定変更可能",
+    "_comment_autoRevert_en":  "autoRevertConfig=true: automatically revert non-recommended changes on next startup",
+    "_comment_autoRevert_ja":  "autoRevertConfig=true: 非推奨変更を次回起動時に自動復元",
+    "_comment_marks_en":       "screenshotMarks=true: overlay element number markers on screenshots",
+    "_comment_marks_ja":       "screenshotMarks=true: スクリーンショットに要素番号マーカーを重畳"
   },
 
   "permissions": {
@@ -273,8 +282,10 @@
       "permissions"
     ],
     "warnOnUnauthorized": true,
-    "_comment_writable":  "agentWritablePaths: agentが変更可能なパス。[]は配列内の全要素を意味する",
-    "_comment_readOnly":  "agentReadOnlyPaths: agentが絶対に変更できないパス。ここにある変更試行は拒否+警告"
+    "_comment_writable_en":  "agentWritablePaths: paths the agent is allowed to modify. [] means all elements in the array",
+    "_comment_writable_ja":  "agentWritablePaths: agentが変更可能なパス。[]は配列内の全要素を意味する",
+    "_comment_readOnly_en":  "agentReadOnlyPaths: paths the agent must never modify. Attempts are rejected with a warning",
+    "_comment_readOnly_ja":  "agentReadOnlyPaths: agentが絶対に変更できないパス。ここにある変更試行は拒否+警告"
   },
 
   "stateGraph": {
