@@ -22,6 +22,35 @@ if ($coverage.Success) {
 } else {
     $coverageSummary = "N/A"
 }
+
+# Parse per-file coverage details
+$coverageLines = $output -split "`n" | Where-Object { $_ -match '^#\s+tests\\.*\|' }
+$detailRows = @()
+foreach ($line in $coverageLines) {
+    $parts = $line -split '\|'
+    if ($parts.Count -ge 5) {
+        $file = [System.IO.Path]::GetFileName($parts[0].TrimStart('# ').Trim())
+        $stmt = $parts[1].Trim()
+        $branch = $parts[2].Trim()
+        $funcs = $parts[3].Trim()
+        $uncovered = $parts[4].Trim()
+        $detailRows += "| $file | ${stmt}% | ${branch}% | ${funcs}% | $uncovered |"
+    }
+}
+$detailTable = $detailRows -join "`n"
+
+# Parse failed tests (if any)
+$failedTests = @()
+if ($fail -ne "0") {
+    $failMatches = [regex]::Matches($output, 'not ok \d+ - (.+?)$')
+    foreach ($m in $failMatches) {
+        $failedTests += "- ❌ $($m.Groups[1].Value)"
+    }
+}
+$failedSection = if ($failedTests.Count -gt 0) {
+    "`n## 失敗テスト`n`n" + ($failedTests -join "`n") + "`n"
+} else { "" }
+
 $date = Get-Date -Format "yyyy-MM-dd"
 $time = Get-Date -Format "HH:mm:ss"
 
@@ -47,7 +76,15 @@ $report = @"
 ## 結果
 
 $status
+$failedSection
 
+---
+
+## ファイル別カバレッジ詳細
+
+| ファイル | 行 | ブランチ | 関数 | 未カバー行 |
+|----------|-----|----------|------|-----------|
+$detailTable
 "@
 
 $report | Out-File -FilePath $outputFile -Encoding utf8BOM
