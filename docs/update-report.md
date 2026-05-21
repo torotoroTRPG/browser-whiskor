@@ -1,54 +1,78 @@
-# Update Report — browser-whiskor v3.2.0
+# Update Report — browser-whiskor v3.6.0
 
-**Date:** 2026-05-20
-**Previous version:** 3.1.0
-**New version:** 3.2.0
+**Date:** 2026-05-22
+**Previous version:** 3.5.0
+**New version:** 3.6.0
 
 ---
 
 ## Summary
 
-State graph system with semantic labels, unified composite hashing, and agent-driven state navigation. The autonomous explorer now builds a navigable graph of UI states that agents can query, search, and traverse.
+Dynamic tool profile manager for MCP, shared code infrastructure for Chrome/Firefox extensions, HOST binding security fix, and scroll-triggered text collection with IntersectionObserver.
 
 ## New Modules
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `server/state-fingerprint.js` | ~130 | FNV32 hash engine, non-deterministic value filter, composite hash computation |
-| `server/state-store.js` | ~350 | State graph management: nodes, edges, gzip persistence, LRU eviction, snapshot storage |
-| `server/state-semantic.js` | ~280 | Auto-generated labels, semantic tags, keyState extraction, fuzzy state search |
-| `server/state-navigator.js` | ~230 | BFS shortest path finding, action replay with hash verification, URL fallback |
-| `extension/injected/state-reporter.js` | ~80 | REQUEST_STATE_HASH handler, watchMode for continuous hash reporting |
+| `server/tool-manager.js` | ~250 | Dynamic MCP tool profile management: load/unload, auto-detection, idle timeout |
+| `server/configs/tool-profiles.json` | ~120 | 7 tool profile definitions with triggers and idle timeouts |
+| `shared/injected/` | 19 files | Common code shared between Chrome and Firefox extensions |
+| `scripts/sync-shared.ps1` | ~100 | Script to sync shared/ files to both extensions |
+| `.github/workflows/ci.yml` | ~150 | GitHub Actions CI: tests, extension sync check, size comparison |
+| `tests/unit/seen-text-tracker.test.js` | ~200 | Unit tests for IntersectionObserver scroll-triggered collection |
 
 ## Modified Modules
 
 | File | Change |
 |------|--------|
-| `server/state-machine.js` | Converted to backward-compat wrapper delegating to state-store.js |
-| `server/index.js` | Added REACT_TRANSITION handler (was swallowed), STATE_HASH_REPORT handler, extended EXPLORER_STATE_UPDATE |
-| `server/mcp-server.js` | Added 6 new tools: list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path |
-| `extension/manifest.json` | Added state-reporter.js to content scripts, version → 3.2.0 |
-| `firefox-mv2/manifest.json` | Added state-reporter.js to content scripts, version → 3.2.0 |
-| `extension/injected/explorer.js` | Replaced computeStateHash() with unified compositeHash (FNV32, reactHash + domHash) |
-| `extension/injected/adapters/react.js` | Added window.__SI_REACT_HASH__ write on each onCommitFiberRoot |
-| `config.json` | Added stateGraph section: hash settings, storage limits, semantic config, navigation config |
+| `server/index.js` | Fixed HOST binding: WebSocketServer and httpServer now bind to configured HOST (127.0.0.1) instead of 0.0.0.0 |
+| `extension/injected/analyzers/text-coords.js` | Added scroll-triggered text collection via IntersectionObserver, seenTexts continuous monitoring loop |
+| `server/cache-writer.js` | Merge incoming TEXT_COORDS with existing cache to retain offscreen texts |
+| `tests/run-tests.ps1` | Updated to run all categories and generate summary table |
+
+## Removed Duplicates
+
+19 files moved from `extension/injected/` and `firefox-mv2/injected/` to `shared/injected/`:
+- `collector.js`, `executor.js`, `explorer.js`, `state-reporter.js`
+- `adapters/`: alpine, angular, dom-generic, preact, react, solid, svelte, vue2, vue3
+- `analyzers/`: accessibility, console-logger, css, dom-mutations, perf, storage-reader
 
 ## Bugs Fixed
 
-- **REACT_TRANSITION events were swallowed** — server/index.js had no handler for this message type. React state transitions are now recorded as state graph edges.
-- **Hash inconsistency between explorer and React adapter** — explorer.js used djb2 while react.js used a different FNV variant. Both now use FNV32 with identical input structure.
+- **HOST binding security issue** — WebSocketServer and httpServer were binding to 0.0.0.0 regardless of config.json host setting. Now correctly binds to configured HOST (default: 127.0.0.1).
+- **Scroll-triggered text collection not working** — IntersectionObserver detected elements but didn't trigger collection. Added debounced collect() call when new elements enter viewport.
 
 ## MCP Tool Count
 
-- Previous: 29 tools
-- Current: 35 tools (+6 state navigation tools)
+- Previous: 45 tools
+- Current: 49 tools (+4 tool profile management tools: load_profile, unload_profile, search_tools, profile_status)
 
-## Storage Format
+## Tool Profiles
 
-- State graphs are now stored as gzip-compressed JSON (`cache/graphs/{siteVersion}.json.gz`)
-- Full snapshots stored separately (`cache/graphs/snapshots/{siteVersion}/{hash}.snap.json.gz`)
-- LRU eviction moves unused nodes to `cache/graphs/{siteVersion}/evicted/`
+| Profile | Tools | Auto-load Trigger | Idle Timeout |
+|---------|-------|-------------------|--------------|
+| `core` | 12 | Always loaded | N/A |
+| `debug` | +6 | Debug-related tool calls | 10 turns |
+| `state-nav` | +7 | State-related tool calls | 15 turns |
+| `delta` | +3 | After page interactions | 8 turns |
+| `advanced-actions` | +10 | Complex action requests | 5 turns |
+| `admin` | +4 | Config changes (requires allowAgentConfig) | 20 turns |
+| `power` | +2 | JS execution requests (requires allowExecuteJs) | 2 turns |
+
+## CI Pipeline
+
+Push/PR triggers:
+1. **Change detection** — Identifies which paths changed (extension/server/shared/tests)
+2. **Extension sync check** — Compares Chrome vs Firefox file sizes, warns on >100B drift
+3. **Shared sync verification** — Verifies shared/ files match both extensions
+4. **Test execution** — Runs unit/integration/stress tests with per-category summary
 
 ## Breaking Changes
 
-None. state-machine.js maintains backward-compatible API. Existing callers (index.js, mcp-server.js) continue to work without modification.
+None. All changes are backward compatible.
+
+## Security Notes
+
+- Default HOST binding is now `127.0.0.1` (localhost only)
+- `allowExecuteJs` remains `false` by default
+- Tool profiles with security-sensitive tools (`admin`, `power`) require explicit config flags
