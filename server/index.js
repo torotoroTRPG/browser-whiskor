@@ -129,7 +129,7 @@ function triggerExplorer(tabId, active, strategy) {
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ port: WS_PORT });
+const wss = new WebSocketServer({ port: WS_PORT, host: HOST });
 
 wss.on('connection', (ws, req) => {
   if (req.url === '/dashboard') {
@@ -311,7 +311,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-log('info', `[ws] Listening on ws://0.0.0.0:${WS_PORT}`);
+log('info', `[ws] Listening on ws://${HOST}:${WS_PORT}`);
 if (SECURITY.allowExecuteJs) {
   console.warn('[SECURITY] ⚠ allowExecuteJs is ENABLED — execute_js tool can run arbitrary JS in page context');
 }
@@ -319,7 +319,7 @@ console.warn('[SECURITY] State fingerprint uses FNV-1a 32-bit (base-36, 7 chars)
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
 const httpServer = http.createServer((req, res) => {
-  const url    = new URL(req.url, `http://0.0.0.0:${HTTP_PORT}`);
+  const url    = new URL(req.url, `http://${HOST}:${HTTP_PORT}`);
   const method = req.method;
 
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -427,10 +427,10 @@ const httpServer = http.createServer((req, res) => {
   return sendJson({ error: 'Not found', path: p }, 404);
 });
 
-httpServer.listen(HTTP_PORT, () => {
-  log('info', `[http] Listening on http://0.0.0.0:${HTTP_PORT}`);
-  log('info', `[http] Dashboard: http://0.0.0.0:${HTTP_PORT}/`);
-  log('info', `[http] Health:    http://0.0.0.0:${HTTP_PORT}/health`);
+httpServer.listen(HTTP_PORT, HOST, () => {
+  log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
+  log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
+  log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
 });
 
 // ── MCP ───────────────────────────────────────────────────────────────────────
