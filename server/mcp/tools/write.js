@@ -59,7 +59,36 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 21. type_text
+  // 21. right_click
+  tools.push({
+    definition: {
+      name: 'right_click',
+      description: 'Right-click (context menu) on an element. Fires contextmenu event. Target by CSS selector, visible text, or absolute coordinates.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:    { type: 'number', description: 'Tab ID' },
+          selector: { type: 'string', description: 'CSS selector' },
+          text:     { type: 'string', description: 'Visible text of element (partial match, case-insensitive)' },
+          x:        { type: 'number', description: 'Absolute X coordinate' },
+          y:        { type: 'number', description: 'Absolute Y coordinate' },
+          timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      return cb._callAction(args.tabId, {
+        type:     'right_click',
+        selector: args.selector,
+        text:     args.text,
+        x:        args.x,
+        y:        args.y,
+      }, args.timeoutMs);
+    },
+  });
+
+  // 22. type_text
   tools.push({
     definition: {
       name: 'type_text',
@@ -88,7 +117,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 22. press_key
+  // 23. press_key
   tools.push({
     definition: {
       name: 'press_key',
@@ -108,7 +137,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 23. hover
+  // 24. hover
   tools.push({
     definition: {
       name: 'hover',
@@ -129,7 +158,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 24. scroll_page
+  // 25. scroll_page
   tools.push({
     definition: {
       name: 'scroll_page',
@@ -164,7 +193,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 25. select_option
+  // 26. select_option
   tools.push({
     definition: {
       name: 'select_option',
@@ -188,7 +217,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 26. check_box
+  // 27. check_box
   tools.push({
     definition: {
       name: 'check_box',
@@ -211,7 +240,71 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 27. execute_js
+  // 28. drag
+  tools.push({
+    definition: {
+      name: 'drag',
+      description: 'Drag from one position to another on the page. Fires mousedown → mousemove → mouseup with dragenter/dragover/drop events for HTML5 drag-and-drop compatibility. Use absolute page coordinates or CSS selectors.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:        { type: 'number', description: 'Tab ID' },
+          fromX:        { type: 'number', description: 'Absolute X coordinate of drag start' },
+          fromY:        { type: 'number', description: 'Absolute Y coordinate of drag start' },
+          toX:          { type: 'number', description: 'Absolute X coordinate of drag end' },
+          toY:          { type: 'number', description: 'Absolute Y coordinate of drag end' },
+          fromSelector: { type: 'string', description: 'CSS selector of drag source (alternative to fromX/fromY — uses element center)' },
+          timeoutMs:    { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      return cb._callAction(args.tabId, {
+        type:        'drag',
+        fromX:       args.fromX,
+        fromY:       args.fromY,
+        toX:         args.toX,
+        toY:         args.toY,
+        fromSelector: args.fromSelector,
+      }, args.timeoutMs);
+    },
+  });
+
+  // 29. mouse_scroll
+  tools.push({
+    definition: {
+      name: 'mouse_scroll',
+      description: 'Fire a wheel event at a specific position on the page. Useful for scrollable areas that require wheel events rather than scrollBy/scrollTo. Can specify delta or number of lines.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:     { type: 'number', description: 'Tab ID' },
+          x:         { type: 'number', description: 'Absolute X coordinate to fire wheel event at' },
+          y:         { type: 'number', description: 'Absolute Y coordinate to fire wheel event at' },
+          deltaX:    { type: 'number', description: 'Horizontal scroll delta (default: 0)' },
+          deltaY:    { type: 'number', description: 'Vertical scroll delta (positive = scroll down)' },
+          lines:     { type: 'number', description: 'Number of lines to scroll (alternative to deltaY; 1 line ≈ 100px)' },
+          selector:  { type: 'string', description: 'CSS selector — fires wheel at element center (alternative to x/y)' },
+          timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      return cb._callAction(args.tabId, {
+        type:     'mouse_scroll',
+        x:        args.x,
+        y:        args.y,
+        deltaX:   args.deltaX,
+        deltaY:   args.deltaY,
+        lines:    args.lines,
+        selector: args.selector,
+      }, args.timeoutMs);
+    },
+  });
+
+  // 30. execute_js
   tools.push({
     definition: {
       name: 'execute_js',
@@ -232,7 +325,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 28. wait_for_element
+  // 31. wait_for_element
   tools.push({
     definition: {
       name: 'wait_for_element',
@@ -260,7 +353,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 29. go_back
+  // 32. go_back
   tools.push({
     definition: {
       name: 'go_back',
@@ -276,7 +369,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 30. go_forward
+  // 33. go_forward
   tools.push({
     definition: {
       name: 'go_forward',
@@ -292,7 +385,7 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
-  // 31. reload_page
+  // 34. reload_page
   tools.push({
     definition: {
       name: 'reload_page',

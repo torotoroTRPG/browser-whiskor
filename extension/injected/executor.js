@@ -137,6 +137,70 @@
       return { ok: true, tagName: el.tagName };
     },
 
+    mouse_scroll(action) {
+      const x = action.x != null ? action.x - window.scrollX : (action.selector ? (() => { const el = findBySelector(action.selector); const r = el.getBoundingClientRect(); return r.left + r.width/2; })() : window.innerWidth / 2);
+      const y = action.y != null ? action.y - window.scrollY : (action.selector ? (() => { const el = findBySelector(action.selector); const r = el.getBoundingClientRect(); return r.top + r.height/2; })() : window.innerHeight / 2);
+      const deltaX = action.deltaX || 0;
+      const deltaY = action.deltaY != null ? action.deltaY : (action.lines ? action.lines * 100 : 0);
+
+      const el = document.elementFromPoint(x, y) || document.body;
+      const evOpts = {
+        bubbles: true, cancelable: true, view: window,
+        clientX: x, clientY: y, deltaX, deltaY, deltaMode: 0,
+      };
+
+      el.dispatchEvent(new WheelEvent('wheel', evOpts));
+      return { ok: true, at: { x: x + window.scrollX, y: y + window.scrollY }, delta: { deltaX, deltaY } };
+    },
+
+    right_click(action) {
+      const el = resolveTarget(action);
+      if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text, x: action.x, y: action.y })}` };
+      scrollIntoView(el);
+      const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
+      el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50) };
+    },
+
+    drag(action) {
+      const fromX = action.fromX != null ? action.fromX : (action.fromSelector ? (() => { const el = findBySelector(action.fromSelector); const r = el.getBoundingClientRect(); return r.left + window.scrollX + r.width/2; })() : null);
+      const fromY = action.fromY != null ? action.fromY : (action.fromSelector ? (() => { const el = findBySelector(action.fromSelector); const r = el.getBoundingClientRect(); return r.top + window.scrollY + r.height/2; })() : null);
+      const toX   = action.toX;
+      const toY   = action.toY;
+
+      if (fromX == null || fromY == null || toX == null || toY == null) {
+        return { ok: false, error: 'drag requires fromX/fromY and toX/toY (or fromSelector)' };
+      }
+
+      const clientFromX = fromX - window.scrollX;
+      const clientFromY = fromY - window.scrollY;
+      const clientToX   = toX - window.scrollX;
+      const clientToY   = toY - window.scrollY;
+
+      const el = document.elementFromPoint(clientFromX, clientFromY);
+      if (!el) return { ok: false, error: `No element at drag start (${fromX},${fromY})` };
+
+      const evOpts = (cx, cy) => ({
+        bubbles: true, cancelable: true, view: window,
+        clientX: cx, clientY: cy, screenX: cx, screenY: cy,
+      });
+
+      el.dispatchEvent(new MouseEvent('mousedown', evOpts(clientFromX, clientFromY)));
+      document.dispatchEvent(new MouseEvent('mousemove', evOpts(clientFromX, clientFromY)));
+      document.dispatchEvent(new MouseEvent('mousemove', evOpts(clientToX, clientToY)));
+      const targetEl = document.elementFromPoint(clientToX, clientToY);
+      if (targetEl && targetEl !== el) {
+        targetEl.dispatchEvent(new MouseEvent('dragenter', evOpts(clientToX, clientToY)));
+        targetEl.dispatchEvent(new MouseEvent('dragover', evOpts(clientToX, clientToY)));
+      }
+      document.dispatchEvent(new MouseEvent('mouseup', evOpts(clientToX, clientToY)));
+      if (targetEl && targetEl !== el) {
+        targetEl.dispatchEvent(new MouseEvent('drop', evOpts(clientToX, clientToY)));
+      }
+
+      return { ok: true, from: { x: fromX, y: fromY }, to: { x: toX, y: toY }, targetTag: targetEl?.tagName };
+    },
+
     scroll(action) {
       if (action.toElement) {
         const el = findBySelector(action.toElement);

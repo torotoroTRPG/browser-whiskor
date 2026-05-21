@@ -1,785 +1,1596 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>browser-whiskor — Dashboard</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg:       #0f172a;
-    --surface:  #1e293b;
-    --border:   #334155;
-    --accent:   #6366f1;
-    --accent2:  #22d3ee;
-    --text:     #f1f5f9;
-    --muted:    #94a3b8;
-    --green:    #4ade80;
-    --red:      #f87171;
-    --yellow:   #fbbf24;
-    --radius:   8px;
-    --font:     "Inter", "Segoe UI", system-ui, sans-serif;
-  }
-  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
-  header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 18px; font-weight: 700; }
-  .badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-  .badge-green { background: #14532d; color: var(--green); }
-  .badge-red   { background: #7f1d1d; color: var(--red); }
-  .badge-blue  { background: #1e3a5f; color: var(--accent2); }
-  .spacer { flex: 1; }
-  #status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); transition: background .3s; }
-  #status-dot.on { background: var(--green); }
-  #status-label { font-size: 12px; color: var(--muted); }
+  <!--
+    好きなゲーム開発者さま renkaさんの、
+    「儚くて、切なくて、ずっと触れていたい」世界観が大好きです (biglove..)
+    https://store.steampowered.com/search/?developer=and_and_and
+    少し参考にしました (..けどゲーム本編ほどすごくきれいじゃないよ..hhh)
+  -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>browser-whiskor — Dashboard</title>
+  <script>
+    // FOUC prevention: apply saved theme before first paint
+    (function(){
+      var t = localStorage.getItem('whiskor-theme') || 'twilight';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=JetBrains+Mono:wght@200;300&family=Noto+Sans+JP:wght@200;300&family=Noto+Serif+JP:wght@200;300&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  .main { display: grid; grid-template-columns: 260px 1fr; height: calc(100vh - 57px); }
-  .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; }
-  .sidebar-section { padding: 12px 16px 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-  .session-item { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; }
-  .session-item:hover, .session-item.active { background: rgba(99,102,241,.12); }
-  .session-item .url { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--accent2); }
-  .session-item .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .session-item .adapters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .fw-tag { padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: rgba(99,102,241,.2); color: var(--accent); }
+    :root {
+      --font-serif: "Cormorant Garamond", "Noto Serif JP", serif;
+      --font-sans: "Noto Sans JP", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", monospace;
+      --radius: 2px;
+      --ease-float: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-breath: cubic-bezier(0.445, 0.05, 0.55, 0.95);
 
-  .content { overflow-y: auto; padding: 24px; }
-  .empty-state { color: var(--muted); text-align: center; padding: 80px 0; }
-  .empty-state h2 { font-size: 20px; margin-bottom: 8px; }
+      /* twilight (default) — warm, muted sepia */
+      --bg: #1c1b1a;
+      --surface: rgba(42, 40, 38, 0.7);
+      --border: rgba(197, 198, 199, 0.12);
+      --accent: #c5c6c7;
+      --accent2: #a89f91;
+      --text: #e6e2dd;
+      --muted: #8c857d;
+      --ok: #45a29e;
+      --err: #c97a7e;
+      --warn: #c2aa7a;
+      --canvas-bg: #14130f;
+      --grain-opacity: 0.12;
+    }
 
-  /* Tabs */
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-  .tab-btn { padding: 8px 16px; background: transparent; border: none; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s; }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-pane { display: none; }
-  .tab-pane.active { display: block; }
+    [data-theme="frost"] {
+      --bg: #f4f5f6;
+      --surface: rgba(255, 255, 255, 0.5);
+      --border: rgba(0, 0, 0, 0.08);
+      --accent: #2d3748;
+      --accent2: #4a5568;
+      --text: #1a202c;
+      --muted: #a0aec0;
+      --ok: #38a169;
+      --err: #e53e3e;
+      --warn: #d69e2e;
+      --canvas-bg: #e8eaed;
+      --grain-opacity: 0.06;
+    }
 
-  /* Cards */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-  .card h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
-  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; }
-  .stat { background: var(--bg); border-radius: var(--radius); padding: 12px; }
-  .stat-value { font-size: 24px; font-weight: 700; color: var(--accent); }
-  .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    [data-theme="abyss"] {
+      --bg: #080a0f;
+      --surface: rgba(16, 20, 30, 0.8);
+      --border: rgba(102, 252, 241, 0.08);
+      --accent: #66fcf1;
+      --accent2: #45a29e;
+      --text: #c5c6c7;
+      --muted: #3e4a54;
+      --ok: #66fcf1;
+      --err: #ff6b6b;
+      --warn: #ffd93d;
+      --canvas-bg: #040609;
+      --grain-opacity: 0.14;
+    }
 
-  /* Text coords */
-  .text-search { width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none; }
-  .text-search:focus { border-color: var(--accent); }
-  .word-grid { display: grid; grid-template-columns: 1fr auto auto auto auto auto; gap: 1px; font-size: 12px; }
-  .word-grid .hdr { color: var(--muted); font-weight: 600; padding: 4px 8px; }
-  .word-row { display: contents; }
-  .word-row > span { padding: 3px 8px; background: var(--bg); }
-  .word-row > span:first-child { color: var(--accent2); }
-  .coord { color: var(--muted); font-family: monospace; }
+    [data-theme="phantom"] {
+      --bg: #060406;
+      --surface: rgba(12, 8, 12, 0.8);
+      --border: rgba(255, 209, 220, 0.1);
+      --accent: #ffd1dc;
+      --accent2: #c9949f;
+      --text: #d8d0d4;
+      --muted: #5a4e54;
+      --ok: #a8d8a8;
+      --err: #ff6b6b;
+      --warn: #ffe0a0;
+      --canvas-bg: #030103;
+      --grain-opacity: 0.16;
+    }
 
-  /* Text coords canvas */
-  .canvas-wrapper { position: relative; border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; background: #0a0f1a; margin-bottom: 12px; max-height: 60vh; cursor: grab; }
-  .canvas-wrapper.panning { cursor: grabbing; }
-  .canvas-wrapper canvas { display: block; max-width: 100%; }
-  .canvas-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-  .canvas-controls label { font-size: 12px; color: var(--muted); }
-  .canvas-controls input[type=range] { width: 120px; accent-color: var(--accent); }
-  .canvas-controls .zoom-val { font-size: 12px; color: var(--accent2); font-family: monospace; min-width: 40px; }
-  .canvas-info { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  .btn-fit { padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer; }
-  .btn-fit:hover { color: var(--text); border-color: var(--accent); }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-weight: 200;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      overflow: hidden;
+      height: 100vh;
+      transition: background-color 1.2s var(--ease-float), color 1.2s var(--ease-float);
+    }
 
-  /* Network */
-  .net-row { display: grid; grid-template-columns: 50px 60px 1fr 60px 70px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
-  .method { font-weight: 700; font-family: monospace; }
-  .method.GET  { color: var(--green); }
-  .method.POST { color: var(--yellow); }
-  .status-ok   { color: var(--green); }
-  .status-err  { color: var(--red); }
-  .net-url     { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-  .net-dur     { text-align: right; color: var(--muted); font-family: monospace; }
+    /* --- Grain Overlay --- */
+    #grain {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 9999;
+      opacity: var(--grain-opacity);
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px 256px;
+    }
 
-  /* JSON viewer */
-  .json-view { background: var(--bg); border-radius: var(--radius); padding: 12px; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; color: var(--text); }
+    /* --- Ambient Data Particles --- */
+    #ambient {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 0;
+      overflow: hidden;
+    }
+    .particle {
+      position: absolute;
+      font: 200 10px/1 var(--font-mono);
+      color: var(--text);
+      white-space: nowrap;
+      opacity: 0;
+      will-change: transform, opacity;
+      animation: drift 16s linear forwards;
+    }
+    @keyframes drift {
+      0%   { transform: translateY(30px) translateX(0); opacity: 0; }
+      8%   { opacity: 0.04; }
+      92%  { opacity: 0.04; }
+      100% { transform: translateY(-120px) translateX(20px); opacity: 0; }
+    }
 
-  /* Config panel */
-  .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .form-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-  .form-group select, .form-group input { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; outline: none; }
-  .form-group select:focus, .form-group input:focus { border-color: var(--accent); }
-  .btn { padding: 8px 20px; border-radius: var(--radius); border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
-  .btn:hover { opacity: .85; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-  .plugin-toggles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
-  .plugin-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg); border-radius: var(--radius); }
-  .plugin-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
-  .plugin-toggle label { font-size: 12px; cursor: pointer; }
+    /* --- Layout --- */
+    .app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; }
 
-  #stream { max-height: 400px; overflow-y: auto; font-size: 11px; font-family: monospace; }
-  .stream-entry { padding: 4px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 80px 160px 1fr; gap: 8px; }
-  .stream-ts { color: var(--muted); }
-  .stream-type { color: var(--accent2); }
-</style>
+    header {
+      display: flex; align-items: center; gap: 13px;
+      padding: 13px 34px;
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: inset 0 -0.5px 0 0 var(--border);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font: 300 18px/1 var(--font-serif);
+      letter-spacing: 0.12em;
+    }
+    .ver {
+      font: 200 9px/1 var(--font-mono);
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+    }
+    .spacer { flex: 1; }
+
+    #dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--err);
+      transition: background 1s var(--ease-float), box-shadow 1s;
+    }
+    #dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+    #status { font: 200 10px/1 var(--font-mono); color: var(--muted); letter-spacing: 0.08em; }
+
+    .theme-sel {
+      background: transparent; border: none;
+      color: var(--muted); font: 200 10px/1 var(--font-mono);
+      outline: none; cursor: pointer; letter-spacing: 0.08em;
+      padding: 4px 8px;
+      box-shadow: inset 0 0 0 0.5px transparent;
+      transition: all 600ms var(--ease-breath);
+    }
+    .theme-sel:hover { color: var(--accent); box-shadow: inset 0 0 0 0.5px var(--accent); }
+    .theme-sel option { background: var(--bg); color: var(--text); }
+
+    .btn {
+      padding: 6px 18px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font: 200 10px/1 var(--font-mono);
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+      transition: all 600ms var(--ease-breath);
+    }
+    .btn:hover { color: var(--accent); box-shadow: inset 0 0 0 0.5px var(--accent); }
+    .btn:active { transform: scale(0.98); transition-duration: 80ms; }
+    .btn.btn-active { color: var(--ok); box-shadow: inset 0 0 0 0.5px var(--ok); }
+    .btn-accent {
+      color: var(--bg); background: var(--accent);
+      box-shadow: none;
+    }
+    .btn-accent:hover { opacity: 0.85; color: var(--bg); }
+
+    /* --- Main Grid --- */
+    .main {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* --- Sidebar --- */
+    .sidebar {
+      overflow-y: auto;
+      background: var(--surface);
+      backdrop-filter: blur(8px);
+      box-shadow: inset -0.5px 0 0 0 var(--border);
+    }
+    .sidebar-label {
+      padding: 21px 21px 8px;
+      font: 300 9px/1 var(--font-mono);
+      color: var(--muted);
+      letter-spacing: 0.12em;
+    }
+    .s-item {
+      padding: 13px 21px;
+      cursor: pointer;
+      transition: all 500ms var(--ease-float);
+      box-shadow: inset 0 -0.5px 0 0 var(--border);
+    }
+    .s-item:hover, .s-item.active {
+      background: rgba(255,255,255,0.025);
+      padding-left: 26px;
+    }
+    [data-theme="frost"] .s-item:hover,
+    [data-theme="frost"] .s-item.active { background: rgba(0,0,0,0.025); }
+    .s-item .s-url {
+      font: 300 11px/1.2 var(--font-serif);
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .s-item .s-meta {
+      font: 200 9px/1 var(--font-mono);
+      color: var(--muted);
+      margin-top: 5px;
+    }
+    .s-item .s-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .s-tag {
+      font: 200 8px/1 var(--font-mono);
+      color: var(--muted);
+      padding: 2px 6px;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* --- Content --- */
+    .content { overflow-y: auto; padding: 34px 55px; }
+    .empty {
+      text-align: center; padding: 89px 0;
+      font: 300 14px/1.6 var(--font-serif);
+      color: var(--muted); letter-spacing: 0.08em;
+    }
+    .empty h2 { font-size: 22px; font-weight: 300; margin-bottom: 13px; }
+    .empty p { font: 200 10px/1.8 var(--font-mono); }
+
+    /* --- Tabs --- */
+    .tabs { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 34px; }
+    .tab {
+      padding: 6px 13px;
+      background: transparent; border: none;
+      color: var(--muted);
+      font: 200 10px/1 var(--font-mono);
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 0 transparent;
+      border-radius: var(--radius);
+      transition: all 500ms var(--ease-float);
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); box-shadow: inset 0 -0.5px 0 0 var(--accent); }
+    .pane { display: none; }
+    .pane.active { display: block; animation: paneIn 600ms var(--ease-float); }
+    @keyframes paneIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+    /* --- Cards --- */
+    .card {
+      background: var(--surface);
+      backdrop-filter: blur(8px);
+      padding: 21px 34px;
+      margin-bottom: 21px;
+      border-radius: var(--radius);
+      box-shadow: inset 0 0 0 0.5px var(--border);
+    }
+    .card h3 {
+      font: 300 10px/1 var(--font-mono);
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      margin-bottom: 21px;
+    }
+    .card h3 .badge {
+      font-weight: 200;
+      margin-left: 8px;
+      color: var(--accent);
+    }
+    .badge {
+      font: 200 9px/1 var(--font-mono);
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* --- Stats --- */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 21px; }
+    .stat-v { font: 300 26px/1 var(--font-serif); color: var(--accent); }
+    .stat-l { font: 200 9px/1 var(--font-mono); color: var(--muted); margin-top: 5px; letter-spacing: 0.1em; }
+
+    /* --- Inputs --- */
+    .search {
+      width: 100%; padding: 10px 13px;
+      background: transparent; border: none;
+      box-shadow: inset 0 -0.5px 0 0 var(--border);
+      color: var(--text); font: 200 11px/1 var(--font-mono);
+      outline: none; letter-spacing: 0.04em;
+      margin-bottom: 21px;
+      transition: box-shadow 500ms var(--ease-breath);
+    }
+    .search:focus { box-shadow: inset 0 -0.5px 0 0 var(--accent); }
+    .search::placeholder { color: var(--muted); }
+
+    /* --- Canvas (Text Coords) --- */
+    .cv-controls {
+      display: flex; gap: 13px; align-items: center;
+      flex-wrap: wrap; margin-bottom: 13px;
+      font: 200 9px/1 var(--font-mono); color: var(--muted);
+    }
+    .cv-controls label { cursor: pointer; display: flex; align-items: center; gap: 4px; letter-spacing: 0.06em; }
+    .cv-controls input[type=range] { width: 80px; accent-color: var(--accent); }
+    .cv-controls input[type=checkbox] { accent-color: var(--accent); width: 12px; height: 12px; }
+    .cv-zoom { color: var(--accent); min-width: 28px; }
+
+    .cv-wrap {
+      position: relative;
+      height: 50vh; min-height: 280px;
+      overflow: hidden;
+      cursor: grab; background: var(--canvas-bg); border-radius: var(--radius); box-shadow: inset 0 0 0 0.5px var(--border); margin-bottom: 8px; }
+    .cv-wrap.panning { cursor: grabbing; }
+    .cv-wrap.interacting { cursor: crosshair; }
+    .cv-wrap.interacting.panning { cursor: crosshair; }
+    .cv-wrap canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+    }
+    .cv-info { font: 200 9px/1 var(--font-mono); color: var(--muted); margin-bottom: 13px; letter-spacing: 0.04em; }
+
+    .cv-sep {
+      display: inline-block; width: 0.5px; height: 11px;
+      background: var(--border); margin: 0 6px; flex-shrink: 0; align-self: center;
+    }
+    .cv-select {
+      background: transparent; border: none;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      font: 200 9px/1 var(--font-mono);
+      letter-spacing: 0.06em;
+      padding: 4px 6px;
+      outline: none; cursor: pointer;
+      transition: all 400ms var(--ease-breath);
+      -webkit-appearance: none; appearance: none;
+    }
+    .cv-select:focus, .cv-select:hover { box-shadow: inset 0 0 0 0.5px var(--accent); color: var(--accent); }
+    .cv-select option { background: var(--bg); color: var(--text); }
+    .cv-dim-row { display: flex; align-items: center; gap: 6px; transition: opacity 300ms; }
+
+    .cv-tip {
+      position: fixed; pointer-events: none; z-index: 200;
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      padding: 8px 13px;
+      font: 200 10px/1.5 var(--font-mono);
+      color: var(--text);
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+      opacity: 0;
+      transition: opacity 150ms;
+      max-width: 300px;
+      white-space: pre-line;
+    }
+    .cv-tip.show { opacity: 1; }
+
+    /* --- Word Grid --- */
+    .wg-hdr {
+      display: grid;
+      grid-template-columns: 1fr 55px 55px 45px 45px 34px;
+      gap: 1px; font: 300 9px/1 var(--font-mono);
+      color: var(--muted); letter-spacing: 0.08em;
+    }
+    .wg-hdr span { padding: 6px 8px; box-shadow: inset 0 -0.5px 0 0 var(--border); }
+    #words-scroll {
+      max-height: 300px; overflow-y: auto;
+    }
+    .wr {
+      display: grid;
+      grid-template-columns: 1fr 55px 55px 45px 45px 34px;
+      gap: 1px; font: 200 11px/1 var(--font-mono);
+      transition: opacity 300ms;
+    }
+    .wr span { padding: 5px 8px; box-shadow: inset 0 -0.5px 0 0 var(--border); }
+    .wr span:first-child { font-family: var(--font-sans); color: var(--text); }
+    .wr .c { color: var(--muted); }
+
+    /* --- Network --- */
+    .nr {
+      display: grid;
+      grid-template-columns: 44px 44px 1fr 55px 65px;
+      gap: 8px; align-items: center;
+      padding: 8px 0;
+      box-shadow: inset 0 -0.5px 0 0 var(--border);
+      font: 200 11px/1 var(--font-mono);
+    }
+    .m-get { color: var(--ok); }
+    .m-post { color: var(--warn); }
+    .m-other { color: var(--muted); }
+    .s-ok { color: var(--ok); }
+    .s-err { color: var(--err); }
+    .n-url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+    .n-dur { text-align: right; color: var(--muted); }
+    .n-init { color: var(--muted); font-size: 9px; }
+
+    /* --- JSON --- */
+    .json {
+      padding: 13px; font: 200 11px/1.5 var(--font-mono);
+      white-space: pre-wrap; word-break: break-all;
+      max-height: 500px; overflow-y: auto;
+      color: var(--muted);
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* --- Stream --- */
+    #stream-el { max-height: 500px; overflow-y: auto; }
+    .se {
+      display: grid;
+      grid-template-columns: 72px 160px 1fr;
+      gap: 8px; padding: 6px 8px;
+      box-shadow: inset 0 -0.5px 0 0 var(--border);
+      font: 200 10px/1.4 var(--font-mono);
+      transition: background 300ms;
+    }
+    .se:hover { background: rgba(255,255,255,0.015); }
+    [data-theme="frost"] .se:hover { background: rgba(0,0,0,0.015); }
+    .se-ts { color: var(--muted); }
+    .se-ty { color: var(--accent); }
+    .se-info { color: var(--muted); }
+
+    /* --- Config --- */
+    .cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 21px; }
+    .fg label {
+      display: block; font: 200 9px/1 var(--font-mono);
+      color: var(--muted); letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .fg select, .fg input[type=text] {
+      width: 100%; padding: 8px 13px;
+      background: transparent;
+      border: none;
+      box-shadow: inset 0 0 0 0.5px var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font: 200 11px/1 var(--font-mono);
+      outline: none;
+      transition: box-shadow 400ms;
+    }
+    .fg select:focus, .fg input[type=text]:focus { box-shadow: inset 0 0 0 0.5px var(--accent); }
+    .ptoggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 21px; }
+    .ptoggle {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0;
+      font: 200 10px/1 var(--font-mono);
+      color: var(--muted); cursor: pointer;
+    }
+    .ptoggle input { accent-color: var(--accent); }
+
+    /* --- Scrollbars --- */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  </style>
 </head>
 <body>
 
-<header>
-  <div id="status-dot"></div>
-  <h1>browser-whiskor <span class="badge badge-blue">v3</span></h1>
-  <span id="status-label">Waiting for extension…</span>
-  <span class="spacer"></span>
-  <button class="btn btn-secondary" onclick="refreshSessions()">↺ Refresh</button>
-  <button class="btn btn-primary" onclick="triggerCollect()">▶ Collect Now</button>
-</header>
+<div id="grain"></div>
+<div id="ambient"></div>
 
-<div class="main">
-  <div class="sidebar">
-    <div class="sidebar-section">Sessions</div>
-    <div id="session-list"></div>
-  </div>
-  <div class="content">
-    <div id="empty-state" class="empty-state">
-      <h2>No session selected</h2>
-      <p>Open a browser tab with the browser-whiskor extension installed,<br>then select a session from the left panel.</p>
+<div class="app">
+  <header>
+    <div id="dot"></div>
+    <h1>browser-whiskor</h1>
+    <span class="ver">v3</span>
+    <span id="status">AWAITING…</span>
+    <span class="spacer"></span>
+    <select id="theme-sel" class="theme-sel">
+      <option value="twilight">Twilight</option>
+      <option value="frost">Frost</option>
+      <option value="abyss">Abyss</option>
+      <option value="phantom">Phantom</option>
+    </select>
+    <button class="btn" id="btn-sync">↺ SYNC</button>
+    <button class="btn btn-accent" id="btn-collect">▶ COLLECT</button>
+  </header>
+
+  <div class="main">
+    <div class="sidebar">
+      <div class="sidebar-label">SESSIONS</div>
+      <div id="s-list"></div>
     </div>
-    <div id="session-detail" style="display:none">
-      <div class="tabs">
-        <button class="tab-btn active" data-tab="overview">Overview</button>
-        <button class="tab-btn" data-tab="text">Text Coords</button>
-        <button class="tab-btn" data-tab="framework">Framework</button>
-        <button class="tab-btn" data-tab="network">Network</button>
-        <button class="tab-btn" data-tab="ui">UI Catalog</button>
-        <button class="tab-btn" data-tab="css">CSS</button>
-        <button class="tab-btn" data-tab="dom">DOM</button>
-        <button class="tab-btn" data-tab="stream">Stream</button>
-        <button class="tab-btn" data-tab="config">Config</button>
+    <div class="content">
+      <div id="empty" class="empty">
+        <h2>No Signal</h2>
+        <p>Awaiting sensory input from browser extension.<br>Select a session to begin observation.</p>
       </div>
+      <div id="detail" style="display:none">
+        <div class="tabs" id="tabs"></div>
 
-      <!-- OVERVIEW -->
-      <div class="tab-pane active" id="pane-overview">
-        <div class="card">
-          <h3>Session</h3>
-          <div id="ov-meta"></div>
+        <div class="pane active" id="p-overview">
+          <div class="card"><h3>SESSION</h3><div id="ov-meta" style="font:200 11px/1.6 var(--font-mono)"></div></div>
+          <div class="card"><h3>STATISTICS</h3><div class="stats" id="ov-stats"></div></div>
+          <div class="card"><h3>ARTIFACTS</h3><div class="json" id="ov-files"></div></div>
         </div>
-        <div class="card">
-          <h3>Stats</h3>
-          <div class="stats-row" id="ov-stats"></div>
-        </div>
-        <div class="card">
-          <h3>Available Files</h3>
-          <div class="json-view" id="ov-files"></div>
-        </div>
-      </div>
 
-      <!-- TEXT COORDS -->
-      <div class="tab-pane" id="pane-text">
-        <div class="card">
-          <h3>Text Coordinates <span id="text-count" class="badge badge-blue"></span></h3>
-          <div class="canvas-controls">
-            <label>Zoom:</label>
-            <input type="range" id="canvas-zoom" min="0.1" max="3" step="0.1" value="1">
-            <span class="zoom-val" id="zoom-val">auto</span>
-            <button class="btn-fit" id="btn-fit" onclick="fitCanvas()">Fit</button>
-            <button class="btn-fit" id="btn-viewport" onclick="cropToViewport()">Viewport</button>
-            <label style="margin-left:12px"><input type="checkbox" id="show-bounds" checked> Show bounds</label>
-            <label><input type="checkbox" id="show-colors"> Font colors</label>
-            <label><input type="checkbox" id="show-viewport" checked> Live viewport overlay</label>
-            <label><input type="checkbox" id="show-visible-only"> Show only visible</label>
-            <label><input type="checkbox" id="dim-invisible" checked> Dim out-of-view words</label>
-          </div>
-          <div class="canvas-wrapper" id="canvas-wrapper">
-            <canvas id="text-canvas"></canvas>
-          </div>
-          <div class="canvas-info" id="canvas-info"></div>
-          <input class="text-search" id="text-search" placeholder="Filter words…" oninput="filterText(this.value)">
-          <div class="word-grid">
-            <span class="hdr">Text</span><span class="hdr">X</span><span class="hdr">Y</span><span class="hdr">W</span><span class="hdr">H</span><span class="hdr">View</span>
-          </div>
-          <div id="text-words"></div>
-        </div>
-      </div>
-
-      <!-- FRAMEWORK -->
-      <div class="tab-pane" id="pane-framework">
-        <div class="card">
-          <h3>Framework State</h3>
-          <div class="json-view" id="fw-data"></div>
-        </div>
-      </div>
-
-      <!-- NETWORK -->
-      <div class="tab-pane" id="pane-network">
-        <div class="card">
-          <h3>Network Requests <span id="net-count" class="badge badge-blue"></span></h3>
-          <input class="text-search" id="net-search" placeholder="Filter by URL…" oninput="filterNet(this.value)">
-          <div id="net-list"></div>
-        </div>
-      </div>
-
-      <!-- UI CATALOG -->
-      <div class="tab-pane" id="pane-ui">
-        <div class="card">
-          <h3>UI Elements</h3>
-          <div class="json-view" id="ui-data"></div>
-        </div>
-      </div>
-
-      <!-- CSS -->
-      <div class="tab-pane" id="pane-css">
-        <div class="card">
-          <h3>CSS Analysis</h3>
-          <div class="json-view" id="css-data"></div>
-        </div>
-      </div>
-
-      <!-- DOM -->
-      <div class="tab-pane" id="pane-dom">
-        <div class="card">
-          <h3>DOM / ARIA Snapshot</h3>
-          <div class="json-view" id="dom-data"></div>
-        </div>
-      </div>
-
-      <!-- STREAM -->
-      <div class="tab-pane" id="pane-stream">
-        <div class="card">
-          <h3>Live Message Stream</h3>
-          <div id="stream"></div>
-        </div>
-      </div>
-
-      <!-- CONFIG -->
-      <div class="tab-pane" id="pane-config">
-        <div class="card">
-          <h3>Activation Config</h3>
-          <div class="config-grid">
-            <div class="form-group">
-              <label>Mode</label>
-              <select id="cfg-mode">
-                <option value="always_on">always_on</option>
-                <option value="manual">manual</option>
-                <option value="api">api</option>
-                <option value="selective">selective</option>
-                <option value="off">off</option>
+        <div class="pane" id="p-text">
+          <div class="card">
+            <h3>TEXT TOPOGRAPHY <span class="badge" id="txt-n"></span></h3>
+            <div class="cv-controls" id="cv-ctrl">
+              <label>ZOOM</label>
+              <input type="range" id="cv-zoom" min="0.05" max="4" step="0.05" value="1">
+              <span class="cv-zoom" id="cv-zoom-v">auto</span>
+              <span class="cv-sep"></span>
+              <button class="btn" id="cv-fit">FIT PAGE</button>
+              <button class="btn" id="cv-focus-vp">FOCUS VP</button>
+              <button class="btn" id="cv-vp">CROP VP</button>
+              <span class="cv-sep"></span>
+              <button class="btn" id="cv-interact" title="Toggle interact mode (click/drag/scroll)">INTERACT</button>
+              <button class="btn" id="cv-undo" title="Undo last action (Ctrl+Z)">UNDO</button>
+              <button class="btn" id="cv-redo" title="Redo action (Ctrl+Shift+Z)">REDO</button>
+              <span class="cv-sep"></span>
+              <label><input type="checkbox" id="cv-bounds" checked> BOUNDS</label>
+              <label><input type="checkbox" id="cv-colors"> COLORS</label>
+              <label><input type="checkbox" id="cv-overlay" checked> OVERLAY</label>
+              <span class="cv-sep"></span>
+              <label>OUT-VP</label>
+              <select id="cv-oov-mode" class="cv-select">
+                <option value="show">SHOW</option>
+                <option value="dim" selected>DIM</option>
+                <option value="hide">HIDE</option>
               </select>
+              <span class="cv-dim-row" id="cv-dim-row">
+                <input type="range" id="cv-dim-amt" min="0.02" max="0.55" step="0.03" value="0.15">
+                <span class="cv-zoom" id="cv-dim-v">15%</span>
+              </span>
             </div>
-          </div>
-          <div class="plugin-toggles" id="plugin-toggles"></div>
-          <div style="margin-top:16px;display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+            <div class="cv-wrap" id="cv-wrap"><canvas id="cv"></canvas></div>
+            <div class="cv-info" id="cv-info"></div>
+            <input class="search" id="txt-filter" placeholder="Filter words…">
+            <div class="wg-hdr"><span>TEXT</span><span>X</span><span>Y</span><span>W</span><span>H</span><span>⊙</span></div>
+            <div id="words-scroll"><div id="words"></div></div>
           </div>
         </div>
-        <div class="card">
-          <h3>Raw Config JSON</h3>
-          <div class="json-view" id="cfg-raw"></div>
+
+        <div class="pane" id="p-framework">
+          <div class="card"><h3>FRAMEWORK STATE</h3><div class="json" id="fw-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-network">
+          <div class="card">
+            <h3>NETWORK <span class="badge" id="net-n"></span></h3>
+            <input class="search" id="net-filter" placeholder="Filter by URL…">
+            <div id="net-list"></div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-ui">
+          <div class="card"><h3>UI ELEMENTS</h3><div class="json" id="ui-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-css">
+          <div class="card"><h3>CSS ANALYSIS</h3><div class="json" id="css-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-dom">
+          <div class="card"><h3>DOM SNAPSHOT</h3><div class="json" id="dom-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-stream">
+          <div class="card"><h3>LIVE STREAM</h3><div id="stream-el"></div></div>
+        </div>
+
+        <div class="pane" id="p-config">
+          <div class="card">
+            <h3>CONFIGURATION</h3>
+            <div class="cfg-grid">
+              <div class="fg">
+                <label>MODE</label>
+                <select id="cfg-mode">
+                  <option value="always_on">always_on</option>
+                  <option value="manual">manual</option>
+                  <option value="api">api</option>
+                  <option value="selective">selective</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+            </div>
+            <div class="ptoggle-grid" id="cfg-plugins"></div>
+            <div style="margin-top:21px"><button class="btn btn-accent" id="btn-save-cfg">SAVE</button></div>
+          </div>
+          <div class="card"><h3>RAW CONFIG</h3><div class="json" id="cfg-raw"></div></div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
+<div class="cv-tip" id="cv-tip"></div>
+
 <script>
-const API = 'http://localhost:7892';
-let currentTabId = null;
-let sessions = [];
-let wsStream  = null;
-let currentWords = [];
-let liveViewport = null;
-let canvasAnimFrame = null;
-let canvasFade = 1;
+  (function() {
+    'use strict';
 
-// ── Tab switching ─────────────────────────────────────────────────────────
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`pane-${btn.dataset.tab}`).classList.add('active');
-    if (currentTabId && btn.dataset.tab !== 'stream' && btn.dataset.tab !== 'config') {
-      loadTabData(btn.dataset.tab);
+    // ── Utilities ───────────────────────────────────────────────────────────
+    function esc(s) {
+      return String(s == null ? '' : s)
+              .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
-  });
-});
 
-// ── WebSocket (live stream) ───────────────────────────────────────────────
-function connectStream() {
-  try {
-    wsStream = new WebSocket('ws://localhost:7891/dashboard');
-    wsStream.onopen  = () => { setStatus(true); };
-    wsStream.onclose = () => { setStatus(false); setTimeout(connectStream, 3000); };
-    wsStream.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      addStream(msg);
-      if (msg.tabId === currentTabId) {
-        if (msg.type === 'VIEWPORT_UPDATE') {
-          liveViewport = msg.payload;
-          if (cropMode === 'viewport') {
-            // Re-render immediately in viewport crop mode
-            renderCanvas(currentWords);
-          } else {
-            renderCanvas(currentWords);
+    function debounce(fn, ms) {
+      var t; return function() { clearTimeout(t); var a = arguments, c = this; t = setTimeout(function(){ fn.apply(c, a); }, ms); };
+    }
+
+    // ── State ───────────────────────────────────────────────────────────────
+    var S = {
+      api: 'http://localhost:7892',
+      tabId: null,
+      sessions: [],
+      ws: null,
+      activeTab: 'overview',
+      words: [],
+      viewport: { width: 1280, height: 800, scrollX: 0, scrollY: 0 },
+      liveVp: null,
+      netCache: null,
+      canvas: {
+        zoom: null,
+        panX: 0, panY: 0,
+        crop: 'page',
+        renderPending: false,
+        isPanning: false,
+        lastMX: 0, lastMY: 0,
+        interactMode: false,
+        dragStart: null,
+        lastW: 0, lastH: 0, lastDpr: 0,
+        areaCache: null,
+        areaCacheValid: false,
+        animFrame: null,
+        targetZoom: null,
+        targetPanX: 0,
+        targetPanY: 0,
+      },
+      actionHistory: [],
+      actionFuture: [],
+      maxHistory: 50,
+    };
+
+    // ── DOM Refs (cached once) ──────────────────────────────────────────────
+    var D = {};
+    function cacheDOM() {
+      var ids = [
+        'dot','status','theme-sel','s-list','empty','detail','tabs',
+        'ov-meta','ov-stats','ov-files',
+        'txt-n','cv-zoom','cv-zoom-v','cv-wrap','cv','cv-info','cv-tip',
+        'cv-bounds','cv-colors','cv-overlay','cv-oov-mode','cv-dim-amt','cv-dim-v','cv-dim-row',
+        'cv-interact','cv-undo','cv-redo',
+        'txt-filter','words','words-scroll',
+        'fw-data','net-n','net-filter','net-list',
+        'ui-data','css-data','dom-data',
+        'stream-el',
+        'cfg-mode','cfg-plugins','cfg-raw'
+      ];
+      ids.forEach(function(id) { D[id] = document.getElementById(id); });
+    }
+
+    // ── Theme ───────────────────────────────────────────────────────────────
+    function initTheme() {
+      var sel = D['theme-sel'];
+      sel.value = document.documentElement.getAttribute('data-theme') || 'twilight';
+      sel.addEventListener('change', function() {
+        document.documentElement.setAttribute('data-theme', this.value);
+        localStorage.setItem('whiskor-theme', this.value);
+        scheduleCanvasRender();
+      });
+    }
+
+    // ── Ambient Particles ──────────────────────────────────────────────────
+    var ambientEl = document.getElementById('ambient');
+    var particleCount = 0;
+    function spawnParticle(text) {
+      if (particleCount > 30) return;
+      particleCount++;
+      var sp = document.createElement('span');
+      sp.className = 'particle';
+      sp.textContent = String(text).substring(0, 36);
+      sp.style.left = (Math.random() * 88 + 4) + '%';
+      sp.style.bottom = '-20px';
+      sp.style.animationDuration = (12 + Math.random() * 14) + 's';
+      ambientEl.appendChild(sp);
+      sp.addEventListener('animationend', function() {
+        if (sp.parentNode) sp.parentNode.removeChild(sp);
+        particleCount--;
+      });
+    }
+
+    // ── Tabs ────────────────────────────────────────────────────────────────
+    var TAB_DEFS = [
+      ['overview','Overview'], ['text','Text'], ['framework','Framework'],
+      ['network','Network'], ['ui','UI'], ['css','CSS'],
+      ['dom','DOM'], ['stream','Stream'], ['config','Config']
+    ];
+
+    function initTabs() {
+      var container = D['tabs'];
+      container.innerHTML = '';
+      TAB_DEFS.forEach(function(def) {
+        var btn = document.createElement('button');
+        btn.className = 'tab' + (def[0] === 'overview' ? ' active' : '');
+        btn.dataset.tab = def[0];
+        btn.textContent = def[1];
+        btn.addEventListener('click', function() { switchTab(def[0]); });
+        container.appendChild(btn);
+      });
+    }
+
+    function switchTab(name) {
+      S.activeTab = name;
+      if (name === 'text') {
+        // Treat tab switch as a fresh load so the view resets cleanly
+        S.words = [];
+      }
+      D['tabs'].querySelectorAll('.tab').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.tab === name);
+      });
+      document.querySelectorAll('.pane').forEach(function(p) {
+        p.classList.toggle('active', p.id === 'p-' + name);
+      });
+      if (S.tabId && name !== 'stream' && name !== 'config') {
+        loadPane(name);
+      }
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+    function connectWS() {
+      try {
+        S.ws = new WebSocket('ws://localhost:7891/dashboard');
+        S.ws.onopen = function() { setStatus(true); };
+        S.ws.onclose = function() { setStatus(false); setTimeout(connectWS, 3000); };
+        S.ws.onerror = function() {};
+        S.ws.onmessage = function(e) {
+          var msg;
+          try { msg = JSON.parse(e.data); } catch(_) { return; }
+          addStreamEntry(msg);
+          if (msg.type) spawnParticle(msg.type + (msg.payload && msg.payload.url ? ' ' + msg.payload.url : ''));
+          if (msg.tabId === S.tabId) {
+            if (msg.type === 'VIEWPORT_UPDATE') {
+              S.liveVp = msg.payload;
+              invalidateAreaCache();
+              scheduleCanvasRender();
+            } else {
+              setTimeout(function(){ loadPane(S.activeTab); }, 300);
+            }
           }
+          refreshSessions();
+        };
+      } catch(_) { setTimeout(connectWS, 3000); }
+    }
+
+    function setStatus(on) {
+      D['dot'].className = on ? 'on' : '';
+      D['status'].textContent = on ? 'CONNECTED' : 'AWAITING…';
+    }
+
+    // ── Sessions ──────────────────────────────────────────────────────────
+    async function refreshSessions() {
+      try {
+        var r = await fetch(S.api + '/api/sessions');
+        S.sessions = await r.json();
+        renderSessions();
+      } catch(_) {}
+    }
+
+    function renderSessions() {
+      var el = D['s-list'];
+      if (!S.sessions.length) {
+        el.innerHTML = '<div style="padding:21px;font:200 9px/1 var(--font-mono);color:var(--muted)">NO SESSIONS</div>';
+        return;
+      }
+      el.innerHTML = S.sessions.map(function(s) {
+        var fws = (s.summary && s.summary.detectedFrameworks || []).map(function(f){ return '<span class="s-tag">' + esc(f) + '</span>'; }).join('');
+        return '<div class="s-item' + (s.tabId === S.tabId ? ' active' : '') + '" data-tid="' + s.tabId + '">'
+                + '<div class="s-url">' + esc(s.url || '(unknown)') + '</div>'
+                + '<div class="s-meta">TAB ' + s.tabId + ' · ' + new Date(s.updatedAt).toLocaleTimeString() + '</div>'
+                + (fws ? '<div class="s-tags">' + fws + '</div>' : '')
+                + '</div>';
+      }).join('');
+      el.querySelectorAll('.s-item').forEach(function(item) {
+        item.addEventListener('click', function() { selectSession(parseInt(this.dataset.tid)); });
+      });
+    }
+
+    function selectSession(tid) {
+      S.tabId = tid;
+      renderSessions();
+      D['empty'].style.display = 'none';
+      D['detail'].style.display = '';
+      switchTab('overview');
+    }
+
+    // ── Data Loading ─────────────────────────────────────────────────────
+    async function fetchSess(path) {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/' + path);
+        return r.ok ? await r.json() : null;
+      } catch(_) { return null; }
+    }
+
+    function loadPane(name) {
+      if (!S.tabId) return;
+      switch(name) {
+        case 'overview': return loadOverview();
+        case 'text': return loadText();
+        case 'framework': return loadFW();
+        case 'network': return loadNet();
+        case 'ui': return loadJSON('raw/ui/elements.json', D['ui-data']);
+        case 'css': return loadJSON('raw/css/analysis.json', D['css-data']);
+        case 'dom': return loadJSON('raw/dom/snapshot.json', D['dom-data']);
+        case 'config': return loadConfig();
+      }
+    }
+
+    async function loadJSON(path, el) {
+      var d = await fetchSess(path);
+      el.textContent = d ? JSON.stringify(d, null, 2) : '(unavailable)';
+    }
+
+    // ── Overview ──────────────────────────────────────────────────────────
+    async function loadOverview() {
+      var idx;
+      try { idx = await (await fetch(S.api + '/api/sessions/' + S.tabId)).json(); } catch(_) { return; }
+      if (!idx) return;
+      D['ov-meta'].innerHTML =
+              '<div style="color:var(--accent);margin-bottom:8px">' + esc(idx.url || '—') + '</div>'
+              + '<div style="color:var(--muted);font-size:9px">TAB ' + idx.tabId + ' // SESSION ' + esc(idx.sessionId) + ' // ' + new Date(idx.updatedAt).toLocaleTimeString() + '</div>';
+      var s = idx.summary || {};
+      D['ov-stats'].innerHTML = [
+        ['WORDS', s.textWordCount],['BLOCKS', s.textBlockCount],
+        ['REQUESTS', s.networkRequests],['FRAMEWORKS', (s.detectedFrameworks||[]).length]
+      ].map(function(p){ return '<div><div class="stat-v">'+(p[1]||0)+'</div><div class="stat-l">'+p[0]+'</div></div>'; }).join('');
+      D['ov-files'].textContent = JSON.stringify(idx.files || {}, null, 2);
+    }
+
+    // ── Text Coords ───────────────────────────────────────────────────────
+    async function loadText() {
+      var isFirstLoad = !S.words.length;
+      var data = await fetchSess('raw/visual/text-coords.json');
+      var words = data && data.words || [];
+      S.words = words;
+      S.viewport = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+      if (!S.liveVp) S.liveVp = Object.assign({}, S.viewport);
+      D['txt-n'].textContent = words.length + ' nodes';
+      if (isFirstLoad) resetCanvasView();
+      scheduleCanvasRender();
+      renderWordList(words);
+      // ambient
+      for (var i = 0; i < Math.min(3, words.length); i++) {
+        spawnParticle(words[Math.floor(Math.random()*words.length)].text);
+      }
+    }
+
+    function resetCanvasView() {
+      S.canvas.zoom = null;
+      S.canvas.panX = 0;
+      S.canvas.panY = 0;
+      D['cv-zoom'].value = 1;
+      D['cv-zoom-v'].textContent = 'auto';
+    }
+
+    // ── Canvas Renderer (DPR-aware, rAF-throttled) ─────────────────────
+    function scheduleCanvasRender() {
+      if (S.canvas.renderPending) return;
+      S.canvas.renderPending = true;
+      requestAnimationFrame(function() {
+        S.canvas.renderPending = false;
+        renderCanvas();
+      });
+    }
+
+    // Smooth animation: interpolate current → target over ~250ms
+    function animateTo(targetZoom, targetPanX, targetPanY) {
+      cancelAnimation();
+      S.canvas.targetZoom = targetZoom;
+      S.canvas.targetPanX = targetPanX;
+      S.canvas.targetPanY = targetPanY;
+      var startZoom = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 1);
+      var startPanX = S.canvas.panX;
+      var startPanY = S.canvas.panY;
+      var startTime = performance.now();
+      var duration = 250;
+
+      function step(now) {
+        var t = Math.min((now - startTime) / duration, 1);
+        // Ease out cubic
+        t = 1 - Math.pow(1 - t, 3);
+        S.canvas.zoom = startZoom + (targetZoom - startZoom) * t;
+        S.canvas.panX = startPanX + (targetPanX - startPanX) * t;
+        S.canvas.panY = startPanY + (targetPanY - startPanY) * t;
+        renderCanvas();
+        if (t < 1) {
+          S.canvas.animFrame = requestAnimationFrame(step);
         } else {
-          setTimeout(() => loadTabData(activeTab()), 300);
+          S.canvas.animFrame = null;
+          S.canvas.targetZoom = null;
         }
       }
+      S.canvas.animFrame = requestAnimationFrame(step);
+    }
+
+    function cancelAnimation() {
+      if (S.canvas.animFrame) {
+        cancelAnimationFrame(S.canvas.animFrame);
+        S.canvas.animFrame = null;
+      }
+      S.canvas.targetZoom = null;
+    }
+
+    function getCanvasArea() {
+      if (S.canvas.areaCacheValid) return S.canvas.areaCache;
+      var vp = S.viewport;
+      var lv = S.liveVp || vp;
+      var words = S.words;
+      if (S.canvas.crop === 'viewport') {
+        S.canvas.areaCache = { x: lv.scrollX, y: lv.scrollY, w: lv.width, h: lv.height };
+        S.canvas.areaCacheValid = true;
+        return S.canvas.areaCache;
+      }
+      var maxX = vp.width, maxY = vp.height;
+      for (var i = 0; i < words.length; i++) {
+        var wx = (words[i].absoluteX || 0) + (words[i].width || 0);
+        var wy = (words[i].absoluteY || 0) + (words[i].height || 0);
+        if (wx > maxX) maxX = wx;
+        if (wy > maxY) maxY = wy;
+      }
+      S.canvas.areaCache = { x: 0, y: 0, w: maxX + 40, h: maxY + 40 };
+      S.canvas.areaCacheValid = true;
+      return S.canvas.areaCache;
+    }
+
+    function invalidateAreaCache() {
+      S.canvas.areaCacheValid = false;
+      S.canvas.areaCache = null;
+    }
+
+    function renderCanvas() {
+      var canvas = D['cv'];
+      var wrap = D['cv-wrap'];
+      var ctx = canvas.getContext('2d');
+      var dpr = window.devicePixelRatio || 1;
+      var rect = wrap.getBoundingClientRect();
+      var cssW = rect.width, cssH = rect.height;
+      if (cssW < 1 || cssH < 1) return;
+
+      var needResize = cssW !== S.canvas.lastW || cssH !== S.canvas.lastH || dpr !== S.canvas.lastDpr;
+      if (needResize) {
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        S.canvas.lastW = cssW;
+        S.canvas.lastH = cssH;
+        S.canvas.lastDpr = dpr;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      var area = getCanvasArea();
+      var zoom = S.canvas.zoom;
+      if (zoom === null) {
+        zoom = Math.min(cssW / area.w, cssH / area.h, 1);
+        if (S.canvas.crop === 'page' && S.liveVp && S.liveVp.scrollY > 0) {
+          // Center initial view on the live viewport rather than the page top-left
+          var lv0 = S.liveVp;
+          var vpCX = lv0.scrollX + lv0.width / 2;
+          var vpCY = lv0.scrollY + lv0.height / 2;
+          S.canvas.panX = Math.max(area.x, Math.min(vpCX - cssW / (2 * zoom), area.x + area.w - cssW / zoom));
+          S.canvas.panY = Math.max(area.y, Math.min(vpCY - cssH / (2 * zoom), area.y + area.h - cssH / zoom));
+        } else {
+          S.canvas.panX = area.x;
+          S.canvas.panY = area.y;
+        }
+      }
+
+      var panX = S.canvas.panX, panY = S.canvas.panY;
+      var lv = S.liveVp || S.viewport;
+      var vp = S.viewport;
+      var words = S.words;
+
+      var showBounds = D['cv-bounds'].checked;
+      var showColors = D['cv-colors'].checked;
+      var oovMode = D['cv-oov-mode'].value;            // 'show' | 'dim' | 'hide'
+      var dimAmt = parseFloat(D['cv-dim-amt'].value);  // 0.02–0.55
+      var showOverlay = D['cv-overlay'].checked;
+
+      // Get themed colors
+      var cs = getComputedStyle(document.documentElement);
+      var bgC = cs.getPropertyValue('--canvas-bg').trim() || '#0a0f1a';
+      var acC = cs.getPropertyValue('--accent').trim() || '#66fcf1';
+      var txC = cs.getPropertyValue('--text').trim() || '#ccc';
+      var okC = cs.getPropertyValue('--ok').trim() || '#4ade80';
+
+      // Background
+      ctx.fillStyle = bgC;
+      ctx.fillRect(0, 0, cssW, cssH);
+
+      // Transform helpers: page coord -> canvas pixel
+      function toX(px) { return (px - panX) * zoom; }
+      function toY(py) { return (py - panY) * zoom; }
+
+      // Viewport overlay (page mode only)
+      if (S.canvas.crop === 'page' && showOverlay && S.liveVp) {
+        var lx = toX(lv.scrollX), ly = toY(lv.scrollY);
+        var lw = lv.width * zoom, lh = lv.height * zoom;
+
+        // Dim outside viewport
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(0, 0, cssW, ly);
+        ctx.fillRect(0, ly + lh, cssW, cssH - ly - lh);
+        ctx.fillRect(0, ly, lx, lh);
+        ctx.fillRect(lx + lw, ly, cssW - lx - lw, lh);
+
+        ctx.strokeStyle = okC;
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(lx, ly, lw, lh);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = okC;
+        ctx.globalAlpha = 0.7;
+        ctx.font = '300 9px "JetBrains Mono", monospace';
+        ctx.fillText('VP (' + lv.scrollX + ',' + lv.scrollY + ') ' + lv.width + '×' + lv.height, lx + 4, ly + 11);
+        ctx.globalAlpha = 1;
+      }
+
+      // Snapshot viewport indicator
+      if (S.canvas.crop === 'page') {
+        ctx.strokeStyle = acC;
+        ctx.globalAlpha = 0.15;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(toX(vp.scrollX), toY(vp.scrollY), vp.width * zoom, vp.height * zoom);
+        ctx.globalAlpha = 1;
+      }
+
+      // Crop mode label
+      if (S.canvas.crop === 'viewport') {
+        ctx.fillStyle = okC;
+        ctx.globalAlpha = 0.7;
+        ctx.font = '300 9px "JetBrains Mono", monospace';
+        ctx.fillText('CROP (' + lv.scrollX + ',' + lv.scrollY + ') ' + lv.width + '×' + lv.height, 4, 11);
+        ctx.globalAlpha = 1;
+      }
+
+      // Words
+      var visCount = 0;
+      var drawn = 0;
+      var maxDraw = 6000;
+      for (var i = 0; i < words.length && drawn < maxDraw; i++) {
+        var w = words[i];
+        var wx = w.absoluteX || 0, wy = w.absoluteY || 0;
+        var ww = w.width || 8, wh = w.height || 14;
+        var inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
+        if (inView) visCount++;
+        if (oovMode === 'hide' && !inView) continue;
+
+        var sx = toX(wx), sy = toY(wy);
+        var sw = ww * zoom, sh = wh * zoom;
+        // Frustum cull
+        if (sx + sw < 0 || sx > cssW || sy + sh < 0 || sy > cssH) continue;
+
+        var alpha = (oovMode === 'dim' && !inView) ? dimAmt : 1;
+
+        if (showBounds) {
+          ctx.strokeStyle = inView ? acC : txC;
+          ctx.globalAlpha = inView ? 0.2 : Math.max(0.02, 0.15 * alpha);
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(sx, sy, sw, sh);
+        }
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = (showColors && w.color) ? w.color : txC;
+        var fs = Math.max(5, (w.fontSize || 12) * zoom);
+        ctx.font = '300 ' + fs + 'px sans-serif';
+        ctx.fillText(w.text, sx, sy + sh * 0.82);
+        ctx.globalAlpha = 1;
+        drawn++;
+      }
+
+      var label = S.canvas.crop === 'viewport' ? 'VIEWPORT' : 'PAGE';
+      D['cv-info'].textContent = label + ' // ' + Math.round(area.w) + '×' + Math.round(area.h) + 'px // ZOOM ' + zoom.toFixed(2) + ' // VISIBLE ' + visCount + '/' + words.length;
+
+      // Store effective zoom for hit-testing
+      S.canvas._effectiveZoom = zoom;
+    }
+
+    // ── Canvas Controls ──────────────────────────────────────────────────
+    function focusOnViewport() {
+      var lv = S.liveVp || S.viewport;
+      var wrap = D['cv-wrap'];
+      var rect = wrap.getBoundingClientRect();
+      var cssW = rect.width, cssH = rect.height;
+      var pad = Math.round(Math.min(lv.width, lv.height) * 0.08 + 40);
+      var areaW = lv.width + pad * 2;
+      var areaH = lv.height + pad * 2;
+      var newZoom = Math.max(0.02, Math.min(4, Math.min(cssW / areaW, cssH / areaH)));
+      S.canvas.crop = 'page';
+      D['cv-zoom'].value = Math.min(4, newZoom);
+      D['cv-zoom-v'].textContent = newZoom.toFixed(2) + 'x';
+      animateTo(newZoom, lv.scrollX - pad, lv.scrollY - pad);
+    }
+
+    function initCanvas() {
+      var wrap = D['cv-wrap'];
+      var canvas = D['cv'];
+      var tip = D['cv-tip'];
+
+      // Fit / Focus / Crop buttons
+      document.getElementById('cv-fit').addEventListener('click', function() {
+        S.canvas.crop = 'page';
+        resetCanvasView();
+        scheduleCanvasRender();
+      });
+      document.getElementById('cv-focus-vp').addEventListener('click', focusOnViewport);
+      document.getElementById('cv-vp').addEventListener('click', function() {
+        S.canvas.crop = 'viewport';
+        resetCanvasView();
+        scheduleCanvasRender();
+      });
+
+      // INTERACT toggle
+      D['cv-interact'].addEventListener('click', function() {
+        S.canvas.interactMode = !S.canvas.interactMode;
+        this.classList.toggle('btn-active', S.canvas.interactMode);
+        wrap.classList.toggle('interacting', S.canvas.interactMode);
+        if (!S.canvas.interactMode) {
+          S.canvas.dragStart = null;
+        }
+      });
+
+      // UNDO / REDO
+      D['cv-undo'].addEventListener('click', undoAction);
+      D['cv-redo'].addEventListener('click', redoAction);
+
+      // Checkboxes
+      ['cv-bounds','cv-colors','cv-overlay'].forEach(function(id) {
+        D[id].addEventListener('change', scheduleCanvasRender);
+      });
+
+      // OUT-VP mode select
+      D['cv-oov-mode'].addEventListener('change', function() {
+        var isDim = this.value === 'dim';
+        D['cv-dim-row'].style.opacity = isDim ? '1' : '0.3';
+        D['cv-dim-row'].style.pointerEvents = isDim ? '' : 'none';
+        scheduleCanvasRender();
+        renderWordList(S.words);
+      });
+
+      // Dim amount slider
+      D['cv-dim-amt'].addEventListener('input', function() {
+        var pct = Math.round(parseFloat(this.value) * 100);
+        D['cv-dim-v'].textContent = pct + '%';
+        scheduleCanvasRender();
+      });
+
+      // Zoom slider
+      D['cv-zoom'].addEventListener('input', function() {
+        cancelAnimation();
+        S.canvas.zoom = parseFloat(this.value);
+        D['cv-zoom-v'].textContent = S.canvas.zoom.toFixed(2) + 'x';
+        scheduleCanvasRender();
+      });
+
+      // Wheel: interact mode → scroll action, else zoom
+      wrap.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        if (S.canvas.interactMode) {
+          var rect = canvas.getBoundingClientRect();
+          var mx = e.clientX - rect.left;
+          var my = e.clientY - rect.top;
+          var curZoom = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 0.5);
+          var pageX = Math.round(S.canvas.panX + mx / curZoom);
+          var pageY = Math.round(S.canvas.panY + my / curZoom);
+          sendAction({ type: 'mouse_scroll', x: pageX, y: pageY, deltaX: e.deltaX, deltaY: e.deltaY }, 'scroll at ' + pageX + ',' + pageY);
+          return;
+        }
+        cancelAnimation();
+        var rect2 = canvas.getBoundingClientRect();
+        var mx2 = e.clientX - rect2.left;
+        var my2 = e.clientY - rect2.top;
+        var curZoom2 = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 0.5);
+        var pageX2 = S.canvas.panX + mx2 / curZoom2;
+        var pageY2 = S.canvas.panY + my2 / curZoom2;
+        var factor = e.deltaY > 0 ? 0.92 : 1.08;
+        var newZoom = Math.max(0.02, Math.min(5, curZoom2 * factor));
+        S.canvas.zoom = newZoom;
+        S.canvas.panX = pageX2 - mx2 / newZoom;
+        S.canvas.panY = pageY2 - my2 / newZoom;
+        D['cv-zoom'].value = newZoom;
+        D['cv-zoom-v'].textContent = newZoom.toFixed(2) + 'x';
+        scheduleCanvasRender();
+      }, { passive: false });
+
+      // Mouse down: interact mode → start drag, else pan
+      wrap.addEventListener('mousedown', function(e) {
+        if (e.button === 2 && S.canvas.interactMode) {
+          e.preventDefault();
+          var rect = canvas.getBoundingClientRect();
+          var mx = e.clientX - rect.left;
+          var my = e.clientY - rect.top;
+          var curZoom = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 0.5);
+          var pageX = Math.round(S.canvas.panX + mx / curZoom);
+          var pageY = Math.round(S.canvas.panY + my / curZoom);
+          sendAction({ type: 'right_click', x: pageX, y: pageY }, 'right-click at ' + pageX + ',' + pageY);
+          return;
+        }
+        if (e.button !== 0) return;
+        if (S.canvas.interactMode) {
+          var rect3 = canvas.getBoundingClientRect();
+          var mx3 = e.clientX - rect3.left;
+          var my3 = e.clientY - rect3.top;
+          var curZoom3 = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 0.5);
+          S.canvas.dragStart = {
+            pageX: Math.round(S.canvas.panX + mx3 / curZoom3),
+            pageY: Math.round(S.canvas.panY + my3 / curZoom3),
+            clientX: e.clientX,
+            clientY: e.clientY,
+          };
+          e.preventDefault();
+          return;
+        }
+        cancelAnimation();
+        S.canvas.isPanning = true;
+        S.canvas.lastMX = e.clientX;
+        S.canvas.lastMY = e.clientY;
+        wrap.classList.add('panning');
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', function(e) {
+        if (S.canvas.isPanning) {
+          var zoom = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 1);
+          S.canvas.panX -= (e.clientX - S.canvas.lastMX) / zoom;
+          S.canvas.panY -= (e.clientY - S.canvas.lastMY) / zoom;
+          S.canvas.lastMX = e.clientX;
+          S.canvas.lastMY = e.clientY;
+          if (S.canvas.zoom === null) S.canvas.zoom = zoom;
+          scheduleCanvasRender();
+        }
+      });
+
+      window.addEventListener('mouseup', function(e) {
+        if (S.canvas.isPanning) {
+          S.canvas.isPanning = false;
+          wrap.classList.remove('panning');
+          return;
+        }
+        if (S.canvas.interactMode && S.canvas.dragStart) {
+          var ds = S.canvas.dragStart;
+          var dx = e.clientX - ds.clientX;
+          var dy = e.clientY - ds.clientY;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          var rect4 = canvas.getBoundingClientRect();
+          var mx4 = e.clientX - rect4.left;
+          var my4 = e.clientY - rect4.top;
+          var curZoom4 = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 0.5);
+          var endPageX = Math.round(S.canvas.panX + mx4 / curZoom4);
+          var endPageY = Math.round(S.canvas.panY + my4 / curZoom4);
+
+          if (dist < 5) {
+            sendAction({ type: 'click', x: ds.pageX, y: ds.pageY }, 'click at ' + ds.pageX + ',' + ds.pageY);
+          } else {
+            sendAction({ type: 'drag', fromX: ds.pageX, fromY: ds.pageY, toX: endPageX, toY: endPageY }, 'drag ' + ds.pageX + ',' + ds.pageY + ' → ' + endPageX + ',' + endPageY);
+          }
+          S.canvas.dragStart = null;
+        }
+      });
+
+      // Context menu suppression in interact mode
+      wrap.addEventListener('contextmenu', function(e) {
+        if (S.canvas.interactMode) e.preventDefault();
+      });
+
+      // Tooltip (hover)
+      canvas.addEventListener('mousemove', debounce(function(e) {
+        if (S.canvas.isPanning || S.canvas.interactMode || !S.words.length) { tip.classList.remove('show'); return; }
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var my = e.clientY - rect.top;
+        var zoom = S.canvas.zoom !== null ? S.canvas.zoom : (S.canvas._effectiveZoom || 1);
+        var pageX = S.canvas.panX + mx / zoom;
+        var pageY = S.canvas.panY + my / zoom;
+        var found = null;
+        for (var i = 0; i < S.words.length; i++) {
+          var w = S.words[i];
+          var wx = w.absoluteX || 0, wy = w.absoluteY || 0;
+          var ww = w.width || 8, wh = w.height || 14;
+          if (pageX >= wx && pageX <= wx + ww && pageY >= wy && pageY <= wy + wh) {
+            found = w; break;
+          }
+        }
+        if (found) {
+          tip.textContent = '"' + found.text + '"\n' + Math.round(found.absoluteX) + ',' + Math.round(found.absoluteY) + ' — ' + Math.round(found.width) + '×' + Math.round(found.height) + (found.fontSize ? '\nfont: ' + found.fontSize + 'px' : '') + (found.color ? '\ncolor: ' + found.color : '');
+          tip.style.left = (e.clientX + 12) + 'px';
+          tip.style.top = (e.clientY - 8) + 'px';
+          tip.classList.add('show');
+        } else {
+          tip.classList.remove('show');
+        }
+      }, 16));
+
+      canvas.addEventListener('mouseleave', function() { tip.classList.remove('show'); });
+
+      // Resize (dashboard window size change)
+      window.addEventListener('resize', debounce(function() {
+        cancelAnimation();
+        S.canvas.lastW = 0; // force canvas resize
+        scheduleCanvasRender();
+      }, 100));
+
+      // Keyboard shortcuts
+      window.addEventListener('keydown', function(e) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+        if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redoAction(); }
+        else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoAction(); }
+        else if (e.key === 'i' && !e.ctrlKey && !e.metaKey) { D['cv-interact'].click(); }
+      });
+    }
+
+    // ── Word List ─────────────────────────────────────────────────────────
+    function renderWordList(words) {
+      var lv = S.liveVp || S.viewport;
+      var visOnly = D['cv-oov-mode'].value === 'hide';
+      var list = [];
+      for (var i = 0; i < words.length; i++) {
+        var w = words[i];
+        var wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
+        var inV = !(wx+ww < lv.scrollX || wx > lv.scrollX+lv.width || wy+wh < lv.scrollY || wy > lv.scrollY+lv.height);
+        if (visOnly && !inV) continue;
+        list.push({ w: w, v: inV });
+      }
+      var max = Math.min(list.length, 1500);
+      var html = '';
+      for (var j = 0; j < max; j++) {
+        var it = list[j];
+        html += '<div class="wr" style="' + (it.v ? '' : 'opacity:0.3') + '">'
+                + '<span>' + esc(it.w.text) + '</span>'
+                + '<span class="c">' + Math.round(it.w.absoluteX || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.absoluteY || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.width || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.height || 0) + '</span>'
+                + '<span style="color:' + (it.v ? 'var(--ok)' : 'var(--muted)') + ';font-size:9px">' + (it.v ? '●' : '○') + '</span>'
+                + '</div>';
+      }
+      if (list.length > max) html += '<div style="padding:13px;color:var(--muted);font:200 9px/1 var(--font-mono)">… ' + (list.length - max) + ' more</div>';
+      D['words'].innerHTML = html;
+    }
+
+    function filterWords(q) {
+      var lv = S.liveVp || S.viewport;
+      var visOnly = D['cv-oov-mode'].value === 'hide';
+      var ql = q.toLowerCase();
+      var list = [];
+      for (var i = 0; i < S.words.length; i++) {
+        var w = S.words[i];
+        if (q && w.text.toLowerCase().indexOf(ql) === -1) continue;
+        var wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
+        var inV = !(wx+ww < lv.scrollX || wx > lv.scrollX+lv.width || wy+wh < lv.scrollY || wy > lv.scrollY+lv.height);
+        if (visOnly && !inV) continue;
+        list.push({ w: w, v: inV });
+      }
+      var max = Math.min(list.length, 1500);
+      var html = '';
+      for (var j = 0; j < max; j++) {
+        var it = list[j];
+        html += '<div class="wr" style="' + (it.v ? '' : 'opacity:0.3') + '">'
+                + '<span>' + esc(it.w.text) + '</span>'
+                + '<span class="c">' + Math.round(it.w.absoluteX || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.absoluteY || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.width || 0) + '</span>'
+                + '<span class="c">' + Math.round(it.w.height || 0) + '</span>'
+                + '<span style="color:' + (it.v ? 'var(--ok)' : 'var(--muted)') + ';font-size:9px">' + (it.v ? '●' : '○') + '</span>'
+                + '</div>';
+      }
+      if (list.length > max) html += '<div style="padding:13px;color:var(--muted);font:200 9px/1 var(--font-mono)">… ' + (list.length - max) + ' more</div>';
+      D['words'].innerHTML = html;
+    }
+
+    // ── Framework ─────────────────────────────────────────────────────────
+    async function loadFW() {
+      var files = ['raw/react/snapshot.json','raw/vue/snapshot.json','raw/angular/snapshot.json','raw/svelte/snapshot.json','raw/dom/snapshot.json'];
+      for (var i = 0; i < files.length; i++) {
+        var d = await fetchSess(files[i]);
+        if (d) { D['fw-data'].textContent = JSON.stringify(d, null, 2); return; }
+      }
+      D['fw-data'].textContent = '(unavailable)';
+    }
+
+    // ── Network ──────────────────────────────────────────────────────────
+    async function loadNet() {
+      var data = await fetchSess('raw/network/requests.json');
+      S.netCache = data && data.requests || [];
+      D['net-n'].textContent = S.netCache.length + ' req';
+      renderNet(S.netCache);
+    }
+
+    function renderNet(reqs) {
+      var max = Math.min(reqs.length, 1000);
+      var html = '';
+      for (var i = 0; i < max; i++) {
+        var r = reqs[i];
+        var m = esc(r.method || '?');
+        var mCls = m === 'GET' ? 'm-get' : m === 'POST' ? 'm-post' : 'm-other';
+        var sCls = (r.status || 0) < 400 ? 's-ok' : 's-err';
+        html += '<div class="nr">'
+                + '<span class="' + mCls + '">' + m + '</span>'
+                + '<span class="' + sCls + '">' + (r.status || '—') + '</span>'
+                + '<span class="n-url" title="' + esc(r.url) + '">' + esc(r.url) + '</span>'
+                + '<span class="n-dur">' + (r.duration ? r.duration + 'ms' : '—') + '</span>'
+                + '<span class="n-init">' + esc(r.initiatorType) + '</span>'
+                + '</div>';
+      }
+      if (reqs.length > max) html += '<div style="padding:8px;color:var(--muted);font-size:9px">… ' + (reqs.length - max) + ' more</div>';
+      D['net-list'].innerHTML = html;
+    }
+
+    function filterNet(q) {
+      if (!S.netCache) return;
+      if (!q) { renderNet(S.netCache); return; }
+      var ql = q.toLowerCase();
+      renderNet(S.netCache.filter(function(r) { return r.url && r.url.toLowerCase().indexOf(ql) !== -1; }));
+    }
+
+    // ── Stream ───────────────────────────────────────────────────────────
+    function addStreamEntry(msg) {
+      var el = D['stream-el'];
+      var div = document.createElement('div');
+      div.className = 'se';
+      div.innerHTML =
+              '<span class="se-ts">' + new Date().toLocaleTimeString() + '</span>'
+              + '<span class="se-ty">' + esc(msg.type) + '</span>'
+              + '<span class="se-info">TAB ' + (msg.tabId || '?') + ' · ' + JSON.stringify(msg).length + 'B</span>';
+      el.insertBefore(div, el.firstChild);
+      while (el.children.length > 200) el.removeChild(el.lastChild);
+    }
+
+    // ── Config ───────────────────────────────────────────────────────────
+    var PLUGINS = [
+      'react-fiber','vue3-devtool','vue2-devtool','angular-ng','svelte-meta',
+      'preact-fiber','alpine-js','solid-js','dom-generic','text-coords',
+      'css-analysis','ui-catalog','network-hook','perf-observer','dom-mutations'
+    ];
+
+    async function loadConfig() {
+      var cfg;
+      try { cfg = await (await fetch(S.api + '/api/config')).json(); } catch(_) { cfg = {}; }
+      D['cfg-mode'].value = cfg.mode || 'always_on';
+      D['cfg-plugins'].innerHTML = PLUGINS.map(function(id) {
+        var checked = cfg.plugins && cfg.plugins[id] !== false;
+        return '<label class="ptoggle"><input type="checkbox" id="p-' + id + '"' + (checked ? ' checked' : '') + '><span>' + esc(id) + '</span></label>';
+      }).join('');
+      D['cfg-raw'].textContent = JSON.stringify(cfg, null, 2);
+    }
+
+    async function saveConfig() {
+      var mode = D['cfg-mode'].value;
+      var plugins = {};
+      D['cfg-plugins'].querySelectorAll('input').forEach(function(cb) {
+        plugins[cb.id.replace('p-', '')] = cb.checked;
+      });
+      await fetch(S.api + '/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode, plugins: plugins })
+      });
+      loadConfig();
+    }
+
+    async function triggerCollect() {
+      if (!S.tabId) return;
+      await fetch(S.api + '/api/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tabId: S.tabId })
+      });
+    }
+
+    // ── Action History (Undo/Redo) ─────────────────────────────────────
+    function pushHistory(entry) {
+      S.actionHistory.push(entry);
+      if (S.actionHistory.length > S.maxHistory) S.actionHistory.shift();
+      S.actionFuture = [];
+      updateUndoRedoUI();
+    }
+
+    function updateUndoRedoUI() {
+      D['cv-undo'].style.opacity = S.actionHistory.length ? '1' : '0.3';
+      D['cv-redo'].style.opacity = S.actionFuture.length ? '1' : '0.3';
+    }
+
+    async function sendAction(action, label) {
+      if (!S.tabId) return;
+      pushHistory({ action: action, label: label || action.type, ts: Date.now() });
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: S.tabId, action: action })
+        });
+        var result = await r.json();
+        D['cv-info'].textContent = (label || action.type) + ' → ' + (result.ok ? 'OK' : 'ERR: ' + (result.error || ''));
+      } catch(e) {
+        D['cv-info'].textContent = (label || action.type) + ' → ERR: ' + e.message;
+      }
+    }
+
+    async function undoAction() {
+      if (!S.actionHistory.length) return;
+      var entry = S.actionHistory.pop();
+      S.actionFuture.push(entry);
+      updateUndoRedoUI();
+      D['cv-info'].textContent = 'UNDO: ' + entry.label;
+    }
+
+    async function redoAction() {
+      if (!S.actionFuture.length) return;
+      var entry = S.actionFuture.pop();
+      S.actionHistory.push(entry);
+      updateUndoRedoUI();
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: S.tabId, action: entry.action })
+        });
+        var result = await r.json();
+        D['cv-info'].textContent = 'REDO: ' + entry.label + ' → ' + (result.ok ? 'OK' : 'ERR');
+      } catch(e) {
+        D['cv-info'].textContent = 'REDO: ' + entry.label + ' → ERR';
+      }
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────
+    function init() {
+      cacheDOM();
+      initTheme();
+      initTabs();
+      initCanvas();
+
+      D['txt-filter'].addEventListener('input', debounce(function() { filterWords(this.value); }, 200));
+      D['net-filter'].addEventListener('input', debounce(function() { filterNet(this.value); }, 200));
+      document.getElementById('btn-sync').addEventListener('click', refreshSessions);
+      document.getElementById('btn-collect').addEventListener('click', triggerCollect);
+      document.getElementById('btn-save-cfg').addEventListener('click', saveConfig);
+
       refreshSessions();
-    };
-  } catch { setTimeout(connectStream, 3000); }
-}
-
-function setStatus(on) {
-  document.getElementById('status-dot').className   = on ? 'on' : '';
-  document.getElementById('status-label').textContent = on ? 'Extension connected' : 'Disconnected — waiting…';
-}
-
-function activeTab() {
-  return document.querySelector('.tab-btn.active')?.dataset.tab || 'overview';
-}
-
-// ── Sessions ──────────────────────────────────────────────────────────────
-async function refreshSessions() {
-  try {
-    const res = await fetch(`${API}/api/sessions`);
-    sessions  = await res.json();
-    renderSessions();
-  } catch {}
-}
-
-function renderSessions() {
-  const list = document.getElementById('session-list');
-  if (!sessions.length) {
-    list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px">No active sessions</div>';
-    return;
-  }
-  list.innerHTML = sessions.map(s => `
-    <div class="session-item ${s.tabId === currentTabId ? 'active' : ''}" onclick="selectSession(${s.tabId})">
-      <div class="url">${s.url || '(unknown)'}</div>
-      <div class="meta">Tab ${s.tabId} · ${new Date(s.updatedAt).toLocaleTimeString()}</div>
-      <div class="adapters">${(s.summary?.detectedFrameworks || []).map(a => `<span class="fw-tag">${a}</span>`).join('')}</div>
-    </div>
-  `).join('');
-}
-
-function selectSession(tabId) {
-  currentTabId = tabId;
-  renderSessions();
-  document.getElementById('empty-state').style.display = 'none';
-  document.getElementById('session-detail').style.display = '';
-  loadTabData('overview');
-}
-
-// ── Load tab data ─────────────────────────────────────────────────────────
-async function loadTabData(tab) {
-  if (!currentTabId) return;
-  switch (tab) {
-    case 'overview':  return loadOverview();
-    case 'text':      return loadTextCoords();
-    case 'framework': return loadFramework();
-    case 'network':   return loadNetwork();
-    case 'ui':        return loadFile('raw/ui/elements.json', 'ui-data');
-    case 'css':       return loadFile('raw/css/analysis.json', 'css-data');
-    case 'dom':       return loadFile('raw/dom/snapshot.json', 'dom-data');
-    case 'config':    return loadConfig();
-  }
-}
-
-async function fetchSession(relPath) {
-  try {
-    const r = await fetch(`${API}/api/sessions/${currentTabId}/${relPath}`);
-    if (!r.ok) return null;
-    return r.json();
-  } catch { return null; }
-}
-
-async function loadOverview() {
-  const idx = await fetch(`${API}/api/sessions/${currentTabId}`).then(r => r.json()).catch(() => null);
-  if (!idx) return;
-  document.getElementById('ov-meta').innerHTML = `
-    <div style="color:var(--accent2);margin-bottom:8px">${idx.url || '—'}</div>
-    <div style="color:var(--muted);font-size:12px">Tab ${idx.tabId} · Session ${idx.sessionId} · Updated ${new Date(idx.updatedAt).toLocaleTimeString()}</div>
-  `;
-  const s = idx.summary || {};
-  document.getElementById('ov-stats').innerHTML = `
-    <div class="stat"><div class="stat-value">${s.textWordCount || 0}</div><div class="stat-label">Words</div></div>
-    <div class="stat"><div class="stat-value">${s.textBlockCount || 0}</div><div class="stat-label">Blocks</div></div>
-    <div class="stat"><div class="stat-value">${s.networkRequests || 0}</div><div class="stat-label">Requests</div></div>
-    <div class="stat"><div class="stat-value">${(s.detectedFrameworks || []).length}</div><div class="stat-label">Frameworks</div></div>
-  `;
-  document.getElementById('ov-files').textContent = JSON.stringify(idx.files || {}, null, 2);
-}
-
-async function loadTextCoords() {
-    const data = await fetchSession('raw/visual/text-coords.json');
-  const words = data?.words || [];
-  currentWords = words;
-  currentViewport = data?.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
-  // Initialize liveViewport from snapshot so overlay shows immediately
-  liveViewport = { ...currentViewport };
-  document.getElementById('text-count').textContent = `${words.length} words`;
-  renderCanvas(words);
-  renderWords(words);
-}
-
-// ── Canvas renderer ───────────────────────────────────────────────────────
-let currentViewport = { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
-let canvasZoom = 0; // 0 = auto-fit
-let userZoomed = false;
-let cropMode = 'page'; // 'page' | 'viewport'
-
-function fitCanvas() {
-  cropMode = 'page';
-  canvasZoom = 0;
-  userZoomed = false;
-  document.getElementById('canvas-zoom').value = 1;
-  document.getElementById('zoom-val').textContent = 'auto';
-  renderCanvas(currentWords);
-}
-
-function cropToViewport() {
-  cropMode = 'viewport';
-  canvasZoom = 0;
-  userZoomed = false;
-  document.getElementById('canvas-zoom').value = 1;
-  document.getElementById('zoom-val').textContent = 'auto';
-  renderCanvas(currentWords);
-}
-
-function renderCanvas(words) {
-  const canvas = document.getElementById('text-canvas');
-  const wrapper = document.getElementById('canvas-wrapper');
-  const ctx = canvas.getContext('2d');
-  const vp = currentViewport;
-  const showBounds = document.getElementById('show-bounds')?.checked ?? true;
-  const showColors = document.getElementById('show-colors')?.checked ?? false;
-  const showOnlyVisible = document.getElementById('show-visible-only')?.checked ?? false;
-  const dimInvisible = document.getElementById('dim-invisible')?.checked ?? true;
-  const lv = liveViewport || vp;
-
-  // Determine render area based on crop mode
-  let areaX = 0, areaY = 0, areaW, areaH;
-  if (cropMode === 'viewport') {
-    areaX = lv.scrollX;
-    areaY = lv.scrollY;
-    areaW = lv.width;
-    areaH = lv.height;
-  } else {
-    areaW = Math.max(vp.width, ...words.map(w => (w.absoluteX || 0) + (w.width || 0))) + 40;
-    areaH = Math.max(vp.height, ...words.map(w => (w.absoluteY || 0) + (w.height || 0))) + 40;
-  }
-
-  let zoom = canvasZoom;
-  if (zoom === 0) {
-    const availW = wrapper.clientWidth - 4;
-    const availH = wrapper.clientHeight - 4;
-    zoom = Math.min(1, availW / areaW, availH / areaH);
-  }
-
-  canvas.width = Math.ceil(areaW * zoom);
-  canvas.height = Math.ceil(areaH * zoom);
-
-  // Background
-  ctx.fillStyle = '#0a0f1a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Calculate real-time visibility for each word
-  const visMap = new Map();
-  let visibleCount = 0;
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    const wx = w.absoluteX || 0;
-    const wy = w.absoluteY || 0;
-    const ww = w.width || 8;
-    const wh = w.height || 12;
-    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
-    visMap.set(i, inView);
-    if (inView) visibleCount++;
-  }
-
-  // Page mode: show full page with viewport overlay
-  if (cropMode === 'page') {
-    // Viewport indicator (from snapshot)
-    ctx.strokeStyle = 'rgba(99,102,241,0.3)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(vp.scrollX * zoom, vp.scrollY * zoom, vp.width * zoom, vp.height * zoom);
-
-    // Live viewport overlay
-    const showVp = document.getElementById('show-viewport')?.checked ?? true;
-    if (showVp && liveViewport) {
-      const lx = liveViewport.scrollX * zoom;
-      const ly = liveViewport.scrollY * zoom;
-      const lw = liveViewport.width * zoom;
-      const lh = liveViewport.height * zoom;
-
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(0, 0, canvas.width, ly);
-      ctx.fillRect(0, ly + lh, canvas.width, canvas.height - ly - lh);
-      ctx.fillRect(0, ly, lx, lh);
-      ctx.fillRect(lx + lw, ly, canvas.width - lx - lw, lh);
-
-      ctx.strokeStyle = 'rgba(74,222,128,0.9)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(lx, ly, lw, lh);
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = 'rgba(74,222,128,0.05)';
-      ctx.fillRect(lx, ly, lw, lh);
-
-      ctx.fillStyle = 'rgba(74,222,128,0.95)';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText(`VIEWPORT: (${liveViewport.scrollX}, ${liveViewport.scrollY}) ${liveViewport.width}×${liveViewport.height}`, lx + 6, ly + 16);
-    }
-  } else {
-    // Viewport crop mode: label
-    ctx.fillStyle = 'rgba(74,222,128,0.9)';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText(`CROP: scroll(${lv.scrollX}, ${lv.scrollY}) ${lv.width}×${lv.height}`, 6, 14);
-  }
-
-  // Render words
-  const maxWords = Math.min(words.length, 5000);
-  for (let i = 0; i < maxWords; i++) {
-    const w = words[i];
-    const inView = visMap.get(i);
-
-    if (showOnlyVisible && !inView) continue;
-
-    // Position relative to current render area
-    const x = ((w.absoluteX || 0) - areaX) * zoom;
-    const y = ((w.absoluteY || 0) - areaY) * zoom;
-    const fw = Math.max(1, (w.width || 8) * zoom);
-    const fh = Math.max(1, (w.height || 12) * zoom);
-
-    // Skip if off-canvas
-    if (x + fw < 0 || x > canvas.width || y + fh < 0 || y > canvas.height) continue;
-
-    if (showBounds) {
-      ctx.strokeStyle = inView ? 'rgba(74,222,128,0.4)' : 'rgba(34,211,238,0.1)';
-      ctx.lineWidth = inView ? 1 : 0.5;
-      ctx.strokeRect(x, y, fw, fh);
+      connectWS();
+      setInterval(refreshSessions, 5000);
     }
 
-    let alpha = 1;
-    if (dimInvisible && !inView) alpha = 0.15;
-
-    if (showColors && w.color) {
-      ctx.fillStyle = w.color;
-      ctx.globalAlpha = alpha;
+    // Wait for fonts before first render
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(init);
     } else {
-      const brightness = Math.min(1, 0.4 + (w.fontSize || 14) / 40);
-      ctx.fillStyle = `rgba(241,245,249,${brightness * alpha})`;
+      document.addEventListener('DOMContentLoaded', init);
     }
-
-    const fontSize = Math.max(6, (w.fontSize || 12) * zoom);
-    ctx.font = `${fontSize}px sans-serif`;
-    ctx.fillText(w.text, x, y + fh * 0.85);
-    ctx.globalAlpha = 1;
-  }
-
-  const modeLabel = cropMode === 'viewport' ? 'Viewport crop' : 'Full page';
-  document.getElementById('canvas-info').textContent =
-    `${modeLabel} · Area: ${areaW}×${areaH}px · Viewport: ${lv.width}×${lv.height}px (scroll: ${lv.scrollX},${lv.scrollY}) · Visible: ${visibleCount}/${words.length} words`;
-}
-
-// Zoom slider
-document.getElementById('canvas-zoom')?.addEventListener('input', (e) => {
-  canvasZoom = parseFloat(e.target.value);
-  userZoomed = true;
-  document.getElementById('zoom-val').textContent = canvasZoom.toFixed(1) + 'x';
-  renderCanvas(currentWords);
-});
-
-document.getElementById('show-bounds')?.addEventListener('change', () => renderCanvas(currentWords));
-document.getElementById('show-colors')?.addEventListener('change', () => renderCanvas(currentWords));
-document.getElementById('show-viewport')?.addEventListener('change', () => renderCanvas(currentWords));
-document.getElementById('show-visible-only')?.addEventListener('change', () => renderCanvas(currentWords));
-document.getElementById('dim-invisible')?.addEventListener('change', () => renderCanvas(currentWords));
-
-// ── Canvas pan (mouse drag) ───────────────────────────────────────────────
-let isPanning = false, panStartX = 0, panStartY = 0;
-const wrapper = document.getElementById('canvas-wrapper');
-
-wrapper?.addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return;
-  isPanning = true;
-  panStartX = e.clientX;
-  panStartY = e.clientY;
-  wrapper.classList.add('panning');
-  e.preventDefault();
-});
-
-window.addEventListener('mousemove', (e) => {
-  if (!isPanning) return;
-  const dx = e.clientX - panStartX;
-  const dy = e.clientY - panStartY;
-  wrapper.scrollLeft -= dx;
-  wrapper.scrollTop -= dy;
-  panStartX = e.clientX;
-  panStartY = e.clientY;
-});
-
-window.addEventListener('mouseup', () => {
-  if (isPanning) {
-    isPanning = false;
-    wrapper.classList.remove('panning');
-  }
-});
-
-// ── Canvas wheel zoom ──────────────────────────────────────────────────────
-wrapper?.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const delta = e.deltaY > 0 ? -0.1 : 0.1;
-  canvasZoom = Math.max(0.1, Math.min(3, (canvasZoom || 1) + delta));
-  userZoomed = true;
-  document.getElementById('canvas-zoom').value = canvasZoom;
-  document.getElementById('zoom-val').textContent = canvasZoom.toFixed(1) + 'x';
-  renderCanvas(currentWords);
-}, { passive: false });
-
-// Re-fit on resize
-window.addEventListener('resize', () => { if (!userZoomed) renderCanvas(currentWords); });
-
-function renderWords(words) {
-  const container = document.getElementById('text-words');
-  const lv = liveViewport || currentViewport;
-  const showOnlyVisible = document.getElementById('show-visible-only')?.checked ?? false;
-
-  const withVis = words.map(w => {
-    const wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
-    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
-    return { ...w, _inView: inView };
-  });
-
-  const filtered = showOnlyVisible ? withVis.filter(w => w._inView) : withVis;
-
-  container.innerHTML = filtered.slice(0, 2000).map(w => `
-    <div class="word-row" style="${w._inView ? '' : 'opacity:0.3'}">
-      <span>${esc(w.text)}</span>
-      <span class="coord">${w.absoluteX}</span>
-      <span class="coord">${w.absoluteY}</span>
-      <span class="coord">${w.width}</span>
-      <span class="coord">${w.height}</span>
-      <span style="color:${w._inView ? 'var(--green)' : 'var(--muted)'};font-size:10px">${w._inView ? '●' : '○'}</span>
-    </div>
-  `).join('');
-  if (filtered.length > 2000) {
-    container.innerHTML += `<div style="padding:8px;color:var(--muted)">… ${filtered.length - 2000} more words</div>`;
-  }
-}
-
-function filterText(q) {
-  const lv = liveViewport || currentViewport;
-  let filtered = currentWords.map(w => {
-    const wx = w.absoluteX || 0, wy = w.absoluteY || 0, ww = w.width || 8, wh = w.height || 12;
-    const inView = !(wx + ww < lv.scrollX || wx > lv.scrollX + lv.width || wy + wh < lv.scrollY || wy > lv.scrollY + lv.height);
-    return { ...w, _inView: inView };
-  });
-  if (q) filtered = filtered.filter(w => w.text.toLowerCase().includes(q.toLowerCase()));
-  renderWords(filtered);
-}
-
-async function loadFramework() {
-  // Try framework files in priority order
-    const fwFiles = ['raw/react/snapshot.json','raw/vue/snapshot.json','raw/angular/snapshot.json','raw/svelte/snapshot.json','raw/dom/snapshot.json'];
-  for (const f of fwFiles) {
-    const data = await fetchSession(f);
-    if (data) {
-      document.getElementById('fw-data').textContent = JSON.stringify(data, null, 2);
-      return;
-    }
-  }
-  document.getElementById('fw-data').textContent = 'No framework data available yet.';
-}
-
-async function loadNetwork() {
-    const data = await fetchSession('raw/network/requests.json');
-  const reqs = data?.requests || [];
-  document.getElementById('net-count').textContent = `${reqs.length} requests`;
-  renderNet(reqs);
-}
-
-function renderNet(reqs) {
-  document.getElementById('net-list').innerHTML = reqs.map(r => `
-    <div class="net-row">
-      <span class="method ${r.method}">${r.method || '?'}</span>
-      <span class="${(r.status||0) < 400 ? 'status-ok' : 'status-err'}">${r.status || '—'}</span>
-      <span class="net-url" title="${esc(r.url)}">${esc(r.url)}</span>
-      <span class="net-dur">${r.duration ? r.duration + 'ms' : '—'}</span>
-      <span style="color:var(--muted)">${r.initiatorType || ''}</span>
-    </div>
-  `).join('');
-}
-
-function filterNet(q) {
-  if (!q) { loadNetwork(); return; }
-  fetchSession('raw/network/requests.json').then(data => {
-    const reqs = (data?.requests || []).filter(r => r.url?.includes(q));
-    renderNet(reqs);
-  });
-}
-
-async function loadFile(relPath, elId) {
-  const data = await fetchSession(relPath);
-  document.getElementById(elId).textContent = data ? JSON.stringify(data, null, 2) : '(not available yet)';
-}
-
-async function loadConfig() {
-  const cfg = await fetch(`${API}/api/config`).then(r => r.json()).catch(() => ({}));
-  document.getElementById('cfg-mode').value = cfg.mode || 'always_on';
-  const plugins = ['react-fiber','vue3-devtool','vue2-devtool','angular-ng','svelte-meta','preact-fiber','alpine-js','solid-js','dom-generic','text-coords','css-analysis','ui-catalog','network-hook','perf-observer','dom-mutations'];
-  document.getElementById('plugin-toggles').innerHTML = plugins.map(id => `
-    <label class="plugin-toggle">
-      <input type="checkbox" id="p-${id}" ${(cfg.plugins?.[id] !== false) ? 'checked' : ''}>
-      <span>${id}</span>
-    </label>
-  `).join('');
-  document.getElementById('cfg-raw').textContent = JSON.stringify(cfg, null, 2);
-}
-
-async function saveConfig() {
-  const mode    = document.getElementById('cfg-mode').value;
-  const plugins = {};
-  document.querySelectorAll('#plugin-toggles input').forEach(cb => {
-    plugins[cb.id.replace('p-', '')] = cb.checked;
-  });
-  await fetch(`${API}/api/config`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ mode, plugins }),
-  });
-  loadConfig();
-}
-
-async function triggerCollect() {
-  if (!currentTabId) { alert('Select a session first'); return; }
-  await fetch(`${API}/api/collect`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ tabId: currentTabId }),
-  });
-}
-
-// ── Stream ────────────────────────────────────────────────────────────────
-function addStream(msg) {
-  const el   = document.getElementById('stream');
-  const ts   = new Date().toLocaleTimeString();
-  const size = JSON.stringify(msg).length;
-  el.insertAdjacentHTML('afterbegin', `
-    <div class="stream-entry">
-      <span class="stream-ts">${ts}</span>
-      <span class="stream-type">${msg.type || '?'}</span>
-      <span style="color:var(--muted)">tabId=${msg.tabId || '?'} · ${size}B</span>
-    </div>
-  `);
-  // Keep max 200 entries
-  while (el.children.length > 200) el.removeChild(el.lastChild);
-}
-
-function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────
-refreshSessions();
-connectStream();
-setInterval(refreshSessions, 5000);
+  })();
 </script>
 </body>
 </html>

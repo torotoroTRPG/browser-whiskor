@@ -49,7 +49,7 @@ AI Agent (Claude / Cursor / etc.)
 │  mcp/registry.js        ← Tool registration, filtering, presets│
 │  mcp/transport.js       ← stdio JSON-RPC transport             │
 │  mcp/tools/read.js      ← 18 read tools (sessions, DOM, etc.) │
-│  mcp/tools/write.js     ← 13 write tools (click, type, etc.)  │
+│  mcp/tools/write.js     ← 16 write tools (click, type, drag, etc.) │
 │  mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh)│
 │  mcp/tools/control.js   ← 6 control tools (config, explorer)  │
 │                                                                │
@@ -202,7 +202,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.3: 39 tools)
+## MCP Tools (v3.4: 42 tools)
 
 ### Perception (READ)
 
@@ -242,10 +242,13 @@ Warning codes:
 |------|-------------|
 | `navigate_to` | Navigate to URL |
 | `click` | Click by selector, text, or coordinates |
+| `right_click` | Right-click (context menu) by selector, text, or coordinates |
 | `type_text` | Text input (React synthetic event aware) |
 | `press_key` | Keyboard shortcuts |
 | `hover` | Hover (dropdowns, tooltips) |
-| `scroll_page` | Scroll |
+| `scroll_page` | Scroll to position or element |
+| `mouse_scroll` | Fire wheel event at specific coordinates |
+| `drag` | Drag from coordinates/selector to coordinates |
 | `select_option` | `<select>` value |
 | `check_box` | Checkbox toggle |
 | `execute_js` | Arbitrary JavaScript |

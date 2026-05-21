@@ -12,7 +12,7 @@
  *       → mcp/tools/control.js
  *     → mcp/transport.js (stdio/JSON-RPC)
  *
- * 既存の全39ツールを保持。機能変更なし。
+ * 既存の全42ツールを保持。機能変更なし。
  */
 'use strict';
 
