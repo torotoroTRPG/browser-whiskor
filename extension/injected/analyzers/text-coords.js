@@ -565,6 +565,259 @@
     },
   });
 
+  // ── Seen Text Tracker: Continuous monitoring of cached texts ──────────────
+  // Tracks text elements that have entered the viewport at least once.
+  // Monitors position changes, content updates, and movement status.
+  // Prioritizes "moving" texts for frequent updates.
+  const seenTexts = new Map(); // key: xpath -> { xpath, text, x, y, w, h, lastChecked, status, changeCount, lastChange, element }
+  let _seenObserver = null;
+  let _recheckTimer = null;
+  let _isTracking = false;
+  let _scrollCollectTimer = null;
+  
+  const RECHECK_INTERVAL_MOVING = 100;  // ms: check moving texts frequently
+  const RECHECK_INTERVAL_STABLE = 2000; // ms: check stable texts occasionally
+  const STABLE_THRESHOLD = 5;           // checks without change to consider stable
+  const SCROLL_COLLECT_DELAY = 300;     // ms: debounce delay for scroll-triggered collection
+
+  function initSeenTracker(api) {
+    if (_seenObserver) return;
+    
+    // IntersectionObserver: register texts when they enter viewport
+    _seenObserver = new IntersectionObserver((entries) => {
+      let newEntriesFound = false;
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          if (registerSeenElement(entry.target)) {
+            newEntriesFound = true;
+          }
+        }
+      }
+      // If new texts appeared, schedule a collection to update cache
+      if (newEntriesFound && api) {
+        clearTimeout(_scrollCollectTimer);
+        _scrollCollectTimer = setTimeout(() => {
+          if (registry._isEnabled('text-coords')) {
+            const data = registry._plugins.get('text-coords')?.collect(api);
+            if (data) api.emit('TEXT_COORDS', data, false);
+          }
+        }, SCROLL_COLLECT_DELAY);
+      }
+    }, { threshold: 0.1 });
+
+    // Observe existing elements
+    observeAllTextElements();
+
+    // Observe new elements via MutationObserver
+    const mutationObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.textContent?.trim()) registerSeenElement(node);
+            node.querySelectorAll(':not(script):not(style):not(noscript)').forEach(el => {
+              if (el.textContent?.trim()) registerSeenElement(el);
+            });
+          }
+        }
+      }
+    });
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    
+    _isTracking = true;
+    startRecheckLoop();
+  }
+
+  function observeAllTextElements() {
+    const elements = document.body.querySelectorAll(':not(script):not(style):not(noscript)');
+    for (const el of elements) {
+      if (el.textContent?.trim() && _seenObserver) {
+        _seenObserver.observe(el);
+      }
+    }
+  }
+
+  function registerSeenElement(el) {
+    const xpath = getSimpleXPath(el);
+    const isNew = !seenTexts.has(xpath);
+    
+    const rect = el.getBoundingClientRect();
+    const scrollX = window.scrollX, scrollY = window.scrollY;
+    const entry = seenTexts.get(xpath) || {
+      xpath,
+      text: '',
+      x: 0, y: 0, w: 0, h: 0,
+      lastChecked: 0,
+      status: 'new',
+      changeCount: 0,
+      lastChange: 0,
+      element: el.tagName.toLowerCase(),
+      contextHint: getContextHint(el),
+      inView: false,
+    };
+
+    const newX = Math.round(rect.left + scrollX);
+    const newY = Math.round(rect.top + scrollY);
+    const newW = Math.round(rect.width);
+    const newH = Math.round(rect.height);
+    const newText = el.textContent.trim().slice(0, 200);
+
+    // Check for changes
+    const hasMoved = (entry.x !== newX || entry.y !== newY || entry.w !== newW || entry.h !== newH);
+    const hasTextChanged = (entry.text !== newText);
+
+    if (hasMoved || hasTextChanged) {
+      entry.changeCount++;
+      entry.lastChange = Date.now();
+      entry.status = entry.changeCount > STABLE_THRESHOLD ? 'moving' : 'checking';
+    } else {
+      if (entry.status === 'checking' && entry.changeCount >= STABLE_THRESHOLD) {
+        entry.status = 'stable';
+      }
+    }
+
+    entry.text = newText;
+    entry.x = newX;
+    entry.y = newY;
+    entry.w = newW;
+    entry.h = newH;
+    entry.lastChecked = Date.now();
+    entry.element = el.tagName.toLowerCase();
+    entry.contextHint = getContextHint(el);
+    entry.inView = true;
+
+    if (isNew) {
+      seenTexts.set(xpath, entry);
+    }
+    return isNew;
+  }
+
+  function startRecheckLoop() {
+    if (_recheckTimer) return;
+    
+    const loop = () => {
+      if (!_isTracking) return;
+      
+      const now = Date.now();
+      const deltas = [];
+      
+      // Sort by priority: moving > checking > new > stable
+      const entries = [...seenTexts.values()].sort((a, b) => {
+        const priority = { moving: 3, checking: 2, new: 1, stable: 0 };
+        return (priority[b.status] || 0) - (priority[a.status] || 0);
+      });
+
+      // Check a subset of texts per frame to avoid performance hit
+      const maxChecksPerFrame = 50;
+      let checked = 0;
+
+      for (const entry of entries) {
+        if (checked >= maxChecksPerFrame) break;
+        
+        // Determine check interval based on status
+        const interval = entry.status === 'moving' ? RECHECK_INTERVAL_MOVING : RECHECK_INTERVAL_STABLE;
+        if (now - entry.lastChecked < interval) continue;
+
+        // Find element and check current state
+        try {
+          const el = document.evaluate(entry.xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+          if (!el) {
+            // Element removed from DOM
+            if (entry.status !== 'removed') {
+              entry.status = 'removed';
+              deltas.push({ ...entry, disappeared: true });
+            }
+            continue;
+          }
+
+          const rect = el.getBoundingClientRect();
+          const scrollX = window.scrollX, scrollY = window.scrollY;
+          const newX = Math.round(rect.left + scrollX);
+          const newY = Math.round(rect.top + scrollY);
+          const newW = Math.round(rect.width);
+          const newH = Math.round(rect.height);
+          const newText = el.textContent.trim().slice(0, 200);
+
+          const hasMoved = (entry.x !== newX || entry.y !== newY || entry.w !== newW || entry.h !== newH);
+          const hasTextChanged = (entry.text !== newText);
+          const inView = rect.width > 0 && rect.height > 0 && 
+                         rect.bottom >= 0 && rect.top <= window.innerHeight &&
+                         rect.right >= 0 && rect.left <= window.innerWidth;
+
+          if (hasMoved || hasTextChanged || entry.inView !== inView) {
+            entry.changeCount++;
+            entry.lastChange = Date.now();
+            entry.status = entry.changeCount > STABLE_THRESHOLD ? 'moving' : 'checking';
+            
+            deltas.push({
+              beaconId: hashBeaconId(entry.text, entry.xpath, entry.element),
+              xpath: entry.xpath,
+              text: newText,
+              absoluteX: newX,
+              absoluteY: newY,
+              width: newW,
+              height: newH,
+              inView,
+              status: entry.status,
+              changeCount: entry.changeCount,
+              textChanged: hasTextChanged,
+            });
+
+            entry.text = newText;
+            entry.x = newX;
+            entry.y = newY;
+            entry.w = newW;
+            entry.h = newH;
+            entry.inView = inView;
+          } else {
+            // No change
+            if (entry.status === 'checking' && entry.changeCount >= STABLE_THRESHOLD) {
+              entry.status = 'stable';
+            }
+          }
+          entry.lastChecked = Date.now();
+        } catch (_) {
+          // XPath evaluation failed
+        }
+        
+        checked++;
+      }
+
+      // Emit deltas if any changes detected
+      if (deltas.length > 0) {
+        window.postMessage({
+          __BROWSER_WHISKOR__: true,
+          type: 'TEXT_COORD_DELTA',
+          payload: {
+            deltas,
+            capturedAt: Date.now(),
+            viewStateOnly: false, // Includes position/content changes
+          }
+        }, '*');
+      }
+
+      _recheckTimer = setTimeout(loop, 50); // Base loop interval
+    };
+
+    loop();
+  }
+
+  function stopSeenTracker() {
+    _isTracking = false;
+    if (_recheckTimer) {
+      clearTimeout(_recheckTimer);
+      _recheckTimer = null;
+    }
+    if (_scrollCollectTimer) {
+      clearTimeout(_scrollCollectTimer);
+      _scrollCollectTimer = null;
+    }
+    if (_seenObserver) {
+      _seenObserver.disconnect();
+      _seenObserver = null;
+    }
+    seenTexts.clear();
+  }
+
   // ── Scroll & resize tracking (realtime viewport overlay) ──────────────────
   let _vpTimer = null;
   function emitViewport() {
