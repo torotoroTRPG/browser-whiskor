@@ -2,6 +2,23 @@
 
 All notable changes to browser-whiskor.
 
+## [3.8.0] — 2026-05-22
+
+### Added
+- **WhiskorCore** (`server/core.js`) — Extracted core server logic (socket management, message routing, broadcast, config push, HTTP handling) into a testable class. Enables real code coverage measurement without starting full server.
+- **Server fixture integration** — `tests/helpers/server-fixture.js` now wraps `WhiskorCore` with injected stubs, providing accurate coverage of routing logic.
+- **`_route()` test alias** — Added to `ServerFixture` for direct message routing in unit tests.
+
+### Changed
+- **server/index.js** — Refactored to instantiate `WhiskorCore` with real modules (cache, actions, screenshots, state-machine, etc.). Reduced from 484 → 210 lines. All routing logic delegated to core.
+- **Test coverage** — 273 unit tests now measure real server routing logic instead of mock implementations.
+
+### Fixed
+- **`_pendingActions` closure bug** — Fixed `this` reference in `actions.handleResult` stub within `server-fixture.js`.
+- **Default stub syntax errors** — Fixed `getSessionList() []` → `getSessionList() { return []; }` and similar in `core.js`.
+
+---
+
 ## [3.7.0] — 2026-05-22
 
 ### Added
