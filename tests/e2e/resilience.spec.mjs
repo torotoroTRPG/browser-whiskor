@@ -26,6 +26,7 @@ import {
   createWS,
   waitForMessage,
   sendMessage,
+  sendAndWaitForPong,
   closeWS,
   closeAllWS,
   WS_URL,
@@ -322,10 +323,9 @@ test.describe('Resilience - Concurrent Operations', () => {
       const { body: health } = await httpGet(page, '/health');
       expect(health.wsConnections).toBeGreaterThanOrEqual(3);
 
-      // Send message from each
+      // Send message from each (atomically: register listener before sending)
       for (const id of swIds) {
-        await sendMessage(page, id, { type: 'PING' });
-        await waitForMessage(page, id, 'PONG');
+        await sendAndWaitForPong(page, id, { type: 'PING' });
       }
 
       // Clean up
@@ -399,8 +399,7 @@ test.describe('Resilience - Unknown Message Types', () => {
       assertHealthOk(health);
 
       // Should still accept valid messages
-      await sendMessage(page, swId, { type: 'PING' });
-      const pong = await waitForMessage(page, swId, 'PONG');
+      const pong = await sendAndWaitForPong(page, swId, { type: 'PING' });
       expect(pong.type).toBe('PONG');
 
       await closeWS(page, swId);

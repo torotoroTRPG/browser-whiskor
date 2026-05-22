@@ -82,7 +82,14 @@ function connectWs() {
   try { ws = new WebSocket(WS_URL); }
   catch (e) { scheduleReconnect(); return; }
 
+  const connectTimer = setTimeout(() => {
+    if (ws && ws.readyState !== WebSocket.OPEN) {
+      ws.close();
+    }
+  }, 3000);
+
   ws.addEventListener('open', () => {
+    clearTimeout(connectTimer);
     wsReady = true;
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
     while (queue.length) ws.send(queue.shift());
@@ -91,6 +98,7 @@ function connectWs() {
   });
 
   ws.addEventListener('close', () => {
+    clearTimeout(connectTimer);
     wsReady = false;
     ws = null;
     stopPing();
@@ -98,7 +106,10 @@ function connectWs() {
     scheduleReconnect();
   });
 
-  ws.addEventListener('error', () => { wsReady = false; });
+  ws.addEventListener('error', () => {
+    clearTimeout(connectTimer);
+    wsReady = false;
+  });
 
   ws.addEventListener('message', (event) => {
     let msg;
@@ -126,7 +137,7 @@ function sendToServer(data) {
     catch { wsReady = false; }
   }
   if (queue.length < QUEUE_MAX) queue.push(raw);
-  if (!ws || ws.readyState === WebSocket.CLOSED) connectWs();
+  if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connectWs();
 }
 
 // ── Server → Extension commands ───────────────────────────────────────────────

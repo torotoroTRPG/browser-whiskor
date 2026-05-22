@@ -162,6 +162,37 @@ export async function sendMessage(page, wsId, msg) {
 }
 
 /**
+ * Send a message and wait for a PONG response atomically.
+ * Registers the listener BEFORE sending to avoid race conditions.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} wsId - Connection ID
+ * @param {object} msg - Message to send
+ * @param {number} [timeoutMs] - Max wait time (default: 8000)
+ * @returns {Promise<object>} PONG message
+ */
+export async function sendAndWaitForPong(page, wsId, msg, timeoutMs = 8000) {
+  return page.evaluate(({ id, message, timeout }) => {
+    const ws = window.__e2eWs?.get(id);
+    if (!ws || ws.readyState !== 1) throw new Error(`WS ${id} not open`);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timeout waiting for PONG (${timeout}ms)`)), timeout);
+      const handler = (e) => {
+        try {
+          const parsed = JSON.parse(e.data);
+          if (parsed.type === 'PONG') {
+            clearTimeout(timer);
+            ws.removeEventListener('message', handler);
+            resolve(parsed);
+          }
+        } catch {}
+      };
+      ws.addEventListener('message', handler);
+      ws.send(JSON.stringify(message));
+    });
+  }, { id: wsId, message: msg, timeout: timeoutMs });
+}
+
+/**
  * Close a WS connection.
  * @param {import('@playwright/test').Page} page
  * @param {string} wsId - Connection ID
