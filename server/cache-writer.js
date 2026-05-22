@@ -17,6 +17,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const fsp  = fs.promises;
 
 const CACHE_ROOT = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
 fs.mkdirSync(CACHE_ROOT, { recursive: true });
@@ -41,6 +42,20 @@ function writeJson(filePath, data) {
 
 function readJson(filePath) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch { return null; }
+}
+
+async function writeJsonAsync(filePath, data) {
+  try {
+    await fsp.mkdir(path.dirname(filePath), { recursive: true });
+    await fsp.writeFile(filePath, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('[cache] writeJson error:', e.message, filePath);
+  }
+}
+
+async function readJsonAsync(filePath) {
+  try { return JSON.parse(await fsp.readFile(filePath, 'utf8')); }
   catch { return null; }
 }
 
@@ -78,13 +93,18 @@ function updateIndex(session) {
   writeJson(path.join(session.dir, '_index.json'), session.index);
 }
 
+async function updateIndexAsync(session) {
+  session.index.updatedAt = Date.now();
+  await writeJsonAsync(path.join(session.dir, '_index.json'), session.index);
+}
+
 function markFresh(session, pluginId, capturedAt) {
   session.index.dataFreshness[pluginId] = capturedAt || Date.now();
 }
 
 // ── public API ────────────────────────────────────────────────────────────────
 
-function handleMessage(msg) {
+async function handleMessage(msg) {
   const { type, tabId, tabUrl, payload, siteVersion } = msg;
   if (!tabId) return;
 
@@ -97,38 +117,37 @@ function handleMessage(msg) {
     case 'FRAMEWORK_DETECTION': {
       s.index.summary.detectedFrameworks = payload.detected.map(d => d.frameworkId || d.id);
       markFresh(s, 'framework-detection', payload.capturedAt);
-      console.error(`[cache] FRAMEWORK_DETECTION tabId=${tabId}:`, s.index.summary.detectedFrameworks.join(', '));
+      console.log(`[cache] FRAMEWORK_DETECTION tabId=${tabId}:`, s.index.summary.detectedFrameworks.join(', '));
       break;
     }
 
     case 'REACT_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/react/snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.react_snapshot = 'raw/react/snapshot.json';
       markFresh(s, 'react-fiber', payload.capturedAt);
-      console.error(`[cache] REACT_SNAPSHOT tabId=${tabId}`);
+      console.log(`[cache] REACT_SNAPSHOT tabId=${tabId}`);
       break;
     }
 
     case 'REACT_TRANSITION': {
-      // Accumulate state-transition log (capped by config maxReactStateHistory)
       if (!s.reactTransitions) s.reactTransitions = [];
       s.reactTransitions.push(payload);
-      const maxHistory = 100; // reasonable cap; could be wired to config
+      const maxHistory = 100;
       if (s.reactTransitions.length > maxHistory) {
         s.reactTransitions.splice(0, s.reactTransitions.length - maxHistory);
       }
       const fp = path.join(s.dir, 'raw/react/transitions.json');
-      writeJson(fp, { capturedAt: Date.now(), totalTransitions: s.reactTransitions.length, transitions: s.reactTransitions });
+      await writeJsonAsync(fp, { capturedAt: Date.now(), totalTransitions: s.reactTransitions.length, transitions: s.reactTransitions });
       s.index.files.raw.react_transitions = 'raw/react/transitions.json';
       s.index.summary.reactTransitions = s.reactTransitions.length;
-      console.error(`[cache] REACT_TRANSITION tabId=${tabId} total=${s.reactTransitions.length}`);
+      console.log(`[cache] REACT_TRANSITION tabId=${tabId} total=${s.reactTransitions.length}`);
       break;
     }
 
     case 'VUE_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/vue/snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.vue_snapshot = 'raw/vue/snapshot.json';
       markFresh(s, 'vue3', payload.capturedAt);
       break;
@@ -136,7 +155,7 @@ function handleMessage(msg) {
 
     case 'VUE2_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/vue/vue2-snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.vue2_snapshot = 'raw/vue/vue2-snapshot.json';
       markFresh(s, 'vue2', payload.capturedAt);
       break;
@@ -144,7 +163,7 @@ function handleMessage(msg) {
 
     case 'ANGULAR_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/angular/snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.angular_snapshot = 'raw/angular/snapshot.json';
       markFresh(s, 'angular', payload.capturedAt);
       break;
@@ -152,7 +171,7 @@ function handleMessage(msg) {
 
     case 'SVELTE_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/svelte/snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.svelte_snapshot = 'raw/svelte/snapshot.json';
       markFresh(s, 'svelte', payload.capturedAt);
       break;
@@ -160,7 +179,7 @@ function handleMessage(msg) {
 
     case 'DOM_GENERIC_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/dom/snapshot.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.dom_generic = 'raw/dom/snapshot.json';
       s.index.title = payload.docTitle || null;
       markFresh(s, 'dom-generic', payload.capturedAt);
@@ -171,12 +190,7 @@ function handleMessage(msg) {
       const fp = path.join(s.dir, 'raw/visual/text-coords.json');
       
       // Merge with existing cache to retain offscreen/seen texts
-      let existing = {};
-      try {
-        if (fs.existsSync(fp)) {
-          existing = JSON.parse(fs.readFileSync(fp, 'utf8'));
-        }
-      } catch (_) {}
+      const existing = await readJsonAsync(fp) || {};
 
       const merged = { ...payload };
       
@@ -206,11 +220,11 @@ function handleMessage(msg) {
         // In a full implementation, we'd re-run aggregateLines/Blocks here.
       }
 
-      writeJson(fp, merged);
+      await writeJsonAsync(fp, merged);
       s.index.files.raw.text_coords = 'raw/visual/text-coords.json';
       s.index.summary.textWordCount = merged.totalWords || 0;
       markFresh(s, 'text-coords', payload.capturedAt);
-      console.error(`[cache] TEXT_COORDS tabId=${tabId} words=${merged.totalWords} (merged: ${existing.words?.length || 0} old)`);
+      console.log(`[cache] TEXT_COORDS tabId=${tabId} words=${merged.totalWords} (merged: ${existing.words?.length || 0} old)`);
       break;
     }
 
@@ -221,7 +235,7 @@ function handleMessage(msg) {
       if (idx === -1) s.networkRequests.push(req);
       s.index.summary.networkRequests = s.networkRequests.length;
       markFresh(s, 'network-hook', Date.now());
-      _flushNetwork(s);
+      await _flushNetwork(s);
       break;
     }
 
@@ -235,22 +249,22 @@ function handleMessage(msg) {
         req.responseBody = responseBody;
         req.tokens = tokens;
       }
-      _flushNetwork(s);
+      await _flushNetwork(s);
       break;
     }
 
     case 'UI_CATALOG': {
       const fp = path.join(s.dir, 'raw/ui/elements.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.ui_catalog = 'raw/ui/elements.json';
       markFresh(s, 'ui-catalog', payload.capturedAt);
-      console.error(`[cache] UI_CATALOG tabId=${tabId} buttons=${payload.counts?.buttons}`);
+      console.log(`[cache] UI_CATALOG tabId=${tabId} buttons=${payload.counts?.buttons}`);
       break;
     }
 
     case 'CSS_ANALYSIS': {
       const fp = path.join(s.dir, 'raw/css/analysis.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.css_analysis = 'raw/css/analysis.json';
       markFresh(s, 'css-analyzer', payload.capturedAt);
       break;
@@ -258,16 +272,16 @@ function handleMessage(msg) {
 
     case 'ACCESSIBILITY_TREE': {
       const fp = path.join(s.dir, 'raw/accessibility/tree.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.accessibility = 'raw/accessibility/tree.json';
       markFresh(s, 'accessibility', payload.capturedAt);
-      console.error(`[cache] ACCESSIBILITY_TREE tabId=${tabId}`);
+      console.log(`[cache] ACCESSIBILITY_TREE tabId=${tabId}`);
       break;
     }
 
     case 'STORAGE_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/storage/data.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.storage = 'raw/storage/data.json';
       markFresh(s, 'storage-reader', payload.capturedAt);
       break;
@@ -278,7 +292,7 @@ function handleMessage(msg) {
       if (s.consoleLogs.length > 2000) s.consoleLogs.splice(0, s.consoleLogs.length - 2000);
       s.index.summary.consoleLogs = s.consoleLogs.length;
       const fp = path.join(s.dir, 'raw/console/logs.json');
-      writeJson(fp, { capturedAt: Date.now(), totalEntries: s.consoleLogs.length, entries: s.consoleLogs });
+      await writeJsonAsync(fp, { capturedAt: Date.now(), totalEntries: s.consoleLogs.length, entries: s.consoleLogs });
       s.index.files.raw.console_logs = 'raw/console/logs.json';
       markFresh(s, 'console-logger', Date.now());
       break;
@@ -286,7 +300,7 @@ function handleMessage(msg) {
 
     case 'PERF_METRICS': {
       const fp = path.join(s.dir, 'raw/perf/metrics.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.perf = 'raw/perf/metrics.json';
       markFresh(s, 'perf-analyzer', payload.capturedAt);
       break;
@@ -294,7 +308,7 @@ function handleMessage(msg) {
 
     case 'SOURCE_CATALOG': {
       const fp = path.join(s.dir, 'raw/sources/catalog.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.sources = 'raw/sources/catalog.json';
       break;
     }
@@ -311,27 +325,29 @@ function handleMessage(msg) {
       s.index.summary.textWordCount = 0;
       s.viewport = null;
       // Delete stale visual files so dashboard never loads old page data
-      try { fs.unlinkSync(path.join(s.dir, 'raw/visual/text-coords.json')); } catch (_) {}
-      try { fs.unlinkSync(path.join(s.dir, 'raw/visual/viewport.json')); } catch (_) {}
-      console.error(`[cache] PAGE_NAVIGATED tabId=${tabId} url=${payload.url}`);
+      const textCoordsPath = path.join(s.dir, 'raw/visual/text-coords.json');
+      const viewportPath = path.join(s.dir, 'raw/visual/viewport.json');
+      try { await fsp.unlink(textCoordsPath); } catch (_) {}
+      try { await fsp.unlink(viewportPath); } catch (_) {}
+      console.log(`[cache] PAGE_NAVIGATED tabId=${tabId} url=${payload.url}`);
       break;
     }
 
     case 'VIEWPORT_UPDATE': {
       s.viewport = payload;
       const fp = path.join(s.dir, 'raw/visual/viewport.json');
-      writeJson(fp, payload);
+      await writeJsonAsync(fp, payload);
       s.index.files.raw.viewport = 'raw/visual/viewport.json';
       break;
     }
   }
 
-  updateIndex(s);
+  await updateIndexAsync(s);
 }
 
-function _flushNetwork(session) {
+async function _flushNetwork(session) {
   const fp = path.join(session.dir, 'raw/network/requests.json');
-  writeJson(fp, {
+  await writeJsonAsync(fp, {
     capturedAt: Date.now(),
     totalRequests: session.networkRequests.length,
     requests: session.networkRequests,
@@ -376,7 +392,13 @@ function getSessionDir(tabId) {
 function readSessionFile(tabId, relPath) {
   const dir = getSessionDir(tabId);
   if (!dir) return null;
-  return readJson(path.join(dir, relPath));
+  const resolved = path.resolve(path.join(dir, relPath));
+  const normalizedDir = path.resolve(dir) + path.sep;
+  if (!resolved.startsWith(normalizedDir)) {
+    console.error(`[cache] readSessionFile: blocked path traversal (tabId=${tabId}, relPath=${relPath})`);
+    return null;
+  }
+  return readJson(resolved);
 }
 
 function getConsoleLogs(tabId) {

@@ -128,7 +128,18 @@ const httpServer = http.createServer((req, res) => {
   const url    = new URL(req.url, `http://${HOST}:${HTTP_PORT}`);
   const method = req.method;
 
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers['origin'] || '';
+  const serverOrigin = `http://${HOST}:${HTTP_PORT}`;
+  const httpAllowedOrigins = SECURITY.allowedMcpOrigins.includes('*')
+    ? [serverOrigin]
+    : SECURITY.allowedMcpOrigins;
+  if (httpAllowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    res.setHeader('Access-Control-Allow-Origin', serverOrigin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'none'); // browser will reject
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (method === 'OPTIONS') { res.writeHead(204); return res.end(); }

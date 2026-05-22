@@ -17,6 +17,9 @@ const stateStore = require('./state-store');
 // Pending hash requests: requestId → { resolve, reject, timer }
 const pendingHashRequests = new Map();
 
+// Navigate lock: tabId → Promise — prevents concurrent navigation on same tab
+const navigating = new Map();
+
 // ── Hash Report Handler ──────────────────────────────────────────────────────
 
 function handleHashReport(msg) {
@@ -75,6 +78,13 @@ function findPath(graph, fromHash, toHash, minConfidence = 0.3) {
 
 async function navigate(tabId, targetHash, options, executeAction, broadcast) {
   const start = Date.now();
+
+  // Prevent concurrent navigation on same tab
+  if (navigating.has(tabId)) {
+    return { ok: false, error: 'CONCURRENT_NAVIGATION', message: 'Navigation already in progress for this tab. Wait for it to complete.' };
+  }
+  navigating.set(tabId, true);
+
   const {
     siteVersion,
     timeoutMs = 30000,
@@ -263,6 +273,8 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
       message: e.message,
       durationMs: Date.now() - start,
     };
+  } finally {
+    navigating.delete(tabId);
   }
 }
 

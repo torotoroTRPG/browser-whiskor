@@ -17,7 +17,7 @@ class WhiskorCore extends EventEmitter {
     this._pendingActions = new Map();
 
     // Injected dependencies (real server passes actual modules)
-    this.cache = opts.cache || { handleMessage() {}, getSessionList() { return []; }, getSessionData() { return null; }, getSessionDir() { return null; }, readSessionFile() { return null; }, storeSmartDelta() {} };
+    this.cache = opts.cache || { handleMessage() { return Promise.resolve(); }, getSessionList() { return []; }, getSessionData() { return null; }, getSessionDir() { return null; }, readSessionFile() { return null; }, storeSmartDelta() {} };
     this.actions = opts.actions || { handleResult() {}, execute() { return { ok: false, error: 'No actions module' }; }, pendingCount() { return 0; }, setBroadcast() {} };
     this.screenshots = opts.screenshots || { handleResult() {}, capture() { return { ok: false, error: 'No screenshots module' }; }, setBroadcast() {} };
     this.stateMachine = opts.stateMachine || { addNode() {}, addEdge() {}, getUnvisitedActions() { return []; }, getAllGraphs() { return []; } };
@@ -90,7 +90,9 @@ class WhiskorCore extends EventEmitter {
       let msg;
       try { msg = JSON.parse(raw); }
       catch { return; }
-      this.routeMessage(msg, ws);
+      this.routeMessage(msg, ws).catch(err => {
+        console.error('[core] routeMessage error:', err);
+      });
     });
 
     ws.on('close', () => {
@@ -124,7 +126,7 @@ class WhiskorCore extends EventEmitter {
   }
 
   // ── Message routing ─────────────────────────────────────────────────────────
-  routeMessage(msg, fromWs) {
+  async routeMessage(msg, fromWs) {
     this.emit('message', msg, fromWs);
 
     switch (msg.type) {
@@ -147,12 +149,12 @@ class WhiskorCore extends EventEmitter {
       case 'PERF_METRICS':
       case 'SOURCE_CATALOG':
       case 'PAGE_NAVIGATED':
-        this.cache.handleMessage(msg);
+        await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         break;
 
       case 'VIEWPORT_UPDATE': {
-        this.cache.handleMessage(msg);
+        await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         const payload = msg.payload || {};
         const s = this.cache.getSessionData(msg.tabId);
