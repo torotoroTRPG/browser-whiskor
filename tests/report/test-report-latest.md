@@ -1,22 +1,22 @@
 # browser-whiskor Test Report
 
 **Mode:** full  
-**Started:** 2026-05-22 14:02:22  
-**Duration:** 4.1s  
+**Started:** 2026-05-22 14:43:00  
+**Duration:** 3.2s  
 
 ## Summary
 
 | Metric       | Value |
 |-------------:|-------|
-| Total tests  | 313 |
-| Passed       | 313 |
+| Total tests  | 299 |
+| Passed       | 299 |
 | Failed       | 0 |
 | Pass rate    | 100.0% |
 
 ## Suites
 ### unit tests (mocked)
 
-_Duration: 2.7s_
+_Duration: 2.1s_
 
 | Suite | Tests | Passed | Failed | Rate |
 |-------|------:|-------:|------:|-----:|
@@ -34,7 +34,6 @@ _Duration: 2.7s_
 | 11.2 Pattern Registry | 7 | 7 | 0 | 100.0%
 | 5.2 Action Handlers | 31 | 31 | 0 | 100.0%
 | 5.1 Element Resolution | 19 | 19 | 0 | 100.0%
-| 4.3 Capture Tools | 5 | 5 | 0 | 100.0%
 | 4.4 Control Tools | 7 | 7 | 0 | 100.0%
 | 4.2 Read Tools | 10 | 10 | 0 | 100.0%
 | 4.1 Write Tools | 15 | 15 | 0 | 100.0%
@@ -44,7 +43,6 @@ _Duration: 2.7s_
 | 1.1 WebSocket Connection Management | 14 | 14 | 0 | 100.0%
 | 7.2 State Navigator | 18 | 18 | 0 | 100.0%
 | 7.1 State Store | 3 | 3 | 0 | 100.0%
-| 6.2 Service Worker | 2 | 2 | 0 | 100.0%
 | 11.3 Tool Manager | 21 | 21 | 0 | 100.0%
 ### integration & stress tests (real WS)
 
@@ -61,4 +59,4 @@ _Duration: 1.3s_
 
 ---
 
-*Report generated at 2026-05-22 14:02:22 by tests\run.ps1*
+*Report generated at 2026-05-22 14:43:00 by tests\run.ps1*

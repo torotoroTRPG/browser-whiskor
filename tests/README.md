@@ -2,11 +2,11 @@
 
 ## Test Strategy & Scope
 
-**Current Status:** 299 automated tests (Unit, Integration, Stress) + UI verification.
+**Current Status:** 308 automated tests (Unit, Integration, Stress) + UI verification.
 
 | Category | Count | Scope | Notes |
 |----------|-------|-------|-------|
-| **Unit** | 268 | Core logic, routing, WS messaging, MCP tools | Event-driven, zero sleep where possible |
+| **Unit** | 277 | Core logic, routing, WS messaging, MCP tools | Event-driven, zero sleep where possible |
 | **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab | Uses in-process server fixture |
 | **Stress** | 11 | Large payloads, long sessions | Verifies stability under load |
 | **E2E (Playwright)** | 8 | Dashboard UI, Canvas rendering, State management | ⚠️ **Note:** Currently tests UI components and internal state, not the full extension-to-server pipeline. See below. |

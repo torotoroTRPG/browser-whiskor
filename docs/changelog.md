@@ -2,6 +2,23 @@
 
 All notable changes to browser-whiskor.
 
+## [3.9.0] — 2026-05-22
+
+### Added
+- **Navigate lock** (`state-navigator.js`) — tab-level `navigating` Map prevents concurrent `navigate()` calls on the same tab, returning `CONCURRENT_NAVIGATION` error instead of corrupting state.
+
+### Changed
+- **Async I/O in WS handler** — `handleMessage()` in `cache-writer.js` now uses `fs.promises` for all file writes/reads. TEXT_COORDS read→merge→write no longer blocks the event loop.
+- **CORS restricted** — HTTP API `Access-Control-Allow-Origin` changed from wildcard `*` to localhost-only by default. Respects `allowedMcpOrigins` config when set to specific origins.
+- **Console.error → console.log** — Info-level cache events (PAGE_NAVIGATED, TEXT_COORDS, etc.) now log to `console.log` instead of `console.error`. Actual errors (I/O failures, path traversal) remain on stderr.
+- **Test counts** — 277 unit / 299 total (was 282 / 313). Two inline-implementation stubs archived to `tests/archive/` with documentation notes.
+
+### Fixed
+- **`readSessionFile` path traversal** — Added `path.resolve()` + `startsWith(dir)` validation. Blocks `../../etc/passwd` style attacks even though `relPath` is currently hardcoded.
+- **Dashboard viewport jitter on page navigation** — `cache-writer.js` now deletes stale `text-coords.json` on `PAGE_NAVIGATED`. Dashboard explicitly clears `S.words` and calls `resetCanvasView()`.
+
+---
+
 ## [3.8.0] — 2026-05-22
 
 ### Added
