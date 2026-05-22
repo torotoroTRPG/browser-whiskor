@@ -15,6 +15,7 @@ import {
   createSWClient,
   createDashboardClient,
   sleep,
+  waitFor,
 } from '../helpers/ws-client.js';
 import { createPortPool } from '../helpers/port-pool.js';
 
@@ -128,7 +129,7 @@ describe('1.3 Message Routing', () => {
       assert.strictEqual(server._pendingActions.has(pendingId), true);
 
       sw.send({ type: 'ACTION_RESULT', id: pendingId, result: {} });
-      await sleep(50);
+      await waitFor(() => !server._pendingActions.has(pendingId), 2_000);
 
       assert.strictEqual(server._pendingActions.has(pendingId), false,
         'pending action must be removed from map after resolution');
@@ -189,7 +190,7 @@ describe('1.3 Message Routing', () => {
 
       // Send raw malformed JSON
       sw.ws.send('THIS IS NOT JSON }{{{');
-      await sleep(100);
+      await waitFor(() => server.swSockets.size === 1 && server.dashboardSockets.size === 1, 2_000);
 
       // Server and dashboard must still be alive
       assert.strictEqual(server.swSockets.size, 1);
@@ -224,7 +225,7 @@ describe('1.3 Message Routing', () => {
       }
 
       // Wait for all to be processed
-      await sleep(200);
+      await waitFor(() => typesToSend.every(t => seenTypes.has(t)), 2_000);
 
       for (const type of typesToSend) {
         assert.ok(seenTypes.has(type), `server "message" event must be emitted for ${type}`);
