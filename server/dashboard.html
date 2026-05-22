@@ -271,6 +271,11 @@
       color: var(--muted);
       margin-top: 5px;
     }
+    .s-item .s-pin {
+      float: right; cursor: pointer; font-size: 11px; opacity: 0.25; transition: opacity 200ms; user-select: none;
+    }
+    .s-item .s-pin.active { opacity: 0.8; }
+    .s-item .s-pin:hover { opacity: 1; }
     .s-item .s-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .s-tag {
       font: 200 8px/1 var(--font-mono);
@@ -573,6 +578,10 @@
               <button class="btn" id="cv-undo" title="Undo last action (Ctrl+Z)">UNDO</button>
               <button class="btn" id="cv-redo" title="Redo action (Ctrl+Shift+Z)">REDO</button>
               <span class="cv-sep"></span>
+              <button class="btn" id="cv-nav-back" title="Navigate back">←</button>
+              <button class="btn" id="cv-nav-fwd" title="Navigate forward">→</button>
+              <button class="btn" id="cv-nav-reload" title="Reload page">↻</button>
+              <span class="cv-sep"></span>
               <label><input type="checkbox" id="cv-bounds" checked> BOUNDS</label>
               <label><input type="checkbox" id="cv-colors"> COLORS</label>
               <label><input type="checkbox" id="cv-overlay" checked> OVERLAY</label>
@@ -838,14 +847,27 @@
       }
       el.innerHTML = S.sessions.map(function(s) {
         var fws = (s.summary && s.summary.detectedFrameworks || []).map(function(f){ return '<span class="s-tag">' + esc(f) + '</span>'; }).join('');
+        var pinBtn = s.keep ? '<span class="s-pin active" data-tid="' + s.tabId + '" title="Pinned — will not be cleaned up">📌</span>'
+                            : '<span class="s-pin" data-tid="' + s.tabId + '" title="Click to pin this session">📌</span>';
         return '<div class="s-item' + (s.tabId === S.tabId ? ' active' : '') + '" data-tid="' + s.tabId + '">'
+                + pinBtn
                 + '<div class="s-url">' + esc(s.url || '(unknown)') + '</div>'
                 + '<div class="s-meta">TAB ' + s.tabId + ' · ' + new Date(s.updatedAt).toLocaleTimeString() + '</div>'
                 + (fws ? '<div class="s-tags">' + fws + '</div>' : '')
                 + '</div>';
       }).join('');
       el.querySelectorAll('.s-item').forEach(function(item) {
-        item.addEventListener('click', function() { selectSession(parseInt(this.dataset.tid)); });
+        item.addEventListener('click', function(e) { if (e.target.classList.contains('s-pin')) return; selectSession(parseInt(this.dataset.tid)); });
+      });
+      el.querySelectorAll('.s-pin').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var tid = parseInt(this.dataset.tid);
+          var pin = !this.classList.contains('active');
+          fetch(S.api + '/api/sessions/' + tid + '/pin', { method: pin ? 'POST' : 'DELETE' });
+          this.classList.toggle('active', pin);
+          this.title = pin ? 'Pinned' : 'Click to pin this session';
+        });
       });
     }
 
@@ -904,9 +926,11 @@
     async function loadText() {
       var data = await fetchSess('raw/visual/text-coords.json');
       var words = data && data.words || [];
+      var wasEmpty = !S.words.length;
       S.words = words;
-      // Always reset canvas view on load to avoid stale zoom/pan after navigation
-      resetCanvasView();
+      // Only reset view on first load (navigation or initial). On subsequent
+      // updates (scroll-triggered re-collection) preserve user's pan/zoom.
+      if (wasEmpty) resetCanvasView();
       // Use live viewport if available, otherwise fall back to snapshot
       var snapVp = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       if (!S.liveVp) {
@@ -1070,13 +1094,15 @@
       var zoom = S.canvas.zoom;
       var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
 
-      // Auto-fit: recalculate pan every frame to track live viewport scroll
+      // Auto-fit: center viewport in canvas. Unlike focusOnViewport,
+      // this runs every frame to track live scroll. No area clamping:
+      // showing empty space at page edges is natural (viewport at boundary).
       if (zoom === null) {
         zoom = Math.min(cssW / area.w, cssH / area.h, 1);
         var vpCX = lv.scrollX + lv.width / 2;
         var vpCY = lv.scrollY + lv.height / 2;
-        S.canvas.panX = Math.max(area.x, Math.min(vpCX - cssW / (2 * zoom), area.x + area.w - cssW / zoom));
-        S.canvas.panY = Math.max(area.y, Math.min(vpCY - cssH / (2 * zoom), area.y + area.h - cssH / zoom));
+        S.canvas.panX = vpCX - cssW / (2 * zoom);
+        S.canvas.panY = vpCY - cssH / (2 * zoom);
       }
 
       var panX = S.canvas.panX, panY = S.canvas.panY;
@@ -1229,6 +1255,17 @@
       D['cv-undo'].addEventListener('click', undoAction);
       D['cv-redo'].addEventListener('click', redoAction);
 
+      // Page navigation buttons
+      D['cv-nav-back'].addEventListener('click', function() {
+        if (S.tabId) sendAction({ type: 'go_back' }, 'go_back');
+      });
+      D['cv-nav-fwd'].addEventListener('click', function() {
+        if (S.tabId) sendAction({ type: 'go_forward' }, 'go_forward');
+      });
+      D['cv-nav-reload'].addEventListener('click', function() {
+        if (S.tabId) sendAction({ type: 'reload' }, 'reload');
+      });
+
       // Checkboxes
       ['cv-bounds','cv-colors','cv-overlay'].forEach(function(id) {
         D[id].addEventListener('change', scheduleCanvasRender);
@@ -1258,10 +1295,10 @@
         scheduleCanvasRender();
       });
 
-      // Wheel: interact mode → scroll action, else zoom
+      // Wheel: interact mode or Ctrl → scroll action, else zoom
       wrap.addEventListener('wheel', function(e) {
         e.preventDefault();
-        if (S.canvas.interactMode) {
+        if (S.canvas.interactMode || e.ctrlKey || e.metaKey) {
           var rect = canvas.getBoundingClientRect();
           var mx = e.clientX - rect.left;
           var my = e.clientY - rect.top;
@@ -1288,9 +1325,10 @@
         scheduleCanvasRender();
       }, { passive: false });
 
-      // Mouse down: interact mode → start drag, else pan
+      // Mouse down: interact mode or Ctrl → remote action, else pan
       wrap.addEventListener('mousedown', function(e) {
-        if (e.button === 2 && S.canvas.interactMode) {
+        var isRemote = S.canvas.interactMode || e.ctrlKey || e.metaKey;
+        if (e.button === 2 && isRemote) {
           e.preventDefault();
           var rect = canvas.getBoundingClientRect();
           var mx = e.clientX - rect.left;
@@ -1302,7 +1340,7 @@
           return;
         }
         if (e.button !== 0) return;
-        if (S.canvas.interactMode) {
+        if (isRemote) {
           var rect3 = canvas.getBoundingClientRect();
           var mx3 = e.clientX - rect3.left;
           var my3 = e.clientY - rect3.top;
@@ -1342,7 +1380,7 @@
           wrap.classList.remove('panning');
           return;
         }
-        if (S.canvas.interactMode && S.canvas.dragStart) {
+        if (S.canvas.dragStart) {
           var ds = S.canvas.dragStart;
           var dx = e.clientX - ds.clientX;
           var dy = e.clientY - ds.clientY;
@@ -1405,12 +1443,32 @@
         scheduleCanvasRender();
       }, 100));
 
-      // Keyboard shortcuts
+      // Keyboard: shortcuts + remote key forwarding in interact/Ctrl mode
+      function buildKeyStr(e) {
+        var s = '';
+        if (e.ctrlKey) s += 'Ctrl+';
+        if (e.altKey) s += 'Alt+';
+        if (e.shiftKey) s += 'Shift+';
+        if (e.metaKey) s += 'Meta+';
+        return s + e.key;
+      }
       window.addEventListener('keydown', function(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-        if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redoAction(); }
-        else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoAction(); }
-        else if (e.key === 'i' && !e.ctrlKey && !e.metaKey) { D['cv-interact'].click(); }
+        // Dashboard shortcuts (always take priority)
+        if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); redoAction(); return; }
+        if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoAction(); return; }
+        if (e.key === 'i' && !e.ctrlKey && !e.metaKey) { D['cv-interact'].click(); return; }
+        // Page navigation via Alt+arrows
+        if ((e.altKey || e.metaKey) && e.key === 'ArrowLeft') { e.preventDefault(); sendAction({ type: 'go_back' }, 'go_back'); return; }
+        if ((e.altKey || e.metaKey) && e.key === 'ArrowRight') { e.preventDefault(); sendAction({ type: 'go_forward' }, 'go_forward'); return; }
+        // Skip modifier-only keys (they're triggers, not remote keys)
+        if (e.key === 'Control' || e.key === 'Shift' || e.key === 'Alt' || e.key === 'Meta') return;
+        // Forward key to remote page when interact mode is ON or Ctrl is held
+        if (S.canvas.interactMode || e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          var keyStr = buildKeyStr(e);
+          sendAction({ type: 'press_key', key: keyStr }, 'key: ' + keyStr);
+        }
       });
     }
 
@@ -1573,6 +1631,33 @@
     }
 
     // ── Action History (Undo/Redo) ─────────────────────────────────────
+    function getInverseAction(action) {
+      switch (action.type) {
+        case 'mouse_scroll':
+          return { type: 'mouse_scroll', deltaX: -(action.deltaX || 0), deltaY: -(action.deltaY || 0) };
+        case 'click':
+        case 'right_click':
+          return { type: 'click', x: action.x, y: action.y };
+        default:
+          return null;
+      }
+    }
+
+    async function sendInverse(action, label) {
+      if (!S.tabId) return;
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: S.tabId, action: action })
+        });
+        var result = await r.json();
+        D['cv-info'].textContent = label + ' → ' + (result.ok ? 'OK' : 'ERR: ' + (result.error || ''));
+      } catch(e) {
+        D['cv-info'].textContent = label + ' → ERR: ' + e.message;
+      }
+    }
+
     function pushHistory(entry) {
       S.actionHistory.push(entry);
       if (S.actionHistory.length > S.maxHistory) S.actionHistory.shift();
@@ -1606,7 +1691,12 @@
       var entry = S.actionHistory.pop();
       S.actionFuture.push(entry);
       updateUndoRedoUI();
-      D['cv-info'].textContent = 'UNDO: ' + entry.label;
+      var inverse = getInverseAction(entry.action);
+      if (inverse) {
+        await sendInverse(inverse, 'UNDO: ' + entry.label);
+      } else {
+        D['cv-info'].textContent = 'UNDO: ' + entry.label + ' (no inverse)';
+      }
     }
 
     async function redoAction() {

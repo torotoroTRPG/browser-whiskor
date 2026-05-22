@@ -45,7 +45,7 @@
         mode: 'always_on',
         plugins: {},
         options: {
-          textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
+          textCoords: { level: 'word', includeHidden: false, includeOffscreen: true, maxWords: 5000 },
           network:    { captureBody: true, bodyMaxLength: 500, captureTokens: true },
           react:      { maxDepth: 60, maxProps: 30, maxHooks: 20 },
         },

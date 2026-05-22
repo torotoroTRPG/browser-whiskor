@@ -21,3 +21,4 @@ server-stderr.log
 server-stdout.log
 tests/tmp/
 hs_err_pid*.log
+memo_日常.txt

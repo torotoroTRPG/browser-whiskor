@@ -9,12 +9,21 @@
 
 const EventEmitter = require('events');
 
+const DISCONNECT_CLEANUP_MS = 15 * 60 * 1000; // 15 min
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;    // check every 5 min
+
 class WhiskorCore extends EventEmitter {
   constructor(opts = {}) {
     super();
     this.swSockets = new Set();
     this.dashboardSockets = new Set();
     this._pendingActions = new Map();
+    this._wsToTabs = new Map();       // WebSocket → Set<tabId>
+    this._tabDisconnectedAt = new Map(); // tabId → timestamp
+
+    // Periodic cleanup: remove sessions disconnected for > DISCONNECT_CLEANUP_MS
+    this._cleanupTimer = setInterval(() => this._cleanupStaleSessions(), CLEANUP_INTERVAL_MS);
+    this._cleanupTimer.unref();
 
     // Injected dependencies (real server passes actual modules)
     this.cache = opts.cache || { handleMessage() { return Promise.resolve(); }, getSessionList() { return []; }, getSessionData() { return null; }, getSessionDir() { return null; }, readSessionFile() { return null; }, storeSmartDelta() {} };
@@ -95,15 +104,20 @@ class WhiskorCore extends EventEmitter {
       });
     });
 
-    ws.on('close', () => {
+    const onDisconnect = () => {
       this.swSockets.delete(ws);
+      // Mark all tabs for this ws as disconnected
+      const tabs = this._wsToTabs.get(ws);
+      if (tabs) {
+        const now = Date.now();
+        for (const tabId of tabs) this._tabDisconnectedAt.set(tabId, now);
+      }
+      this._wsToTabs.delete(ws);
       this.emit('sw:disconnect');
-    });
+    };
 
-    ws.on('error', () => {
-      this.swSockets.delete(ws);
-      this.emit('sw:disconnect');
-    });
+    ws.on('close', onDisconnect);
+    ws.on('error', onDisconnect);
 
     this.emit('sw:connect', ws);
   }
@@ -128,6 +142,12 @@ class WhiskorCore extends EventEmitter {
   // ── Message routing ─────────────────────────────────────────────────────────
   async routeMessage(msg, fromWs) {
     this.emit('message', msg, fromWs);
+    // Track which tabIds belong to this WebSocket for cleanup
+    if (msg.tabId && fromWs) {
+      if (!this._wsToTabs.has(fromWs)) this._wsToTabs.set(fromWs, new Set());
+      this._wsToTabs.get(fromWs).add(msg.tabId);
+      this._tabDisconnectedAt.delete(msg.tabId); // reconnected
+    }
 
     switch (msg.type) {
       // Data collection → cache + dashboard
@@ -313,11 +333,38 @@ class WhiskorCore extends EventEmitter {
       return { status: 200, body: result, actionId: id };
     }
 
+    // POST /api/sessions/:tabId/pin  — toggle session keep flag
+    const pinM = p.match(/^\/api\/sessions\/(\d+)\/pin$/);
+    if (method === 'POST' && pinM) {
+      const tabId = parseInt(pinM[1]);
+      this.cache.setSessionKeep(tabId, true);
+      return { status: 200, body: { ok: true, tabId, keep: true } };
+    }
+    if (method === 'DELETE' && pinM) {
+      const tabId = parseInt(pinM[1]);
+      this.cache.setSessionKeep(tabId, false);
+      return { status: 200, body: { ok: true, tabId, keep: false } };
+    }
+
     if (method === 'GET' && p === '/api/graphs') {
       return { status: 200, body: this.stateMachine.getAllGraphs() };
     }
 
     return { status: 404, body: { error: 'Not found', path: p } };
+  }
+
+  // ── Stale session cleanup ──────────────────────────────────────────────────
+  _cleanupStaleSessions() {
+    const now = Date.now();
+    for (const [tabId, disconnectedAt] of this._tabDisconnectedAt) {
+      if (now - disconnectedAt > DISCONNECT_CLEANUP_MS) {
+        // Skip pinned sessions
+        const s = this.cache.getSessionData(tabId);
+        if (s && s.keep) continue;
+        this.cache.removeSession(tabId);
+        this._tabDisconnectedAt.delete(tabId);
+      }
+    }
   }
 }
 

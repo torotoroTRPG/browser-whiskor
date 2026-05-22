@@ -224,7 +224,7 @@
   // ── Seen Texts Cache (IntersectionObserver) ───────────────────────────────
   // Tracks text elements that have entered the viewport at least once.
   // Allows AI to search for text that is currently offscreen but was seen before.
-  const seenTexts = new Map(); // key: xpath -> { text, absoluteX, absoluteY, width, height, element, contextHint, lastSeen }
+  const _seenTextsCache = new Map(); // key: xpath -> { text, absoluteX, absoluteY, width, height, element, contextHint, lastSeen }
   let _seenObserver = null;
 
   function initSeenObserver() {
@@ -236,7 +236,7 @@
           const xpath = getSimpleXPath(el);
           const rect = el.getBoundingClientRect();
           const scrollX = window.scrollX, scrollY = window.scrollY;
-          seenTexts.set(xpath, {
+          _seenTextsCache.set(xpath, {
             text: el.textContent?.trim().slice(0, 200) || '',
             absoluteX: Math.round(rect.left + scrollX),
             absoluteY: Math.round(rect.top + scrollY),
@@ -401,9 +401,9 @@
     }
 
     // Merge with seen texts cache (offscreen but previously seen)
-    if (!includeOffscreen && seenTexts.size > 0) {
+    if (!includeOffscreen && _seenTextsCache.size > 0) {
       const currentXPaths = new Set(words.map(w => w.xpath));
-      for (const [xpath, info] of seenTexts.entries()) {
+      for (const [xpath, info] of _seenTextsCache.entries()) {
         if (!currentXPaths.has(xpath) && words.length < maxWords) {
           // Add seen text as offscreen word
           words.push({
@@ -515,6 +515,16 @@
           }, 200);
         });
         self._observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        // Re-collect on scroll so new in-viewport text enters the dataset
+        self._scrollHandler = () => {
+          clearTimeout(self._reextractTimer);
+          self._reextractTimer = setTimeout(() => {
+            if (!registry._isEnabled('text-coords')) return;
+            const data = self.collect(api);
+            if (data) api.emit(self.emitType, data, false);
+          }, 300);
+        };
+        window.addEventListener('scroll', self._scrollHandler, { passive: true, capture: true });
       };
 
       if (document.readyState === 'loading') {
@@ -569,9 +579,8 @@
   // Tracks text elements that have entered the viewport at least once.
   // Monitors position changes, content updates, and movement status.
   // Prioritizes "moving" texts for frequent updates.
-  { // block-scoped to avoid duplicate declaration conflict with first copy
-  const seenTexts = new Map(); // key: xpath -> { xpath, text, x, y, w, h, lastChecked, status, changeCount, lastChange, element }
-  let _seenObserver = null;
+  const _trackedTexts = new Map(); // key: xpath -> { xpath, text, x, y, w, h, lastChecked, status, changeCount, lastChange, element }
+  let _trackedObserver = null;
   let _recheckTimer = null;
   let _isTracking = false;
   let _scrollCollectTimer = null;
@@ -582,10 +591,10 @@
   const SCROLL_COLLECT_DELAY = 300;     // ms: debounce delay for scroll-triggered collection
 
   function initSeenTracker(api) {
-    if (_seenObserver) return;
+    if (_trackedObserver) return;
     
     // IntersectionObserver: register texts when they enter viewport
-    _seenObserver = new IntersectionObserver((entries) => {
+    _trackedObserver = new IntersectionObserver((entries) => {
       let newEntriesFound = false;
       for (const entry of entries) {
         if (entry.isIntersecting) {
@@ -631,19 +640,19 @@
   function observeAllTextElements() {
     const elements = document.body.querySelectorAll(':not(script):not(style):not(noscript)');
     for (const el of elements) {
-      if (el.textContent?.trim() && _seenObserver) {
-        _seenObserver.observe(el);
+      if (el.textContent?.trim() && _trackedObserver) {
+        _trackedObserver.observe(el);
       }
     }
   }
 
   function registerSeenElement(el) {
     const xpath = getSimpleXPath(el);
-    const isNew = !seenTexts.has(xpath);
+    const isNew = !_trackedTexts.has(xpath);
     
     const rect = el.getBoundingClientRect();
     const scrollX = window.scrollX, scrollY = window.scrollY;
-    const entry = seenTexts.get(xpath) || {
+    const entry = _trackedTexts.get(xpath) || {
       xpath,
       text: '',
       x: 0, y: 0, w: 0, h: 0,
@@ -687,7 +696,7 @@
     entry.inView = true;
 
     if (isNew) {
-      seenTexts.set(xpath, entry);
+      _trackedTexts.set(xpath, entry);
     }
     return isNew;
   }
@@ -702,7 +711,7 @@
       const deltas = [];
       
       // Sort by priority: moving > checking > new > stable
-      const entries = [...seenTexts.values()].sort((a, b) => {
+      const entries = [..._trackedTexts.values()].sort((a, b) => {
         const priority = { moving: 3, checking: 2, new: 1, stable: 0 };
         return (priority[b.status] || 0) - (priority[a.status] || 0);
       });
@@ -812,11 +821,11 @@
       clearTimeout(_scrollCollectTimer);
       _scrollCollectTimer = null;
     }
-    if (_seenObserver) {
-      _seenObserver.disconnect();
-      _seenObserver = null;
+    if (_trackedObserver) {
+      _trackedObserver.disconnect();
+      _trackedObserver = null;
     }
-    seenTexts.clear();
+    _trackedTexts.clear();
   }
 
   // ── Scroll & resize tracking (realtime viewport overlay) ──────────────────

@@ -82,7 +82,7 @@ function getSession(tabId, url, siteVersion) {
       files: { raw: {} },
     };
 
-    sessions.set(tabId, { dir, index, networkRequests: [], consoleLogs: [], updatedAt: Date.now() });
+    sessions.set(tabId, { dir, index, networkRequests: [], consoleLogs: [], updatedAt: Date.now(), keep: false });
     writeJson(path.join(dir, '_index.json'), index);
   }
   return sessions.get(tabId);
@@ -367,6 +367,7 @@ function getSessionList() {
     updatedAt: s.updatedAt,
     dataAgeMs: now - s.updatedAt,
     isStale:   (now - s.updatedAt) > STALE_THRESHOLD_MS,
+    keep:      !!s.keep,
     summary:   s.index.summary,
     freshnessMap: Object.fromEntries(
       Object.entries(s.index.dataFreshness).map(([k, v]) => [k, { capturedAt: v, ageMs: now - v, isStale: (now - v) > STALE_THRESHOLD_MS }])
@@ -414,9 +415,18 @@ function freshnessInfo(tabId, pluginId) {
   return { available: true, capturedAt, ageMs, isStale: ageMs > STALE_THRESHOLD_MS };
 }
 
-// Remove a session (tab closed)
+// Remove a session (tab closed / cleanup)
 function removeSession(tabId) {
+  const s = sessions.get(tabId);
+  if (s) {
+    try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch (_) {}
+  }
   sessions.delete(tabId);
+}
+
+function setSessionKeep(tabId, keep) {
+  const s = sessions.get(tabId);
+  if (s) s.keep = !!keep;
 }
 
 // Smart delta storage (aggregated from delta-engine)
@@ -440,5 +450,5 @@ function getSmartDelta(tabId) {
 module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
-  storeSmartDelta, getSmartDelta,
+  storeSmartDelta, getSmartDelta, setSessionKeep,
 };
