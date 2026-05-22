@@ -32,8 +32,9 @@ const HTTP_URL = 'http://localhost:7892';
  */
 async function launchWithExtension() {
   const userDataDir = path.join(ROOT, 'tests', 'tmp', 'e2e-profile');
+  const headless = process.env.E2E_GUI === '1';
   const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
+    headless,
     args: [
       `--disable-extensions-except=${EXTENSION_PATH}`,
       `--load-extension=${EXTENSION_PATH}`,
