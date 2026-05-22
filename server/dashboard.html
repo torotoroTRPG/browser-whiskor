@@ -802,6 +802,11 @@
               scheduleCanvasRender();
             } else if (msg.type === 'TEXT_COORD_DELTA') {
               applyBeaconDelta(msg.payload);
+            } else if (msg.type === 'PAGE_NAVIGATED') {
+              S.words = [];
+              S.liveVp = null;
+              resetCanvasView();
+              setTimeout(function(){ loadPane(S.activeTab); }, 100);
             } else {
               setTimeout(function(){ loadPane(S.activeTab); }, 300);
             }
@@ -897,21 +902,20 @@
 
     // ── Text Coords ───────────────────────────────────────────────────────
     async function loadText() {
-      var isFirstLoad = !S.words.length;
       var data = await fetchSess('raw/visual/text-coords.json');
       var words = data && data.words || [];
       S.words = words;
-      // Always use live viewport — snapshot viewport is just initial fallback
+      // Always reset canvas view on load to avoid stale zoom/pan after navigation
+      resetCanvasView();
+      // Use live viewport if available, otherwise fall back to snapshot
       var snapVp = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       if (!S.liveVp) {
         S.liveVp = { width: snapVp.width, height: snapVp.height, scrollX: snapVp.scrollX, scrollY: snapVp.scrollY };
       } else {
-        // Update dimensions from snapshot but keep live scroll position
         S.liveVp.width = snapVp.width;
         S.liveVp.height = snapVp.height;
       }
       D['txt-n'].textContent = words.length + ' nodes';
-      if (isFirstLoad) resetCanvasView();
       scheduleCanvasRender();
       renderWordList(words);
       // ambient

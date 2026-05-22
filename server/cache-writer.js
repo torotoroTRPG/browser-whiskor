@@ -308,7 +308,11 @@ function handleMessage(msg) {
       s.index.dataFreshness = {};
       s.index.summary.networkRequests = 0;
       s.index.summary.consoleLogs = 0;
+      s.index.summary.textWordCount = 0;
       s.viewport = null;
+      // Delete stale visual files so dashboard never loads old page data
+      try { fs.unlinkSync(path.join(s.dir, 'raw/visual/text-coords.json')); } catch (_) {}
+      try { fs.unlinkSync(path.join(s.dir, 'raw/visual/viewport.json')); } catch (_) {}
       console.error(`[cache] PAGE_NAVIGATED tabId=${tabId} url=${payload.url}`);
       break;
     }
