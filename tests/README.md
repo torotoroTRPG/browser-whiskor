@@ -2,11 +2,11 @@
 
 ## Test Strategy & Scope
 
-**Current Status:** 304 automated tests (Unit, Integration, Stress) + UI verification.
+**Current Status:** 299 automated tests (Unit, Integration, Stress) + UI verification.
 
 | Category | Count | Scope | Notes |
 |----------|-------|-------|-------|
-| **Unit** | 273 | Core logic, routing, WS messaging, MCP tools | Event-driven, zero sleep where possible |
+| **Unit** | 268 | Core logic, routing, WS messaging, MCP tools | Event-driven, zero sleep where possible |
 | **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab | Uses in-process server fixture |
 | **Stress** | 11 | Large payloads, long sessions | Verifies stability under load |
 | **E2E (Playwright)** | 8 | Dashboard UI, Canvas rendering, State management | ⚠️ **Note:** Currently tests UI components and internal state, not the full extension-to-server pipeline. See below. |
@@ -46,16 +46,16 @@ tests/
 │   ├── delta-flow.test.js
 │   ├── mcp-write.test.js
 │   ├── mcp-read.test.js
-│   ├── mcp-capture.test.js
 │   ├── mcp-control.test.js
 │   ├── executor-resolve.test.js
 │   ├── executor-actions.test.js
 │   ├── bridge.test.js
-│   ├── sw.test.js
 │   ├── state-store.test.js
 │   ├── state-navigator.test.js
 │   ├── config-loader.test.js
 │   └── config-change-log.test.js
+├── archive/              # Archived inline-implementation stubs
+│   ├── mcp-capture.test.js
 ├── integration/          # Integration tests
 │   ├── full-flow.test.js
 │   ├── error-recovery.test.js

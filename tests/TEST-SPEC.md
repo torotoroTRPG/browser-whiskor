@@ -216,7 +216,8 @@ tests/
 | `pin_state` | New pin | State bookmarked | |
 
 ### 4.3 Capture Tools
-**File:** `tests/unit/mcp-capture.test.js`
+**File:** `tests/unit/mcp-capture.test.js` → **archived** (`tests/archive/mcp-capture.test.js`)
+This was an inline-implementation stub: it tested hardcoded mock objects rather than the real `capture_screenshot` / `refresh_data` handlers. It served as a documentation sketch of the intended API but did not detect regressions. The real `capture_screenshot` integration is covered by `tests/integration/full-flow.test.js`.
 
 | Tool | Test | Expected | Constraints |
 |------|------|----------|-------------|
@@ -299,7 +300,8 @@ tests/
 | SW → MAIN | chrome.runtime | `MANUAL_COLLECT` | postMessage to MAIN world |
 
 ### 6.2 Service Worker (sw.js)
-**File:** `tests/unit/sw.test.js`
+**File:** `tests/unit/sw.test.js` → **archived** (`tests/archive/sw.test.js`)
+This was an inline-implementation stub: it defined mock functions inline and tested the mock, never importing the real `extension/background/sw.js`. It documented the intended queue & EXECUTE_ACTION behavior but did not detect regressions. Real SW resilience is covered by `tests/integration/error-recovery.test.js` and `tests/stress/long-session.test.js`.
 
 | Test | Scenario | Expected |
 |------|----------|----------|
