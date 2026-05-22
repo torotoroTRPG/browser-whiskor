@@ -2,22 +2,22 @@
  * server-fixture.js
  * Starts and stops a real server instance for integration/unit tests.
  * Uses test ports: WS=17891, HTTP=17892
+ *
+ * Now wraps the real WhiskorCore (server/core.js) for accurate coverage.
  */
 
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { EventEmitter } from 'node:events';
+import { WhiskorCore } from '../../server/core.js';
 
 const TEST_WS_PORT   = 17891;
 const TEST_HTTP_PORT = 17892;
 const TEST_CACHE_DIR = 'tests/tmp/cache';
 
 /**
- * Minimal in-process server fixture that mirrors server/index.js structure.
- * In a real project, import the actual server factory here:
- *   import { createWhiskorServer } from '../../server/index.js';
- *
- * This fixture exposes the internal socket sets and event emitter so tests
+ * Minimal in-process server fixture that wraps WhiskorCore.
+ * Exposes the internal socket sets and event emitter so tests
  * can assert on server-side state without extra HTTP round-trips.
  */
 export class ServerFixture extends EventEmitter {
@@ -34,7 +34,57 @@ export class ServerFixture extends EventEmitter {
 
     this._wss  = null;
     this._http = null;
-    this._pendingActions = new Map();  // id → { resolve, reject }
+    this._pendingActions = new Map();
+
+    // Create core with test-compatible stubs
+    this._core = new WhiskorCore({
+      cache: {
+        handleMessage() {},
+        getSessionList() { return []; },
+        getSessionData() { return null; },
+        getSessionDir() { return null; },
+        readSessionFile() { return null; },
+        storeSmartDelta() {},
+      },
+      actions: {
+        handleResult(msg) {
+          const pending = this._pendingActions?.get(msg.id);
+          pending?.resolve(msg.result);
+          this._pendingActions?.delete(msg.id);
+        },
+        execute() { return { ok: false, error: 'No browser connected' }; },
+        pendingCount() { return 0; },
+        setBroadcast() {},
+      },
+      screenshots: {
+        handleResult() {},
+        capture() { return { ok: false, error: 'No screenshots' }; },
+        setBroadcast() {},
+      },
+      stateMachine: {
+        addNode() {},
+        addEdge() {},
+        getUnvisitedActions() { return []; },
+        getAllGraphs() { return []; },
+      },
+      stateNavigator: {
+        handleHashReport() {},
+      },
+      deltaEngine: {
+        addFrame() { return null; },
+      },
+    });
+
+    // Wire up fixture's socket sets to core's sets
+    this._core.swSockets = this.swSockets;
+    this._core.dashboardSockets = this.dashboardSockets;
+
+    // Forward core events
+    this._core.on('sw:connect', (ws) => this.emit('sw:connect', ws));
+    this._core.on('sw:disconnect', () => this.emit('sw:disconnect'));
+    this._core.on('dashboard:connect', (ws) => this.emit('dashboard:connect', ws));
+    this._core.on('dashboard:disconnect', () => this.emit('dashboard:disconnect'));
+    this._core.on('message', (msg, ws) => this.emit('message', msg, ws));
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -67,75 +117,18 @@ export class ServerFixture extends EventEmitter {
   _onConnect(ws, req) {
     const isSW = req.url?.includes('sw=1');
     if (isSW) {
-      this.swSockets.add(ws);
-      this.emit('sw:connect', ws);
-      ws.send(JSON.stringify({ type: 'SET_CONFIG', config: {} }));
+      this._core.handleSWConnect(ws, this._core.globalConfig);
     } else {
-      this.dashboardSockets.add(ws);
-      this.emit('dashboard:connect', ws);
-      ws.send(JSON.stringify({ type: 'INIT', sessions: [] }));
-    }
-
-    ws.on('message', data => {
-      try {
-        const msg = JSON.parse(data.toString());
-        this._route(msg, ws, isSW);
-      } catch { /* ignore malformed */ }
-    });
-
-    ws.on('close', () => {
-      if (isSW) {
-        this.swSockets.delete(ws);
-        this.emit('sw:disconnect');
-      } else {
-        this.dashboardSockets.delete(ws);
-        this.emit('dashboard:disconnect');
-      }
-    });
-
-    ws.on('error', () => {
-      // Treat error as disconnect (handles abrupt termination on Linux/GHA)
-      if (isSW) {
-        this.swSockets.delete(ws);
-        this.emit('sw:disconnect');
-      } else {
-        this.dashboardSockets.delete(ws);
-        this.emit('dashboard:disconnect');
-      }
-    });
-  }
-
-  _route(msg, fromWs, fromSW) {
-    this.emit('message', msg, fromWs, fromSW);
-
-    const broadcastable = [
-      'TEXT_COORDS', 'VIEWPORT_UPDATE', 'TEXT_COORD_DELTA',
-      'EXPLORER_STATE_UPDATE', 'REACT_TRANSITION', 'STATE_HASH_REPORT',
-    ];
-
-    if (broadcastable.includes(msg.type)) {
-      this.broadcastToDashboard(msg);
-    }
-
-    if (msg.type === 'ACTION_RESULT') {
-      const pending = this._pendingActions.get(msg.id);
-      pending?.resolve(msg.result);
-      this._pendingActions.delete(msg.id);
+      this._core.handleDashboardConnect(ws, [], this._core.globalConfig);
     }
   }
 
   broadcastToDashboard(msg) {
-    const raw = JSON.stringify(msg);
-    for (const ws of this.dashboardSockets) {
-      if (ws.readyState === 1 /* OPEN */) ws.send(raw);
-    }
+    this._core.broadcastToDashboard(msg);
   }
 
   broadcastToSW(msg) {
-    const raw = JSON.stringify(msg);
-    for (const ws of this.swSockets) {
-      if (ws.readyState === 1) ws.send(raw);
-    }
+    this._core.broadcast(msg);
   }
 
   // ── HTTP server ────────────────────────────────────────────────────────────
@@ -169,7 +162,6 @@ export class ServerFixture extends EventEmitter {
       req.on('end', () => r(JSON.parse(Buffer.concat(chunks).toString() || '{}')));
     });
 
-    // Route table
     const path = url.pathname;
 
     if (path === '/health' && method === 'GET') {
@@ -178,14 +170,14 @@ export class ServerFixture extends EventEmitter {
       json(200, { mode: 'auto', plugins: {} });
     } else if (path === '/api/config' && method === 'POST') {
       readBody().then(body => {
-        this.broadcastToSW({ type: 'SET_CONFIG', config: body });
+        this._core.pushConfig(body);
         json(200, { ok: true });
       });
     } else if (path === '/api/sessions' && method === 'GET') {
       json(200, []);
     } else if (path === '/api/collect' && method === 'POST') {
       readBody().then(body => {
-        this.broadcastToSW({ type: 'MANUAL_COLLECT', tabId: body.tabId });
+        this._core.triggerCollect(body.tabId);
         json(200, { ok: true });
       });
     } else if (path === '/api/action' && method === 'POST') {
@@ -200,7 +192,7 @@ export class ServerFixture extends EventEmitter {
           resolve: result => { clearTimeout(timeout); json(200, { ok: true, result }); },
           reject:  err    => { clearTimeout(timeout); json(500, { ok: false, error: err.message }); },
         });
-        this.broadcastToSW({ type: 'EXECUTE_ACTION', id, tabId: body.tabId, action: body.action });
+        this._core.broadcast({ type: 'EXECUTE_ACTION', id, tabId: body.tabId, action: body.action });
       });
     } else {
       json(404, { ok: false, error: 'Not found' });
