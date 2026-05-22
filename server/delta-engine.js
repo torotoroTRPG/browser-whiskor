@@ -122,8 +122,8 @@ function buildSmartDelta(frames, tabId) {
         from: frame.viewport.from,
         to: frame.viewport.to,
         delta: {
-          x: frame.viewport.to.scrollX - frame.viewport.from.scrollX,
-          y: frame.viewport.to.scrollY - frame.viewport.from.scrollY,
+          x: (frame.viewport.to?.scrollX || 0) - (frame.viewport.from?.scrollX || 0),
+          y: (frame.viewport.to?.scrollY || 0) - (frame.viewport.from?.scrollY || 0),
         },
       };
     }
