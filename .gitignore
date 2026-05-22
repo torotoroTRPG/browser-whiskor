@@ -17,3 +17,7 @@ cache/
 playwright-report/
 test-results/
 session-*.md
+server-stderr.log
+server-stdout.log
+tests/tmp/
+hs_err_pid*.log

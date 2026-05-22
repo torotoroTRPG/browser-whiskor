@@ -28,6 +28,7 @@ const configLog  = require('./config-change-log');
 const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
+const { checkAndRepair } = require('./cache-integrity');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -194,6 +195,17 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
   log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
+
+  // Cache integrity check (non-blocking)
+  const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
+  setImmediate(() => {
+    try {
+      const result = checkAndRepair(cacheRoot, { verbose: true, autoRepair: true });
+      if (result && result.healthy) log('info', `[cache] Integrity check OK (${result.sessions} session(s))`);
+    } catch (e) {
+      log('warn', `[cache] Integrity check skipped: ${e.message}`);
+    }
+  });
 });
 
 httpServer.on('error', (err) => {
