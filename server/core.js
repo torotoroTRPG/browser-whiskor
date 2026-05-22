@@ -17,13 +17,13 @@ class WhiskorCore extends EventEmitter {
     this._pendingActions = new Map();
 
     // Injected dependencies (real server passes actual modules)
-    this.cache = opts.cache || { handleMessage() {}, getSessionList() [], getSessionData() { return null; }, getSessionDir() { return null; }, readSessionFile() { return null; }, storeSmartDelta() {} };
+    this.cache = opts.cache || { handleMessage() {}, getSessionList() { return []; }, getSessionData() { return null; }, getSessionDir() { return null; }, readSessionFile() { return null; }, storeSmartDelta() {} };
     this.actions = opts.actions || { handleResult() {}, execute() { return { ok: false, error: 'No actions module' }; }, pendingCount() { return 0; }, setBroadcast() {} };
     this.screenshots = opts.screenshots || { handleResult() {}, capture() { return { ok: false, error: 'No screenshots module' }; }, setBroadcast() {} };
-    this.stateMachine = opts.stateMachine || { addNode() {}, addEdge() {}, getUnvisitedActions() [], getAllGraphs() { return []; } };
+    this.stateMachine = opts.stateMachine || { addNode() {}, addEdge() {}, getUnvisitedActions() { return []; }, getAllGraphs() { return []; } };
     this.stateNavigator = opts.stateNavigator || { handleHashReport() {} };
     this.deltaEngine = opts.deltaEngine || { addFrame() { return null; } };
-    this.configLog = opts.configLog || { validateChange() [], addChange() {}, autoRevertIfNeeded() { return null; } };
+    this.configLog = opts.configLog || { validateChange() { return []; }, addChange() {}, autoRevertIfNeeded() { return null; } };
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',

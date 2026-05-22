@@ -37,6 +37,7 @@ export class ServerFixture extends EventEmitter {
     this._pendingActions = new Map();
 
     // Create core with test-compatible stubs
+    const fixture = this; // capture for closures
     this._core = new WhiskorCore({
       cache: {
         handleMessage() {},
@@ -48,9 +49,11 @@ export class ServerFixture extends EventEmitter {
       },
       actions: {
         handleResult(msg) {
-          const pending = this._pendingActions?.get(msg.id);
-          pending?.resolve(msg.result);
-          this._pendingActions?.delete(msg.id);
+          const pending = fixture._pendingActions.get(msg.id);
+          if (pending) {
+            pending.resolve(msg.result);
+            fixture._pendingActions.delete(msg.id);
+          }
         },
         execute() { return { ok: false, error: 'No browser connected' }; },
         pendingCount() { return 0; },
@@ -129,6 +132,11 @@ export class ServerFixture extends EventEmitter {
 
   broadcastToSW(msg) {
     this._core.broadcast(msg);
+  }
+
+  /** Test-only: direct message routing (wraps core.routeMessage) */
+  _route(msg, ws, _isFromSW) {
+    this._core.routeMessage(msg, ws);
   }
 
   // ── HTTP server ────────────────────────────────────────────────────────────
