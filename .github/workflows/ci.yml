@@ -106,7 +106,6 @@ jobs:
           UNIT_PASS=0; UNIT_FAIL=0; UNIT_FILES=0
           INTG_PASS=0; INTG_FAIL=0; INTG_FILES=0
           STRS_PASS=0; STRS_FAIL=0; STRS_FILES=0
-          UNIT_DETAILS=""; INTG_DETAILS=""; STRS_DETAILS=""
 
           for f in tests/unit/*.test.js; do
             UNIT_FILES=$((UNIT_FILES + 1))
@@ -114,14 +113,6 @@ jobs:
             P=$(echo "$OUT" | grep -c "^    ok " || true)
             F=$(echo "$OUT" | grep -c "^    not ok " || true)
             UNIT_PASS=$((UNIT_PASS + P)); UNIT_FAIL=$((UNIT_FAIL + F))
-            NAME=$(basename "$f" .test.js)
-            if [ "$F" -gt 0 ]; then
-              UNIT_DETAILS="${UNIT_DETAILS}| \`${NAME}\` | ${P} | ${F} |
-"
-            else
-              UNIT_DETAILS="${UNIT_DETAILS}| \`${NAME}\` | ${P} | — |
-"
-            fi
           done
 
           for f in tests/integration/*.test.js; do
@@ -130,14 +121,6 @@ jobs:
             P=$(echo "$OUT" | grep -c "^    ok " || true)
             F=$(echo "$OUT" | grep -c "^    not ok " || true)
             INTG_PASS=$((INTG_PASS + P)); INTG_FAIL=$((INTG_FAIL + F))
-            NAME=$(basename "$f" .test.js)
-            if [ "$F" -gt 0 ]; then
-              INTG_DETAILS="${INTG_DETAILS}| \`${NAME}\` | ${P} | ${F} |
-"
-            else
-              INTG_DETAILS="${INTG_DETAILS}| \`${NAME}\` | ${P} | — |
-"
-            fi
           done
 
           for f in tests/stress/*.test.js; do
@@ -146,14 +129,6 @@ jobs:
             P=$(echo "$OUT" | grep -c "^    ok " || true)
             F=$(echo "$OUT" | grep -c "^    not ok " || true)
             STRS_PASS=$((STRS_PASS + P)); STRS_FAIL=$((STRS_FAIL + F))
-            NAME=$(basename "$f" .test.js)
-            if [ "$F" -gt 0 ]; then
-              STRS_DETAILS="${STRS_DETAILS}| \`${NAME}\` | ${P} | ${F} |
-"
-            else
-              STRS_DETAILS="${STRS_DETAILS}| \`${NAME}\` | ${P} | — |
-"
-            fi
           done
 
           TOTAL_PASS=$((UNIT_PASS + INTG_PASS + STRS_PASS))
@@ -167,46 +142,62 @@ jobs:
             PASS_RATE=0
           fi
 
+          # Write overview
           {
-            echo "╔══════════════════════════════════════════════════════════════════╗"
-            echo "║                                                                  ║"
-            echo "║                     browser-whiskor CI                           ║"
-            echo "║                  Test Results & Sync Status                      ║"
-            echo "║                                                                  ║"
-            echo "╚══════════════════════════════════════════════════════════════════╝"
-            echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  OVERVIEW"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "## Test Results"
             echo ""
             if [ "$TOTAL_FAIL" -eq 0 ]; then
-              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files — ✅ All passed**"
+              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files - All passed**"
             else
-              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files — ❌ ${TOTAL_FAIL} failed**"
+              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files - ${TOTAL_FAIL} failed**"
             fi
             echo "**Pass rate: ${PASS_RATE}%**"
             echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  UNIT TESTS  (${UNIT_FILES} files, ${UNIT_PASS} pass, ${UNIT_FAIL} fail)"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "| Category | Files | Pass | Fail |"
+            echo "|----------|-------|------|------|"
+            echo "| Unit | ${UNIT_FILES} | ${UNIT_PASS} | ${UNIT_FAIL} |"
+            echo "| Integration | ${INTG_FILES} | ${INTG_PASS} | ${INTG_FAIL} |"
+            echo "| Stress | ${STRS_FILES} | ${STRS_PASS} | ${STRS_FAIL} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Write per-file details
+          {
+            echo ""
+            echo "### Unit Tests"
             echo ""
             echo "| File | Pass | Fail |"
             echo "|------|------|------|"
-            echo "$UNIT_DETAILS"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  INTEGRATION TESTS  (${INTG_FILES} files, ${INTG_PASS} pass, ${INTG_FAIL} fail)"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            for f in tests/unit/*.test.js; do
+              NAME=$(basename "$f" .test.js)
+              OUT=$(node --test "$f" 2>&1)
+              P=$(echo "$OUT" | grep -c "^    ok " || true)
+              F=$(echo "$OUT" | grep -c "^    not ok " || true)
+              echo "| $NAME | $P | $F |"
+            done
+            echo ""
+            echo "### Integration Tests"
             echo ""
             echo "| File | Pass | Fail |"
             echo "|------|------|------|"
-            echo "$INTG_DETAILS"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  STRESS TESTS  (${STRS_FILES} files, ${STRS_PASS} pass, ${STRS_FAIL} fail)"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            for f in tests/integration/*.test.js; do
+              NAME=$(basename "$f" .test.js)
+              OUT=$(node --test "$f" 2>&1)
+              P=$(echo "$OUT" | grep -c "^    ok " || true)
+              F=$(echo "$OUT" | grep -c "^    not ok " || true)
+              echo "| $NAME | $P | $F |"
+            done
+            echo ""
+            echo "### Stress Tests"
             echo ""
             echo "| File | Pass | Fail |"
             echo "|------|------|------|"
-            echo "$STRS_DETAILS"
+            for f in tests/stress/*.test.js; do
+              NAME=$(basename "$f" .test.js)
+              OUT=$(node --test "$f" 2>&1)
+              P=$(echo "$OUT" | grep -c "^    ok " || true)
+              F=$(echo "$OUT" | grep -c "^    not ok " || true)
+              echo "| $NAME | $P | $F |"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
           SYNC_TOTAL="${{ needs.verify-sync.outputs.sync_total }}"
@@ -214,18 +205,15 @@ jobs:
           if [ -n "$SYNC_TOTAL" ] && [ "$SYNC_TOTAL" -gt 0 ] 2>/dev/null; then
             {
               echo ""
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-              echo "  SHARED/ SYNC STATUS"
-              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "### Shared/ Sync Status"
               echo ""
               echo "| Metric | Value |"
               echo "|--------|-------|"
+              echo "| Shared files tracked | ${SYNC_TOTAL} |"
               if [ "$SYNC_ERRORS" -eq 0 ]; then
-                echo "| Shared files tracked | ${SYNC_TOTAL} |"
-                echo "| Sync errors | 0 ✅ |"
+                echo "| Sync errors | 0 |"
               else
-                echo "| Shared files tracked | ${SYNC_TOTAL} |"
-                echo "| Sync errors | ${SYNC_ERRORS} ❌ |"
+                echo "| Sync errors | ${SYNC_ERRORS} |"
               fi
             } >> "$GITHUB_STEP_SUMMARY"
           fi
