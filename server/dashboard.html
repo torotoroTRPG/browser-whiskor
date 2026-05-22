@@ -955,7 +955,7 @@
       S.words = words;
       // Only reset view on first load (navigation or initial). On subsequent
       // updates (scroll-triggered re-collection) preserve user's pan/zoom.
-      if (wasEmpty) resetCanvasView();
+      if (wasEmpty) { cancelAnimation(); fitToContent(); }
       // Use live viewport if available, otherwise fall back to snapshot
       var snapVp = data && data.viewport || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
       if (!S.liveVp) {
@@ -979,6 +979,51 @@
       S.canvas.panY = 0;
       D['cv-zoom'].value = 1;
       D['cv-zoom-v'].textContent = 'auto';
+    }
+
+    // Smooth fit-to-content: animate zoom/pan so all words are visible
+    function fitToContent() {
+      cancelAnimation();
+      invalidateAreaCache();
+      // Compute target: page bounds from rendered words
+      var lv = S.liveVp || { width: 1280, height: 800, scrollX: 0, scrollY: 0 };
+      var wrap = D['cv-wrap'];
+      var rect = wrap.getBoundingClientRect();
+      var cssW = rect.width, cssH = rect.height;
+      if (cssW < 1 || cssH < 1) return;
+
+      var maxX = 0, maxY = 0, minX = Infinity, minY = Infinity;
+      var words = S.words;
+      if (words.length) {
+        for (var i = 0; i < words.length; i++) {
+          var wx = words[i].absoluteX || 0;
+          var wy = words[i].absoluteY || 0;
+          if (wx < minX) minX = wx;
+          if (wy < minY) minY = wy;
+          wx += words[i].width || 0;
+          wy += words[i].height || 0;
+          if (wx > maxX) maxX = wx;
+          if (wy > maxY) maxY = wy;
+        }
+      } else {
+        minX = lv.scrollX; minY = lv.scrollY;
+        maxX = lv.scrollX + lv.width;
+        maxY = lv.scrollY + lv.height;
+      }
+      // Ensure at least viewport size
+      var areaW = Math.max(maxX - minX, lv.width) + 60;
+      var areaH = Math.max(maxY - minY, lv.height) + 60;
+      var centerX = (minX + maxX) / 2;
+      var centerY = (minY + maxY) / 2;
+
+      var newZoom = Math.min(cssW / areaW, cssH / areaH, 1);
+      var newPanX = centerX - cssW / (2 * newZoom);
+      var newPanY = centerY - cssH / (2 * newZoom);
+
+      S.canvas.crop = 'page';
+      D['cv-zoom'].value = Math.min(4, newZoom);
+      D['cv-zoom-v'].textContent = newZoom.toFixed(2) + 'x';
+      animateTo(newZoom, newPanX, newPanY);
     }
 
     // ── Beacon delta: update word positions in-place ─────────────────────
@@ -1255,9 +1300,7 @@
 
       // Fit / Focus / Crop buttons
       document.getElementById('cv-fit').addEventListener('click', function() {
-        S.canvas.crop = 'page';
-        resetCanvasView();
-        scheduleCanvasRender();
+        fitToContent();
       });
       document.getElementById('cv-focus-vp').addEventListener('click', focusOnViewport);
       document.getElementById('cv-vp').addEventListener('click', function() {
