@@ -158,6 +158,8 @@ class WhiskorCore extends EventEmitter {
       case 'ANGULAR_SNAPSHOT':
       case 'SVELTE_SNAPSHOT':
       case 'DOM_GENERIC_SNAPSHOT':
+      case 'SHADOW_DOM_SNAPSHOT':
+      case 'DOM_SNAPSHOT':
       case 'TEXT_COORDS':
       case 'NETWORK_REQUEST':
       case 'NETWORK_RESPONSE':
@@ -210,6 +212,7 @@ class WhiskorCore extends EventEmitter {
         break;
 
       case 'SCREENSHOT_RESULT':
+      case 'ELEMENT_CAPTURE_RESULT':
         this.screenshots.handleResult(msg);
         break;
 

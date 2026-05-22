@@ -96,4 +96,6 @@ module.exports = function registerCaptureTools(registry) {
   });
 
   registry.registerTools(tools);
+  // Element-level capture tool
+  require('./capture-element')(registry);
 };

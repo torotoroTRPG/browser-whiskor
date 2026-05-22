@@ -249,7 +249,7 @@ async function _callAction(tabId, action, timeoutMs) {
   }
 }
 
-mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots));
+mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots));
 mcp.setSecurity(SECURITY);
 mcp.setConfigLog(configLog);
 mcp.setNavigateBroadcast((msg) => core.broadcast(msg));

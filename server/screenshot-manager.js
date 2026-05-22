@@ -23,6 +23,19 @@ function setBroadcast(fn) { _broadcast = fn; }
  * Returns Promise<{ dataUrl, filePath, width, height, capturedAt, elements? }>
  * If opts.marks=true, elements contains {id, tag, text, x, y, w, h, selector}[]
  */
+function captureElement(tabId, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const reqId = randomUUID();
+    const timer = setTimeout(() => {
+      pending.delete(reqId);
+      reject(new Error(`Element capture timed out for tabId=${tabId}`));
+    }, TIMEOUT_MS);
+
+    pending.set(reqId, { resolve, reject, timer, tabId, isElement: true });
+    _broadcast({ type: 'CAPTURE_ELEMENT', reqId, tabId, opts });
+  });
+}
+
 function capture(tabId, opts = {}) {
   return new Promise((resolve, reject) => {
     const reqId = randomUUID();
@@ -67,4 +80,4 @@ function handleResult(msg) {
   p.resolve(result);
 }
 
-module.exports = { setBroadcast, capture, handleResult };
+module.exports = { setBroadcast, capture, captureElement, handleResult };

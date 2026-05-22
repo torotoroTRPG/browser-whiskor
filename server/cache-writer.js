@@ -186,6 +186,22 @@ async function handleMessage(msg) {
       break;
     }
 
+    case 'SHADOW_DOM_SNAPSHOT': {
+      const fp = path.join(s.dir, 'raw/dom/shadow-snapshot.json');
+      await writeJsonAsync(fp, payload);
+      s.index.files.raw.shadow_snapshot = 'raw/dom/shadow-snapshot.json';
+      markFresh(s, 'shadow-dom', payload.capturedAt);
+      break;
+    }
+
+    case 'DOM_SNAPSHOT': {
+      const fp = path.join(s.dir, 'raw/dom/snapshot2.json');
+      await writeJsonAsync(fp, payload);
+      s.index.files.raw.dom_snapshot2 = 'raw/dom/snapshot2.json';
+      markFresh(s, 'dom-snapshot', payload.capturedAt);
+      break;
+    }
+
     case 'TEXT_COORDS': {
       const fp = path.join(s.dir, 'raw/visual/text-coords.json');
       

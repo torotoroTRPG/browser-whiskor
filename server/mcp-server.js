@@ -34,8 +34,8 @@ function setCallbacks(pushConfig, triggerCollect, triggerExplorer) {
   registry.setCallbacks({ _pushConfig: pushConfig, _triggerCollect: triggerCollect, _triggerExplorer: triggerExplorer });
 }
 
-function setActionCallbacks(callAction, captureScreenshot) {
-  registry.setCallbacks({ _callAction: callAction, _captureScreenshot: captureScreenshot });
+function setActionCallbacks(callAction, captureScreenshot, captureElement) {
+  registry.setCallbacks({ _callAction: callAction, _captureScreenshot: captureScreenshot, _captureElement: captureElement });
 }
 
 function setNavigateBroadcast(fn) {

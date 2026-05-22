@@ -35,6 +35,8 @@
         "injected/analyzers/ui-catalog.js",
         "injected/analyzers/perf.js",
         "injected/analyzers/dom-mutations.js",
+        "injected/analyzers/shadow-dom.js",
+        "injected/analyzers/dom-snapshot.js",
         "injected/analyzers/accessibility.js",
         "injected/analyzers/console-logger.js",
         "injected/analyzers/storage-reader.js",
