@@ -8,26 +8,29 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 
 ### READ Tools
 
-| Tool | Handler | Data Source | Cache File |
+| Tool | Handler (read.js split into 4) | Data Source | Cache File |
 |------|---------|-------------|------------|
-| `get_sessions` | `mcp/tools/read.js` | `cache.getSessionList()` | `cache/{tabId}/_index.json` |
-| `get_index` | `mcp/tools/read.js` | `cache.getSessionData(tabId)` | `cache/{tabId}/_index.json` |
-| `get_text_coords` | `mcp/tools/read.js` | `text-coords.js` (extension) | `cache/{tabId}/raw/visual/text-coords.json` |
-| `get_viewport` | `mcp/tools/read.js` | viewport realtime | `cache/{tabId}/raw/visual/viewport.json` |
-| `get_framework_state` | `mcp/tools/read.js` | Framework adapters | `cache/{tabId}/raw/react_snapshot.json` etc. |
-| `get_network` | `mcp/tools/read.js` | `network.js` analyzer | `cache/{tabId}/raw/network/requests.json` |
-| `get_ui_catalog` | `mcp/tools/read.js` | `ui-catalog.js` analyzer | `cache/{tabId}/raw/ui/elements.json` |
-| `get_accessibility` | `mcp/tools/read.js` | `accessibility.js` analyzer | `cache/{tabId}/raw/accessibility/tree.json` |
-| `get_storage` | `mcp/tools/read.js` | `storage-reader.js` analyzer | `cache/{tabId}/raw/storage/data.json` |
-| `get_console_logs` | `mcp/tools/read.js` | `console-logger.js` analyzer | `cache/{tabId}/raw/console/logs.json` |
-| `get_perf_metrics` | `mcp/tools/read.js` | `perf.js` analyzer | `cache/{tabId}/raw/perf/metrics.json` |
-| `get_css_analysis` | `mcp/tools/read.js` | `css.js` analyzer | `cache/{tabId}/raw/css/analysis.json` |
-| `get_dom_snapshot` | `mcp/tools/read.js` | `dom-generic.js` adapter | `cache/{tabId}/raw/dom/snapshot.json` |
-| `get_state_map` | `mcp/tools/read.js` | `state-machine.js` | `cache/graphs/{siteVersion}.json.gz` |
-| `list_states` | `mcp/tools/read.js` | `state-store.getAllNodesFlat()` | in-memory + disk |
-| `search_states` | `mcp/tools/read.js` | `state-semantic.searchStates()` | in-memory + disk |
-| `get_state_detail` | `mcp/tools/read.js` | `state-store.getNodeByHash()` + `loadSnapshot()` | in-memory + disk |
-| `pin_state` | `mcp/tools/read.js` | `state-store.pinNode()` | in-memory + disk |
+| `get_sessions` | `mcp/tools/read-basic.js` | `cache.getSessionList()` | `cache/{tabId}/_index.json` |
+| `get_index` | `mcp/tools/read-basic.js` | `cache.getSessionData(tabId)` | `cache/{tabId}/_index.json` |
+| `get_text_coords` | `mcp/tools/read-basic.js` | `text-coords.js` (extension) | `cache/{tabId}/raw/visual/text-coords.json` |
+| `get_viewport` | `mcp/tools/read-basic.js` | viewport realtime | `cache/{tabId}/raw/visual/viewport.json` |
+| `get_framework_state` | `mcp/tools/read-basic.js` | Framework adapters | `cache/{tabId}/raw/react_snapshot.json` etc. |
+| `get_network` | `mcp/tools/read-data.js` | `network.js` analyzer | `cache/{tabId}/raw/network/requests.json` |
+| `get_ui_catalog` | `mcp/tools/read-data.js` | `ui-catalog.js` analyzer | `cache/{tabId}/raw/ui/elements.json` |
+| `get_accessibility` | `mcp/tools/read-data.js` | `accessibility.js` analyzer | `cache/{tabId}/raw/accessibility/tree.json` |
+| `get_storage` | `mcp/tools/read-data.js` | `storage-reader.js` analyzer | `cache/{tabId}/raw/storage/data.json` |
+| `get_console_logs` | `mcp/tools/read-data.js` | `console-logger.js` analyzer | `cache/{tabId}/raw/console/logs.json` |
+| `get_perf_metrics` | `mcp/tools/read-data.js` | `perf.js` analyzer | `cache/{tabId}/raw/perf/metrics.json` |
+| `get_css_analysis` | `mcp/tools/read-data.js` | `css.js` analyzer | `cache/{tabId}/raw/css/analysis.json` |
+| `get_dom_snapshot` | `mcp/tools/read-data.js` | `dom-snapshot.js` analyzer | `cache/{tabId}/raw/dom/snapshot.json` |
+| `get_state_map` | `mcp/tools/read-state.js` | `state-store.js` | `cache/graphs/{siteVersion}.json.gz` |
+| `list_states` | `mcp/tools/read-state.js` | `state-store.getAllNodesFlat()` | in-memory + disk |
+| `search_states` | `mcp/tools/read-state.js` | `state-semantic.searchStates()` | in-memory + disk |
+| `get_state_detail` | `mcp/tools/read-state.js` | `state-store.getNodeByHash()` + `loadSnapshot()` | in-memory + disk |
+| `pin_state` | `mcp/tools/read-state.js` | `state-store.pinNode()` | in-memory + disk |
+| `get_delta` | `mcp/tools/read-state.js` | `delta-engine.js` | `server/delta-engine.js` |
+| `list_patterns` | `mcp/tools/read-state.js` | `pattern-registry.js` | `server/pattern-registry.js` |
+| `lookup_pattern` | `mcp/tools/read-state.js` | `pattern-registry.js` | `server/pattern-registry.js` |
 
 ### State Navigation Tools (moved to CONTROL category)
 
@@ -62,6 +65,7 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 | Tool | Handler | Extension Handler | Source |
 |------|---------|-------------------|--------|
 | `capture_screenshot` | `mcp/tools/capture.js` | `sw.js` + `drawMarksOnImage` | `background/sw.js` |
+| `capture_element_screenshot` | `mcp/tools/capture.js` | `sw.js` `cropImage()` (OffscreenCanvas) | `server/mcp/tools/capture-element.js` |
 | `refresh_data` | `mcp/tools/capture.js` | Triggers collect via `index.js` | `server/index.js` |
 
 ### CONTROL Tools
@@ -74,6 +78,10 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 | `trigger_explorer` | `mcp/tools/control.js` | `sw.js` (EXPLORER_CONTROL) | `injected/explorer.js` |
 | `navigate_to_state` | `mcp/tools/control.js` | `sw.js` (action replay) | `server/state-navigator.js` |
 | `get_navigation_path` | `mcp/tools/control.js` | — | `server/state-navigator.js` |
+| `load_profile` | `mcp/tools/control.js` | — | `server/tool-manager.js` |
+| `unload_profile` | `mcp/tools/control.js` | — | `server/tool-manager.js` |
+| `search_tools` | `mcp/tools/control.js` | — | `server/tool-manager.js` |
+| `profile_status` | `mcp/tools/control.js` | — | `server/tool-manager.js` |
 
 ---
 
@@ -81,7 +89,7 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 
 | Framework | File | Component Tree | Props | State/Signals | Store | Router | Notes |
 |-----------|------|:---:|:---:|:---:|:---:|:---:|-------|
-| React | `adapters/react.js` | Yes | Yes | Yes (useState, useReducer) | Yes Redux/Zustand/Jotai/Recoil/MobX | Yes | Uses bippy.iife.js for Fiber traversal; writes `__SI_REACT_HASH__` |
+| React | `adapters/react-hooks.js` + `react-state-managers.js` + `react.js` | Yes | Yes | Yes (useState, useReducer) | Yes Redux/Zustand/Jotai/Recoil/MobX | Yes | Split into 3 files; uses bippy.iife.js for Fiber traversal; writes `__SI_REACT_HASH__` |
 | Vue 3 | `adapters/vue3.js` | Yes | Yes | Yes (reactive, ref) | Yes Pinia | Yes Vue Router | Requires `__VUE_DEVTOOLS_GLOBAL_HOOK__` |
 | Vue 2 | `adapters/vue2.js` | Yes | Yes | Yes (data, computed) | Yes Vuex | Yes Vue Router | Requires devtools build or hook |
 | Angular | `adapters/angular.js` | Yes | Yes | Yes (component state) | Yes NgRx | Yes Router | Uses `ng.probe` / `getDebugNode` |
@@ -204,25 +212,37 @@ Edge confidence = base_score × recency_factor × consistency_factor
 ```
 server/
   index.js              — Main server: HTTP + WebSocket + cache writer
+  core.js               — WhiskorCore: socket management, message routing, broadcast
   mcp-server.js         — Entry point: wires registry, transport, tool modules
   mcp/
     registry.js         — Tool registration, filtering, preset management
     transport.js        — stdio JSON-RPC 2.0 transport
+    tool-manager.js     — Dynamic profile management, auto-load/unload
     tools/
-      read.js           — 18 READ tools (sessions → pin_state)
-      write.js          — 13 WRITE tools (navigate_to → reload_page)
-      capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
-      control.js        — 6 CONTROL tools (set_config → get_nav_path)
+      read.js           — Entry point → 21 READ tools
+      read-helpers.js   — Fuzzy matching (tokenize, bigramSet, jaccard, freshness)
+      read-basic.js     — READ tools 1–5 (sessions → framework_state)
+      read-data.js      — READ tools 6–13 (network → dom_snapshot)
+      read-state.js     — READ tools 14–21 (state_map → lookup_pattern)
+      write.js          — 16 WRITE tools (navigate_to → reload_page)
+      capture.js        — 3 CAPTURE tools (screenshot, refresh_data, capture_element)
+      capture-element.js — Element screenshot crop+encode logic
+      control.js        — 10 CONTROL tools (set_config → profile_status)
   cache-writer.js       — Session cache, freshness tracking, console log buffer
+  screenshot-manager.js — Screenshot capture & element-capture result handling
   config-change-log.js  — Config audit, validation rules, auto-revert logic
   config-loader.js      — Loads config.json + .env + configs/mcp-tools.json
   configs/
     mcp-tools.json      — MCP tool visibility: categories, tools, presets
+    tool-profiles.json  — Dynamic tool profile definitions and triggers
   state-machine.js      — Backward-compat wrapper → state-store.js
-  state-store.js        — State graph: nodes, edges, gzip persistence, LRU eviction
+  state-store.js        — State graph: nodes, edges, LRU eviction (core logic)
+  state-persistence.js  — State graph disk I/O (persistGraph, loadGraph, saveSnapshot)
   state-fingerprint.js  — FNV32 hash engine, ND filter, composite hash
   state-semantic.js     — Label generation, tag extraction, keyState, fuzzy search
   state-navigator.js    — BFS path finding, action replay, hash verification
+  delta-engine.js       — Smart delta aggregation, motion clustering, scroll detection
+  pattern-registry.js   — UI pattern hashing, dedup with compact ref IDs
 ```
 
 ### Extension-side (Chrome MV3)
@@ -238,6 +258,8 @@ extension/
     plugin-system.js    — Plugin registry with hot enable/disable
     version-helper.js   — Runtime framework version detection
     adapters/
+      react-hooks.js    — classifyHook, getHooks on window.__SI_REACT_HOOKS__
+      react-state-managers.js — detectStateManagers on window.__SI_REACT_STATE_MANAGERS__
       react.js          — React Fiber tree via bippy; writes __SI_REACT_HASH__
       vue3.js           — Vue 3 component tree via devtools hook
       vue2.js           — Vue 2 component tree via devtools hook
@@ -253,7 +275,9 @@ extension/
       css.js            — CSS variables, stylesheet stats, computed styles
       ui-catalog.js     — Interactive elements: buttons, links, inputs
       perf.js           — Web Vitals: LCP, FCP, CLS, INP, TTFB
-      dom-mutations.js  — DOM change tracking
+      dom-mutations.js  — DOM change tracking v2 (content recording, bigram batching)
+      shadow-dom.js     — Shadow DOM perception (60 roots, 600 nodes/root, delta)
+      dom-snapshot.js   — Structural snapshot (3000-node budget, iframe recursion)
       accessibility.js  — ARIA tree via tree-walker
       console-logger.js — console.* method override
       storage-reader.js — localStorage, sessionStorage, cookies
@@ -264,9 +288,10 @@ extension/
 ### Firefox MV2
 ```
 firefox-mv2/
-  background/background.js  — Event page (mirrors sw.js, uses canvas for SoM)
+  background/background.js  — Event page (mirrors sw.js, uses canvas for SoM & element crop)
   injected/                 — Identical to extension/injected/ (includes state-reporter.js)
   manifest.json             — Manifest V2 with browser_specific_settings
+  background/sw-element-capture.patch.js — Reference patch for element capture
 ```
 
 ### Configuration
@@ -289,7 +314,8 @@ cache/
       console/logs.json
       perf/metrics.json
       css/analysis.json
-      dom/snapshot.json
+      dom/snapshot.json      — DOM snapshot (from dom-snapshot.js analyzer)
+      dom/shadow-roots.json  — Shadow DOM tree (from shadow-dom.js analyzer)
       react_snapshot.json   — If React detected
       vue_snapshot.json     — If Vue 3 detected
       ...

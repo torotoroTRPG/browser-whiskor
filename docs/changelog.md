@@ -2,6 +2,30 @@
 
 All notable changes to browser-whiskor.
 
+## [3.10.0] — 2026-05-22
+
+### Added
+- **3 new analyzers** — `shadow-dom.js` (Shadow DOM perception: 60 roots, 600 nodes/root, per-root MutationObserver, closed root handling, slot resolution, 80ms delta debounce), `dom-mutations.js` v2 (content recording with before/after attribute values & characterData, bigram-based batching with 80ms debounce, per-element caps: 40 structural/30 text/10 attributes, overflow counter), `dom-snapshot.js` (3000-node budget structural snapshot, same-origin iframe recursion, form state capture, targeted mode via SNAPSHOT_ELEMENT, real-time delta stream)
+- **Element-level screenshot capture** — `capture_element_screenshot` MCP tool with selector/rect/padding/format/quality options; `cropImage()` added to both Chrome MV3 (`sw.js` via OffscreenCanvas) and Firefox MV2 (`background.js` via `<canvas>`); `ELEMENT_CAPTURE_RESULT` routed through server core
+- **File splitting** — `react.js` → `react-hooks.js` (classifyHook, getHooks) + `react-state-managers.js` (detectStateManagers) + `react.js` (main adapter); `state-store.js` → `state-persistence.js` (persistGraph, loadGraph, save/loadSnapshot)
+- **`read.js` split into 4 files** — `read-helpers.js` (fuzzy matching helpers), `read-basic.js` (tools 1–5), `read-data.js` (tools 6–13), `read-state.js` (tools 14–21)
+- **Dev tooling** — `.eslintrc.json`, `.prettierrc`, bash scripts (`scripts/sync-shared.sh`, `scripts/validate.sh`) alongside existing PowerShell scripts
+- **Archive tests** — `tests/archive/mcp-capture.test.js` (element capture tool logic), `tests/archive/sw.test.js` (cropImage geometry clamping)
+
+### Changed
+- **react.js split** — Maintains backward-compatible IIFE; new files register on `window.__SI_REACT_HOOKS__` and `window.__SI_REACT_STATE_MANAGERS__` globals
+- **state-store.js split** — Persistence functions extracted to `state-persistence.js`; `persistGraph` calls updated to pass `graphs` Map parameter to avoid circular requires
+- **cache-writer.js hot-path I/O** — `getSession` and `updateIndex` converted from sync `fs` to await `fs.promises` (`fsp.mkdir`, `writeJsonAsync`)
+- **React adapter loading order** — `manifest.json` (both Chrome & Firefox) updated: `bippy.iife.js` → `react-hooks.js` → `react-state-managers.js` → `react.js`
+- **Content scripts** — Both manifests now include `shadow-dom.js` and `dom-snapshot.js` after `dom-mutations.js`; all shared/ files synced to extension/ and firefox-mv2/
+- **Test count** — 308 tests pass (277 unit, 20 integration, 11 stress)
+
+### Fixed
+- **README.md naming** — References to `state-machine.js` corrected to `state-store.js`
+- **Archive stub tests** — `mcp-capture.test.js` and `sw.test.js` updated from stubs to proper assertions
+
+---
+
 ## [3.9.0] — 2026-05-22
 
 ### Added

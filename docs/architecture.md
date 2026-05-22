@@ -34,15 +34,18 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    49 tools available, organized in a layered architecture:                  │
+│    50 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
 │    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
 │    tool-manager.js        ← Dynamic profile management, auto-load/unload     │
-│    mcp/tools/read.js      ← 21 read tools (sessions → lookup_pattern)       │
+│    mcp/tools/read.js      ← Entry point → 21 read tools (split into         │
+│    read-basic.js, read-data.js, read-state.js, read-helpers.js)             │
 │    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page)      │
-│    mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh_data)      │
+│    mcp/tools/capture.js   ← 3 capture tools (screenshot, refresh_data,      │
+│                             capture_element)                                │
+│    mcp/tools/capture-element.js ← element screenshot crop+encode            │
 │    mcp/tools/control.js   ← 10 control tools (set_config → profile_status)  │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
@@ -60,7 +63,8 @@
 │    │                  │ drag, select_option, check_box, execute_js,      │  │
 │    │                  │ wait_for_element, go_back/forward, reload_page   │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  CAPTURE (2)     │ capture_screenshot (± SoM marks), refresh_data   │  │
+│    │  CAPTURE (3)     │ capture_screenshot (± SoM marks), refresh_data,   │
+│                  │ capture_element_screenshot (selector/rect/padding)  │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CONTROL (10)    │ set_config, get_config_changes, trigger_collect, │  │
 │    │                  │ trigger_explorer, navigate_to_state,             │  │
@@ -138,15 +142,17 @@
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │  Framework Adapters (detect & extract component state)                 │ │
-│  │  react.js → writes window.__SI_REACT_HASH__ for composite hash         │ │
+│  │  react-hooks.js + react-state-managers.js + react.js (split from      │ │
+│  │    single react.js; react.js writes __SI_REACT_HASH__)                │ │
 │  │  vue3.js, vue2.js, angular.js, svelte.js, preact.js,                   │ │
 │  │  alpine.js, solid.js, dom-generic.js                                   │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │  Analyzers (collect page-level data)                                   │ │
+│  │  Analyzers (collect page-level data) — 11 total                       │ │
 │  │  text-coords.js, network.js, css.js, ui-catalog.js, perf.js,           │ │
-│  │  dom-mutations.js, accessibility.js, console-logger.js, storage-reader │ │
+│  │  dom-mutations.js, shadow-dom.js, dom-snapshot.js,                     │ │
+│  │  accessibility.js, console-logger.js, storage-reader                   │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  lib/bippy.iife.js — React Fiber traversal (third-party, bundled)           │
@@ -307,6 +313,43 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DATA FLOW: Element-Level Screenshot Capture
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Agent calls capture_element_screenshot(tabId, selector="div.main", padding=4)
+       │
+       ▼
+  MCP server → server/core.js routeMessage → screenshot-manager.captureElement()
+       │
+       ├─ Sends CAPTURE_ELEMENT to extension via WebSocket:
+       │   { type: 'CAPTURE_ELEMENT', tabId, selector, rect, padding, format, quality }
+       │
+       ▼
+  extension/background/sw.js:
+       │
+       ├─ [1] chrome.tabs.captureVisibleTab → full-page PNG dataUrl
+       │
+       ├─ [2] cropImage(dataUrl, rect, padding, dpr):
+       │     If rect provided: clamp to image bounds, apply padding
+       │     If selector provided: evaluate selector in page to get bounding rect
+       │     Chrome: OffscreenCanvas → drawImage(cropped) → canvas.toBlob()
+       │     Firefox: document.createElement('canvas') → getContext → drawImage → toDataURL()
+       │
+       ├─ [3] Returns:
+       │   { type: 'ELEMENT_CAPTURE_RESULT', dataUrl, format, rect, padding, ... }
+       │
+       ▼
+  server/core.js → screenshot-manager.handleResult()
+       │
+       ├─ Saves to disk (if path configured)
+       ▼
+  MCP responds:
+    { ok: true, dataUrl, format, rect, padding, filePath }
+
+  Fallback: if CAPTURE_ELEMENT command not recognized by extension
+    (e.g., outdated service worker), returns full-page screenshot instead.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CONFIG SYSTEM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -358,7 +401,9 @@
     │  state-reporter  │  included        │  included (copied)               │
     └──────────────────┴──────────────────┴──────────────────────────────────┘
 
-  All 9 framework adapters are synchronized between Chrome and Firefox builds.
+  All 9 framework adapters (react split into 3 files = react-hooks.js +
+  react-state-managers.js + react.js) are synchronized between Chrome and
+  Firefox builds.
   State reporting (state-reporter.js) is included in both builds.
 
 
@@ -393,22 +438,30 @@
       registry.js         — Tool registration, filtering, preset management
       transport.js        — stdio JSON-RPC 2.0 transport layer
       tools/
-        read.js           — 21 READ tools (sessions → lookup_pattern)
+        read.js           — Entry point → 21 READ tools
+        read-helpers.js   — Fuzzy matching (tokenize, bigramSet, jaccard, freshness)
+        read-basic.js     — READ tools 1–5 (sessions → framework_state)
+        read-data.js      — READ tools 6–13 (network → dom_snapshot)
+        read-state.js     — READ tools 14–21 (state_map → lookup_pattern)
         write.js          — 16 WRITE tools (navigate_to → reload_page)
-        capture.js        — 2 CAPTURE tools (screenshot, refresh_data)
+        capture.js        — 3 CAPTURE tools (screenshot, refresh_data, capture_element)
+        capture-element.js — Element screenshot crop+encode logic
         control.js        — 10 CONTROL tools (set_config → profile_status)
     configs/
       mcp-tools.json      — MCP tool visibility config (categories, tools, presets)
       tool-profiles.json  — Dynamic tool profile definitions and triggers
     state-machine.js      — Backward-compat wrapper → state-store.js
-    state-store.js        — State graph management, gzip persistence, LRU
+    state-store.js        — State graph management, LRU eviction (core logic)
+    state-persistence.js  — State graph disk I/O (persistGraph, loadGraph, saveSnapshot)
     state-fingerprint.js  — FNV32 hash, ND filter, composite hash
     state-semantic.js     — Label generation, tag extraction, keyState, search
     state-navigator.js    — BFS path finding, action replay, hash verification
 
   extension/ (Chrome MV3)
     manifest.json         — Extension manifest v3
-    background/sw.js      — Service worker: WS client, command router, SoM
+    background/sw.js      — Service worker: WS client, command router, SoM,
+                            element screenshot crop (OffscreenCanvas)
+    background/sw-element-capture.patch.js — Reference patch for element capture
     injected/
       bridge.js           — ISOLATED world relay (content script → background)
       collector.js        — Plugin output aggregator
@@ -417,8 +470,10 @@
       state-reporter.js   — REQUEST_STATE_HASH handler, watchMode
       plugin-system.js    — Hot-reloadable plugin registry
       version-helper.js   — Runtime version detection
-      adapters/           — Framework-specific state extractors (9 adapters)
-      analyzers/          — Page data collectors (9 analyzers)
+      adapters/           — Framework-specific state extractors (react split into
+      react-hooks.js + react-state-managers.js + react.js, 9 adapters total)
+      analyzers/          — Page data collectors (11 analyzers incl.
+      shadow-dom.js, dom-snapshot.js)
     lib/bippy.iife.js     — React Fiber traversal library
 
   firefox-mv2/            — Firefox Manifest V2 build (mirrors extension/)
