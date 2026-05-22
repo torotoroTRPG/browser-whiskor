@@ -377,9 +377,9 @@
 
     .cv-wrap {
       position: relative;
-      height: 50vh; min-height: 280px;
+      height: var(--cv-h, 50vh); min-height: 200px;
       overflow: hidden;
-      cursor: grab; background: var(--canvas-bg); border-radius: var(--radius); box-shadow: inset 0 0 0 0.5px var(--border); margin-bottom: 8px; }
+      cursor: grab; background: var(--canvas-bg); border-radius: var(--radius) var(--radius) 0 0; box-shadow: inset 0 0 0 0.5px var(--border); }
     .cv-wrap.panning { cursor: grabbing; }
     .cv-wrap.interacting { cursor: crosshair; }
     .cv-wrap.interacting.panning { cursor: crosshair; }
@@ -387,6 +387,19 @@
       position: absolute; inset: 0;
       width: 100%; height: 100%;
     }
+    .cv-grip {
+      height: 8px; cursor: ns-resize; background: transparent; position: relative;
+      border-left: 0.5px solid var(--border); border-right: 0.5px solid var(--border);
+      transition: background 150ms; margin-bottom: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cv-grip::after {
+      content: ''; width: 32px; height: 3px; border-radius: 2px;
+      background: var(--border); transition: background 150ms;
+    }
+    .cv-grip:hover::after { background: var(--accent); }
+    .cv-grip.active::after { background: var(--accent); }
+    .cv-grip.active { background: rgba(102, 252, 241, 0.04); }
     .cv-info { font: 200 9px/1 var(--font-mono); color: var(--muted); margin-bottom: 13px; letter-spacing: 0.04em; }
 
     .cv-sep {
@@ -586,6 +599,8 @@
               <button class="btn" id="cv-nav-fwd" title="Navigate forward">→</button>
               <button class="btn" id="cv-nav-reload" title="Reload page">↻</button>
               <span class="cv-sep"></span>
+              <button class="btn" id="cv-theater" title="Toggle theater mode (expand canvas vertically)">⛶</button>
+              <span class="cv-sep"></span>
               <label><input type="checkbox" id="cv-bounds" checked> BOUNDS</label>
               <label><input type="checkbox" id="cv-colors"> COLORS</label>
               <label><input type="checkbox" id="cv-overlay" checked> OVERLAY</label>
@@ -602,6 +617,7 @@
               </span>
             </div>
             <div class="cv-wrap" id="cv-wrap"><canvas id="cv"></canvas></div>
+            <div class="cv-grip" id="cv-grip"></div>
             <div class="cv-info" id="cv-info"></div>
             <input class="search" id="txt-filter" placeholder="Filter words…">
             <div class="wg-hdr"><span>TEXT</span><span>X</span><span>Y</span><span>W</span><span>H</span><span>⊙</span></div>
@@ -717,7 +733,7 @@
       var ids = [
         'dot','status','theme-sel','s-list','empty','detail','tabs',
         'ov-meta','ov-stats','ov-files',
-        'txt-n','cv-zoom','cv-zoom-v','cv-wrap','cv','cv-info','cv-tip',
+        'txt-n','cv-zoom','cv-zoom-v','cv-wrap','cv','cv-grip','cv-info','cv-tip',
         'cv-bounds','cv-colors','cv-overlay','cv-oov-mode','cv-dim-amt','cv-dim-v','cv-dim-row',
         'cv-interact','cv-undo','cv-redo','cv-nav-back','cv-nav-fwd','cv-nav-reload',
         'txt-filter','words','words-scroll',
@@ -1332,6 +1348,57 @@
       });
       D['cv-nav-reload'].addEventListener('click', function() {
         if (S.tabId) sendAction({ type: 'reload' }, 'reload');
+      });
+
+      // ── Theater mode / resize grip ──────────────────────────────────
+      var _gripActive = false, _gripStartY = 0, _gripStartH = 0;
+      var grip = D['cv-grip'];
+      var wrap = D['cv-wrap'];
+
+      function setCanvasHeight(px) {
+        px = Math.max(200, Math.min(window.innerHeight * 0.92, px));
+        wrap.style.setProperty('--cv-h', px + 'px');
+        try { localStorage.setItem('cv-height', px); } catch(_) {}
+        scheduleCanvasRender();
+      }
+
+      function toggleTheater() {
+        var cur = wrap.style.getPropertyValue('--cv-h');
+        if (cur && parseFloat(cur) > window.innerHeight * 0.6) {
+          wrap.style.removeProperty('--cv-h');
+          try { localStorage.removeItem('cv-height'); } catch(_) {}
+        } else {
+          setCanvasHeight(Math.round(window.innerHeight * 0.8));
+        }
+        scheduleCanvasRender();
+      }
+
+      try {
+        var saved = localStorage.getItem('cv-height');
+        if (saved) setCanvasHeight(parseFloat(saved));
+      } catch(_) {}
+
+      document.getElementById('cv-theater').addEventListener('click', toggleTheater);
+
+      grip.addEventListener('mousedown', function(e) {
+        _gripActive = true;
+        _gripStartY = e.clientY;
+        _gripStartH = parseFloat(getComputedStyle(wrap).height);
+        grip.classList.add('active');
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!_gripActive) return;
+        setCanvasHeight(_gripStartH + (e.clientY - _gripStartY));
+      });
+
+      document.addEventListener('mouseup', function() {
+        if (!_gripActive) return;
+        _gripActive = false;
+        grip.classList.remove('active');
+        document.body.style.userSelect = '';
       });
 
       // Checkboxes
