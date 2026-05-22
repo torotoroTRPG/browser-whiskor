@@ -59,6 +59,18 @@ export async function launchWithExtension(browserType, opts = {}) {
  * @returns {Promise<object>} Health response body
  */
 export async function waitForExtensionConnection(page, timeoutMs = 60000) {
+  // Create a temporary page to trigger SW activation.
+  // about:blank may not wake the SW on cold launch (SW event listeners
+  // are registered after the initial navigation event fires).
+  try {
+    const context = page.context();
+    const wakePage = await context.newPage();
+    // Navigate to a URL that triggers extension content scripts (<all_urls>)
+    await wakePage.goto('http://localhost:7892/', { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await wakePage.close();
+  } catch {
+    // If wake fails (e.g. already navigated), continue polling
+  }
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
