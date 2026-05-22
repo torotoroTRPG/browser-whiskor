@@ -32,11 +32,9 @@ import {
   HTTP_URL,
 } from './helpers/e2e-helpers.mjs';
 
-// Slow extension connection on first launch
-test.describe.configure({ timeout: 120000 });
-
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Resilience - Malformed Input', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -128,6 +126,7 @@ test.describe('Resilience - Malformed Input', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Resilience - Connection Management', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -216,6 +215,7 @@ test.describe('Resilience - Connection Management', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Resilience - Large Payloads', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -294,6 +294,7 @@ test.describe('Resilience - Large Payloads', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Resilience - Concurrent Operations', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -367,6 +368,7 @@ test.describe('Resilience - Concurrent Operations', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Resilience - Unknown Message Types', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 

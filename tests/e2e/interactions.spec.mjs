@@ -24,26 +24,24 @@ import {
   TestPages,
 } from './helpers/e2e-helpers.mjs';
 
-// Slow extension connection on first launch
-test.describe.configure({ timeout: 120000 });
-
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Text Input', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
-  test('fill input field with text', async ({ browserName }) => {
-    test.skip(browserName !== 'chromium');
+    test('fill input field with text', async ({ browserName }) => {
+      test.skip(browserName !== 'chromium');
 
-    const context = await launchWithExtension(chromium);
-    try {
-      const page = await context.newPage();
-      await waitForExtensionConnection(page);
+      const context = await launchWithExtension(chromium);
+      try {
+        const page = await context.newPage();
+        await waitForExtensionConnection(page);
 
-      await page.goto(TestPages.interactive);
-      await page.waitForTimeout(500);
+        await page.setContent('<html><body><input id="input1" type="text" /></body></html>');
+        await page.waitForTimeout(200);
 
-      await page.fill('#input1', 'Hello World');
+        await page.fill('#input1', 'Hello World');
       const value = await page.inputValue('#input1');
       expect(value).toBe('Hello World');
     } finally {
@@ -59,8 +57,8 @@ test.describe('Interactions - Text Input', () => {
       const page = await context.newPage();
       await waitForExtensionConnection(page);
 
-      await page.goto(TestPages.interactive);
-      await page.waitForTimeout(500);
+      await page.setContent('<html><body><input id="input1" type="text" /></body></html>');
+      await page.waitForTimeout(200);
 
       await page.click('#input1');
       await page.keyboard.type('typed text');
@@ -79,8 +77,8 @@ test.describe('Interactions - Text Input', () => {
       const page = await context.newPage();
       await waitForExtensionConnection(page);
 
-      await page.goto(TestPages.interactive);
-      await page.waitForTimeout(500);
+      await page.setContent('<html><body><input id="input1" type="text" /></body></html>');
+      await page.waitForTimeout(200);
 
       await page.fill('#input1', 'original');
       await page.fill('#input1', '');
@@ -101,8 +99,8 @@ test.describe('Interactions - Text Input', () => {
       const page = await context.newPage();
       await waitForExtensionConnection(page);
 
-      await page.goto(TestPages.interactive);
-      await page.waitForTimeout(500);
+      await page.setContent('<html><body><input id="input1" type="text" /></body></html>');
+      await page.waitForTimeout(200);
 
       const specialText = 'Hello <script>alert("xss")</script> & "quotes"';
       await page.fill('#input1', specialText);
@@ -139,6 +137,7 @@ test.describe('Interactions - Text Input', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Selection', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -255,6 +254,7 @@ test.describe('Interactions - Selection', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Click', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -352,6 +352,7 @@ test.describe('Interactions - Click', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Drag and Drop', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -389,6 +390,7 @@ test.describe('Interactions - Drag and Drop', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Keyboard', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -484,6 +486,7 @@ test.describe('Interactions - Keyboard', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Hover', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
@@ -539,6 +542,7 @@ test.describe('Interactions - Hover', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 test.describe('Interactions - Form Submission', () => {
+  test.describe.configure({ timeout: 120000 });
 
   test.skip(({ browserName }) => browserName !== 'chromium');
 
