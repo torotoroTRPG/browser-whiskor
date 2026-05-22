@@ -11,6 +11,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: 'html',
+  globalSetup: './tests/e2e/global-setup.mjs',
   use: {
     baseURL: 'http://localhost:7892',
     trace: 'on-first-retry',
