@@ -59,9 +59,10 @@
     const summary = {
       tag:     node.tagName.toLowerCase(),
       id:      node.id || null,
-      classes: node.className
-                 ? node.className.trim().split(/\s+/).slice(0, 8)
-                 : [],
+      classes: (typeof node.className === 'string'
+                 ? node.className
+                 : (node.className && node.className.baseVal) || '')
+                 .trim().split(/\s+/).slice(0, 8),
     };
 
     const dataAttrs = {};
