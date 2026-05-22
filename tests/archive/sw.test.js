@@ -1,42 +1,32 @@
-/**
- * tests/unit/sw.test.js
- * Section 6.2 — Service Worker (sw.js)
- */
+'use strict';
+const { describe, it } = require('node:test');
+const assert = require('node:assert');
 
-import { describe, test } from 'node:test';
-import assert from 'node:assert/strict';
+// Geometry clamping logic extracted from cropImage (works without browser DOM APIs)
+function computeCrop(imgW, imgH, viewW, rect, padding) {
+  const dpr = Math.round((imgW / viewW) * 10) / 10 || 1;
+  const sx = Math.max(0, Math.round((rect.x - padding) * dpr));
+  const sy = Math.max(0, Math.round((rect.y - padding) * dpr));
+  const sw = Math.min(imgW - sx, Math.round((rect.w + padding * 2) * dpr));
+  const sh = Math.min(imgH - sy, Math.round((rect.h + padding * 2) * dpr));
+  if (sw <= 0 || sh <= 0) {
+    return { error: 'Crop region is outside the visible viewport' };
+  }
+  return { sx, sy, sw, sh, dpr };
+}
 
-describe('6.2 Service Worker', () => {
-
-  test('Message queue: queues messages when WS is down', () => {
-    const queue = [];
-    const MAX_QUEUE = 5;
-    let wsConnected = false;
-
-    function sendMessage(msg) {
-      if (wsConnected) {
-        // send
-      } else {
-        if (queue.length >= MAX_QUEUE) queue.shift();
-        queue.push(msg);
-      }
-    }
-
-    for (let i = 0; i < 10; i++) {
-      sendMessage({ id: i });
-    }
-
-    assert.strictEqual(queue.length, MAX_QUEUE);
-    assert.strictEqual(queue[0].id, 5); // 0-4 dropped
-    assert.strictEqual(queue[4].id, 9);
+describe('cropImage [sw.js element crop]', () => {
+  it('should reject when clamping results in negative dimensions', () => {
+    const r = computeCrop(100, 100, 1920, { x: -200, y: -200, w: 10, h: 10 }, 0);
+    assert.strictEqual(r.error, 'Crop region is outside the visible viewport');
   });
 
-  test('EXECUTE_ACTION: calls executeInPage', async () => {
-    let called = false;
-    const mockExecute = async () => { called = true; return { ok: true }; };
-
-    const result = await mockExecute();
-    assert.ok(called);
-    assert.strictEqual(result.ok, true);
+  it('should compute valid crop rect for a normal request', () => {
+    const r = computeCrop(3840, 2160, 1920, { x: 100, y: 50, w: 200, h: 100 }, 8);
+    assert.ok(r.sx >= 0);
+    assert.ok(r.sy >= 0);
+    assert.ok(r.sw > 0);
+    assert.ok(r.sh > 0);
+    assert.strictEqual(r.dpr, 2);
   });
 });

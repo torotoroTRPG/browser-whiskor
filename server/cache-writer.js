@@ -29,11 +29,10 @@ const sessions = new Map();
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function ensureDir(d) { fs.mkdirSync(d, { recursive: true }); }
-
+// sync helpers (legacy – not used in the hot handleMessage path)
 function writeJson(filePath, data) {
   try {
-    ensureDir(path.dirname(filePath));
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
   } catch (e) {
     console.error('[cache] writeJson error:', e.message, filePath);
@@ -59,7 +58,7 @@ async function readJsonAsync(filePath) {
   catch { return null; }
 }
 
-function getSession(tabId, url, siteVersion) {
+async function getSession(tabId, url, siteVersion) {
   if (!sessions.has(tabId)) {
     const sessionId = Date.now();
     const siteDir = (siteVersion || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
@@ -68,7 +67,7 @@ function getSession(tabId, url, siteVersion) {
     for (const sub of ['raw/react','raw/vue','raw/angular','raw/svelte','raw/dom',
                         'raw/visual','raw/network','raw/css','raw/ui',
                         'raw/accessibility','raw/storage','raw/perf','raw/console','raw/sources']) {
-      ensureDir(path.join(dir, sub));
+      await fsp.mkdir(path.join(dir, sub), { recursive: true });
     }
 
     const index = {
@@ -83,14 +82,14 @@ function getSession(tabId, url, siteVersion) {
     };
 
     sessions.set(tabId, { dir, index, networkRequests: [], consoleLogs: [], updatedAt: Date.now(), keep: false });
-    writeJson(path.join(dir, '_index.json'), index);
+    await writeJsonAsync(path.join(dir, '_index.json'), index);
   }
   return sessions.get(tabId);
 }
 
-function updateIndex(session) {
+async function updateIndex(session) {
   session.index.updatedAt = Date.now();
-  writeJson(path.join(session.dir, '_index.json'), session.index);
+  await writeJsonAsync(path.join(session.dir, '_index.json'), session.index);
 }
 
 async function updateIndexAsync(session) {
@@ -108,7 +107,7 @@ async function handleMessage(msg) {
   const { type, tabId, tabUrl, payload, siteVersion } = msg;
   if (!tabId) return;
 
-  const s = getSession(tabId, tabUrl, siteVersion || 'default');
+  const s = await getSession(tabId, tabUrl, siteVersion || 'default');
   s.updatedAt = Date.now();
   if (tabUrl && !s.index.url) { s.index.url = tabUrl; }
 

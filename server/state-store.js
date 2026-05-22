@@ -15,18 +15,12 @@
 'use strict';
 
 const fs   = require('fs');
-const path = require('path');
-const zlib = require('zlib');
 
 const fingerprint = require('./state-fingerprint');
 
+const { persistGraph, loadGraph, saveSnapshot, loadSnapshot, GRAPH_DIR } = require('./state-persistence');
+
 // ── Configuration ─────────────────────────────────────────────────────────────
-
-const GRAPH_DIR = path.join(__dirname, '..', 'cache', 'graphs');
-fs.mkdirSync(GRAPH_DIR, { recursive: true });
-
-const SNAPSHOTS_DIR = path.join(GRAPH_DIR, 'snapshots');
-fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
 
 const DEFAULT_CONFIG = {
   maxNodesInMemory: 500,
@@ -160,39 +154,6 @@ function countEdges(g) {
   return c;
 }
 
-// ── Persistence (gzip) ───────────────────────────────────────────────────────
-
-function persistGraph(siteVersion) {
-  const g = graphs.get(siteVersion);
-  if (!g) return;
-  g.updatedAt = Date.now();
-  const fp = path.join(GRAPH_DIR, `${siteVersion}.json.gz`);
-  try {
-    const data = JSON.stringify(g, null, 0);
-    const compressed = zlib.gzipSync(Buffer.from(data, 'utf8'), { level: 6 });
-    fs.writeFileSync(fp, compressed);
-  } catch (_) {}
-}
-
-function loadGraph(siteVersion) {
-  const fp = path.join(GRAPH_DIR, `${siteVersion}.json.gz`);
-  if (!fs.existsSync(fp)) return null;
-  try {
-    const compressed = fs.readFileSync(fp);
-    const data = zlib.gunzipSync(compressed).toString('utf8');
-    return JSON.parse(data);
-  } catch {
-    // Fallback: try uncompressed
-    const fp2 = path.join(GRAPH_DIR, `${siteVersion}.json`);
-    if (fs.existsSync(fp2)) {
-      try {
-        return JSON.parse(fs.readFileSync(fp2, 'utf8'));
-      } catch (_) {}
-    }
-    return null;
-  }
-}
-
 // ── Add Node ─────────────────────────────────────────────────────────────────
 
 function addNode(siteVersion, data) {
@@ -229,7 +190,7 @@ function addNode(siteVersion, data) {
     node.tags = semantic.extractTags(labelData, config);
 
     g.stats.totalVisits++;
-    persistGraph(siteVersion);
+    persistGraph(siteVersion, graphs);
     return node;
   }
 
@@ -291,7 +252,7 @@ function addNode(siteVersion, data) {
   // LRU check
   checkLRU(siteVersion);
 
-  persistGraph(siteVersion);
+  persistGraph(siteVersion, graphs);
   return node;
 }
 
@@ -339,7 +300,7 @@ function addEdge(siteVersion, data) {
     g.stats.totalEdges++;
   }
 
-  persistGraph(siteVersion);
+  persistGraph(siteVersion, graphs);
 }
 
 function computeConfidence(edge) {
@@ -359,35 +320,6 @@ function computeConfidence(edge) {
   }
 
   return Math.round(base * recency * consistency * 100) / 100;
-}
-
-// ── Snapshot Storage (L2) ────────────────────────────────────────────────────
-
-function saveSnapshot(siteVersion, hash, snapshot) {
-  const dir = path.join(SNAPSHOTS_DIR, siteVersion);
-  fs.mkdirSync(dir, { recursive: true });
-  const fp = path.join(dir, `${hash}.snap.json.gz`);
-
-  try {
-    const data = JSON.stringify(snapshot, null, 0);
-    const compressed = zlib.gzipSync(Buffer.from(data, 'utf8'), { level: 6 });
-    fs.writeFileSync(fp, compressed);
-    return `${siteVersion}/${hash}.snap.json.gz`;
-  } catch {
-    return null;
-  }
-}
-
-function loadSnapshot(siteVersion, hash) {
-  const fp = path.join(SNAPSHOTS_DIR, siteVersion, `${hash}.snap.json.gz`);
-  if (!fs.existsSync(fp)) return null;
-  try {
-    const compressed = fs.readFileSync(fp);
-    const data = zlib.gunzipSync(compressed).toString('utf8');
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
 }
 
 // ── UI Summary Builder ───────────────────────────────────────────────────────
@@ -564,7 +496,7 @@ function pinNode(siteVersion, hash, label, tags) {
   if (tags?.length) {
     node.tags = [...new Set([...(node.tags || []), ...tags])];
   }
-  persistGraph(siteVersion);
+  persistGraph(siteVersion, graphs);
   return { ok: true, hash, label: node.pinnedLabel || node.label, tags: node.tags };
 }
 
@@ -596,16 +528,16 @@ module.exports = {
   getAllNodesFlat,
   pinNode,
 
-  // Persistence
-  persistGraph,
-  loadGraph,
-  saveSnapshot,
-  loadSnapshot,
-
   // LRU
   checkLRU,
   restoreEvicted,
 
   // Fingerprint (re-export for convenience)
   fingerprint,
+
+  // Re-export persistence for backward compatibility
+  persistGraph,
+  loadGraph,
+  saveSnapshot,
+  loadSnapshot,
 };

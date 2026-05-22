@@ -20,6 +20,8 @@
         "injected/version-helper.js",
         "injected/plugin-system.js",
         "lib/bippy.iife.js",
+        "injected/adapters/react-hooks.js",
+        "injected/adapters/react-state-managers.js",
         "injected/adapters/react.js",
         "injected/adapters/vue3.js",
         "injected/adapters/vue2.js",

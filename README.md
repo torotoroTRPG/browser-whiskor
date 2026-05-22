@@ -70,11 +70,10 @@ AI Agent (Claude / Cursor / etc.)
 │  delta-engine.js       ← Smart delta aggregation, motion clustering │
 │  pattern-registry.js   ← UI pattern storage + lookup (ref IDs) │
 │                                                                │
-│  state-store.js        ← State graph + LRU + gzip              │
+│  state-store.js        ← State graph + LRU + gzip + backward compat wrapper │
 │  state-fingerprint.js  ← FNV32 hash engine                     │
 │  state-semantic.js     ← Labels, tags, keyState, search        │
 │  state-navigator.js    ← BFS path finding + action replay      │
-│  state-machine.js      ← Backward-compat wrapper               │
 └──────────┬──────────────────────────────┬──────────────────────┘
            │ HTTP :7892                     │ WebSocket :7891
            ▼                                ▼
