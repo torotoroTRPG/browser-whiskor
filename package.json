@@ -8,11 +8,11 @@
     "mcp": "node server/index.js --mcp",
     "verbose": "node server/index.js --verbose",
     "mock": "node server/index.js --mock",
-    "test": "node --test tests/**/*.test.js",
-    "test:unit": "node --test tests/unit/*.test.js",
-    "test:integration": "node --test tests/integration/*.test.js",
-    "test:stress": "node --test tests/stress/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage tests/**/*.test.js",
+    "test": "node --test tests/unit/ tests/integration/ tests/stress/",
+    "test:unit": "node --test tests/unit/",
+    "test:integration": "node --test tests/integration/",
+    "test:stress": "node --test tests/stress/",
+    "test:coverage": "node --test --experimental-test-coverage tests/unit/ tests/integration/ tests/stress/",
     "test:e2e": "npx playwright test tests/e2e/"
   },
   "dependencies": {
