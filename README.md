@@ -483,6 +483,21 @@ The agent can then say "click element 1" instead of dealing with raw coordinates
 - **OffscreenCanvas** is used in the MV3 Service Worker (no DOM manipulation)
 - Element collection uses a single `querySelectorAll` in the content script
 
+## Testing & Quality
+
+**304 automated tests** covering core logic, server routing, and stress scenarios.
+
+| Category | Count | Scope |
+|----------|-------|-------|
+| **Unit** | 273 | Server logic, WS messaging, MCP tools, Canvas math |
+| **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab |
+| **Stress** | 11 | Large payloads (5000+ words), long sessions |
+| **UI Verification** | 8 | Dashboard rendering, canvas updates, state management |
+
+> **Note:** The UI verification tests (`tests/e2e/`) confirm that the dashboard renders correctly in a real browser, but they do not simulate the full extension-to-server pipeline. True E2E coverage would require a live extension environment. For now, we rely on robust unit/integration tests for pipeline correctness.
+
+**Pre-push validation:** Run `.\scripts\validate.ps1` to check YAML syntax, shared/ sync status, and file structure before committing.
+
 ## License
 
 MIT

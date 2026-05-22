@@ -11,10 +11,12 @@ Tests should be written by the developer who knows the full codebase context.
 tests/
 ├── integration/    # Server ↔ Extension ↔ Dashboard full-flow tests
 ├── stress/         # Performance, memory, large-data tests
-├── e2e/            # End-to-end: real browser + server + MCP
+├── e2e/            # Dashboard UI verification (⚠️ Not full pipeline E2E)
 ├── unit/           # Individual module tests (server-side only)
 └── fixtures/       # Test data, mock pages, sample responses
 ```
+
+> **Note on E2E:** The `e2e/` directory currently contains UI verification tests for the dashboard (canvas rendering, state management). These tests verify that the dashboard works correctly in a real browser but do not simulate the full extension-to-server-to-dashboard pipeline. True E2E tests would require a live extension environment and are deferred for now to maintain test speed and stability.
 
 ---
 

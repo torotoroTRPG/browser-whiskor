@@ -1,5 +1,19 @@
 # browser-whiskor — Test Runner Setup
 
+## Test Strategy & Scope
+
+**Current Status:** 304 automated tests (Unit, Integration, Stress) + UI verification.
+
+| Category | Count | Scope | Notes |
+|----------|-------|-------|-------|
+| **Unit** | 273 | Core logic, routing, WS messaging, MCP tools | Event-driven, zero sleep where possible |
+| **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab | Uses in-process server fixture |
+| **Stress** | 11 | Large payloads, long sessions | Verifies stability under load |
+| **E2E (Playwright)** | 8 | Dashboard UI, Canvas rendering, State management | ⚠️ **Note:** Currently tests UI components and internal state, not the full extension-to-server pipeline. See below. |
+
+### E2E Test Limitations
+`tests/e2e/dashboard.spec.js` verifies that the dashboard UI renders correctly and responds to state changes (e.g., canvas updates on scroll). However, it **does not** simulate the full end-to-end flow (Extension → Server → Dashboard) automatically. It injects state directly into the dashboard's internal object (`window.__dash`) to verify rendering logic. This is a pragmatic choice to keep tests fast and stable, but true E2E coverage would require a live extension environment.
+
 ## Test Framework
 
 **Node.js built-in `node:test` + `node:assert`** — zero dependencies, matches project philosophy.
