@@ -2,10 +2,36 @@
 <html lang="ja">
 <head>
   <!--
-    好きなゲーム開発者さま renkaさんの、
-    「儚くて、切なくて、ずっと触れていたい」世界観が大好きです (biglove..)
-    https://store.steampowered.com/search/?developer=and_and_and
-    少し参考にしました (..けどゲーム本編ほどすごくきれいじゃないよ..hhh)
+    好きなゲーム開発者さま renkaさんの作るすべての世界観が大好きです..!（BIG~LOVE!!）(⋈◍＞◡＜◍)。✧♡
+    このダッシュボードのテーマカラーも、sunhaloやflashbackなどすこし影響受けています..!
+    (ゲーム本編ほど美しくも綺麗でもないですけどけど、本当に一歩も..mm もう少し　上手くなりたいもの..)
+    https://store.steampowered.com/developer/renka
+    大好きです♡ 勝手に紹介..luvluvluv
+  -->
+
+  <!--
+    ARCHITECTURE NOTE: Single-File Design
+
+    This dashboard is intentionally implemented as a single HTML file containing
+    inline CSS and JavaScript. This is a deliberate design choice, not a
+    temporary measure or lack of refactoring.
+
+    Rationale:
+      1. Zero build step — The server serves this file as-is. No bundlers,
+         transpilers, or asset pipelines are required.
+      2. Self-contained — The entire UI (HTML structure, 4 themes, canvas
+         renderer, WebSocket client, tab management) lives in one file.
+         Deployment is a single `fs.readFile()` call.
+      3. Debugging — Source maps, build artifacts, and CORS issues from
+         separate asset servers are eliminated. Browser DevTools show the
+         exact code that is running.
+      4. Size trade-off — At ~66KB, this file is larger than a split
+         architecture would be, but the complexity savings outweigh the
+         byte cost for a local development tool.
+
+    If you are considering splitting this into .css/.js files, please ensure
+    the zero-build requirement is preserved. The server must be able to
+    concatenate and serve them without a preprocessing step.
   -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
