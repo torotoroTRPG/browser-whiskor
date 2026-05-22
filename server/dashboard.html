@@ -276,6 +276,10 @@
     }
     .s-item .s-pin.active { opacity: 0.8; }
     .s-item .s-pin:hover { opacity: 1; }
+    .s-item .s-del {
+      float: right; cursor: pointer; font-size: 11px; opacity: 0.2; transition: opacity 200ms; user-select: none; margin-right: 4px;
+    }
+    .s-item .s-del:hover { opacity: 0.9; }
     .s-item .s-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .s-tag {
       font: 200 8px/1 var(--font-mono);
@@ -816,6 +820,10 @@
               S.liveVp = null;
               resetCanvasView();
               setTimeout(function(){ loadPane(S.activeTab); }, 100);
+            } else if (msg.type === 'SESSION_REMOVED') {
+              S.tabId = null;
+              D['detail'].style.display = 'none';
+              D['empty'].style.display = '';
             } else {
               setTimeout(function(){ loadPane(S.activeTab); }, 300);
             }
@@ -849,8 +857,10 @@
         var fws = (s.summary && s.summary.detectedFrameworks || []).map(function(f){ return '<span class="s-tag">' + esc(f) + '</span>'; }).join('');
         var pinBtn = s.keep ? '<span class="s-pin active" data-tid="' + s.tabId + '" title="Pinned — will not be cleaned up">📌</span>'
                             : '<span class="s-pin" data-tid="' + s.tabId + '" title="Click to pin this session">📌</span>';
+        var delBtn = '<span class="s-del" data-tid="' + s.tabId + '" title="Delete this session">🗑</span>';
         return '<div class="s-item' + (s.tabId === S.tabId ? ' active' : '') + '" data-tid="' + s.tabId + '">'
                 + pinBtn
+                + delBtn
                 + '<div class="s-url">' + esc(s.url || '(unknown)') + '</div>'
                 + '<div class="s-meta">TAB ' + s.tabId + ' · ' + new Date(s.updatedAt).toLocaleTimeString() + '</div>'
                 + (fws ? '<div class="s-tags">' + fws + '</div>' : '')
@@ -867,6 +877,21 @@
           fetch(S.api + '/api/sessions/' + tid + '/pin', { method: pin ? 'POST' : 'DELETE' });
           this.classList.toggle('active', pin);
           this.title = pin ? 'Pinned' : 'Click to pin this session';
+        });
+      });
+      el.querySelectorAll('.s-del').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (!confirm('Delete session TAB ' + this.dataset.tid + '?')) return;
+          var tid = parseInt(this.dataset.tid);
+          fetch(S.api + '/api/sessions/' + tid, { method: 'DELETE' }).then(function() {
+            if (S.tabId === tid) {
+              S.tabId = null;
+              D['detail'].style.display = 'none';
+              D['empty'].style.display = '';
+            }
+            refreshSessions();
+          });
         });
       });
     }

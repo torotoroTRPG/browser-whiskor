@@ -516,13 +516,14 @@
         });
         self._observer.observe(document.body, { childList: true, subtree: true, characterData: true });
         // Re-collect on scroll so new in-viewport text enters the dataset
+        // Use a longer debounce to avoid layout thrashing during active scrolling
         self._scrollHandler = () => {
           clearTimeout(self._reextractTimer);
           self._reextractTimer = setTimeout(() => {
             if (!registry._isEnabled('text-coords')) return;
             const data = self.collect(api);
             if (data) api.emit(self.emitType, data, false);
-          }, 300);
+          }, 2000);
         };
         window.addEventListener('scroll', self._scrollHandler, { passive: true, capture: true });
       };
@@ -585,7 +586,7 @@
   let _isTracking = false;
   let _scrollCollectTimer = null;
   
-  const RECHECK_INTERVAL_MOVING = 100;  // ms: check moving texts frequently
+  const RECHECK_INTERVAL_MOVING = 300;  // ms: check moving texts frequently
   const RECHECK_INTERVAL_STABLE = 2000; // ms: check stable texts occasionally
   const STABLE_THRESHOLD = 5;           // checks without change to consider stable
   const SCROLL_COLLECT_DELAY = 300;     // ms: debounce delay for scroll-triggered collection
@@ -717,7 +718,7 @@
       });
 
       // Check a subset of texts per frame to avoid performance hit
-      const maxChecksPerFrame = 50;
+      const maxChecksPerFrame = 20;
       let checked = 0;
 
       for (const entry of entries) {
@@ -805,7 +806,7 @@
         }, '*');
       }
 
-      _recheckTimer = setTimeout(loop, 50); // Base loop interval
+      _recheckTimer = setTimeout(loop, 150); // Base loop interval
     };
 
     loop();

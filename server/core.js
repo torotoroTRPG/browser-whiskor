@@ -346,6 +346,15 @@ class WhiskorCore extends EventEmitter {
       return { status: 200, body: { ok: true, tabId, keep: false } };
     }
 
+    // DELETE /api/sessions/:tabId  — remove session entirely
+    if (method === 'DELETE' && sessionM) {
+      const tabId = parseInt(sessionM[1]);
+      this.cache.removeSession(tabId);
+      this._tabDisconnectedAt.delete(tabId);
+      this.broadcastToDashboard({ type: 'SESSION_REMOVED', tabId });
+      return { status: 200, body: { ok: true, tabId } };
+    }
+
     if (method === 'GET' && p === '/api/graphs') {
       return { status: 200, body: this.stateMachine.getAllGraphs() };
     }
