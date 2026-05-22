@@ -29,6 +29,8 @@ const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
 const { checkAndRepair } = require('./cache-integrity');
+const patternRegistry = require('./pattern-registry');
+const mcpRegistry = require('./mcp/registry');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -177,6 +179,38 @@ const httpServer = http.createServer((req, res) => {
     });
   }
 
+  // GET /api/sessions/:tabId/raw/delta/patterns.json — pattern registry data
+  const patternsM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/raw\/delta\/patterns\.json$/);
+  if (patternsM) {
+    const tabId = parseInt(patternsM[1]);
+    try {
+      const patterns = patternRegistry.getPatternsForTab(String(tabId));
+      return sendJson({ patterns });
+    } catch { return sendJson({ patterns: [], note: 'Pattern registry unavailable' }); }
+  }
+
+  // GET /api/sessions/:tabId/profiles — tool profile status (via MCP)
+  const profilesM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/profiles$/);
+  if (profilesM) {
+    const tabId = parseInt(profilesM[1]);
+    try {
+      const status = require('./tool-manager').getProfileStatus ? require('./tool-manager').getProfileStatus(`mcp-${tabId}`) : null;
+      return sendJson(status || { note: 'Tool profiles active via MCP session', hint: 'Use MCP tools: load_profile, unload_profile, profile_status' });
+    } catch { return sendJson({ note: 'Tool-manager not available' }); }
+  }
+
+  // GET /api/sessions/:tabId/tools — search visible MCP tools
+  const toolsM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/tools$/);
+  if (toolsM) {
+    const tabId = parseInt(toolsM[1]);
+    try {
+      const tm = require('./tool-manager');
+      const allTools = mcpRegistry.getAllTools();
+      const visible = tm.getVisibleTools ? tm.getVisibleTools(`mcp-${tabId}`, allTools, core.globalConfig) : [];
+      return sendJson({ tools: visible, total: allTools.length, visible: visible.length });
+    } catch { return sendJson({ tools: [], note: 'Tool discovery unavailable via HTTP' }); }
+  }
+
   // Delegate to core HTTP handler
   const coreReq = { method, url: { pathname: p }, body: null };
   let bodyPromise = Promise.resolve(null);
@@ -184,8 +218,72 @@ const httpServer = http.createServer((req, res) => {
     bodyPromise = readBody();
   }
 
-  bodyPromise.then(body => {
+  bodyPromise.then(async body => {
     coreReq.body = body;
+
+    // Intercept POST /api/action for server-side action types
+    if (method === 'POST' && p === '/api/action') {
+      const tabId = body?.tabId;
+      const action = body?.action || {};
+      let result;
+
+      switch (action.type) {
+        case 'trigger_explorer':
+          core.triggerExplorer(tabId, action.active, action.strategy);
+          result = { ok: true, explorer: action.active ? 'activated' : 'deactivated' };
+          break;
+        case 'navigate_to_state':
+          try {
+            result = await stateNavigator.navigate(tabId, action.hash, {
+              timeoutMs: action.timeoutMs || 30000,
+              verifyEachStep: true,
+              allowUrlFallback: true,
+            }, (tid, act) => actions.execute(tid, act), () => {});
+          } catch (e) { result = { ok: false, error: e.message }; }
+          break;
+        case 'get_navigation_path':
+          try {
+            const nav = require('./state-navigator');
+            if (action.fromHash) {
+              result = nav.getNavigationPath(action.fromHash, action.toHash || action.hash, action.siteVersion);
+            } else {
+              result = { ok: false, error: 'fromHash required. Use navigate_to_state to navigate from current state.' };
+            }
+          } catch (e) { result = { ok: false, error: e.message }; }
+          break;
+        case 'load_profile':
+          try {
+            const tm = require('./tool-manager');
+            tm.loadProfile(`mcp-${tabId}`, action.profile, mcpRegistry.getAllTools(), core.globalConfig);
+            result = { ok: true, profile: action.profile };
+          } catch (e) { result = { ok: false, error: e.message }; }
+          break;
+        case 'unload_profile':
+          try {
+            const tm = require('./tool-manager');
+            tm.unloadProfile(`mcp-${tabId}`, action.profile);
+            result = { ok: true, profile: action.profile };
+          } catch (e) { result = { ok: false, error: e.message }; }
+          break;
+        case 'capture_element_screenshot':
+          try { result = await screenshots.captureElement(tabId, action); }
+          catch (e) { result = { ok: false, error: e.message }; }
+          break;
+        default:
+          result = core.handleHttpRequest(coreReq);
+      }
+
+      if (result && result.file) {
+        const full = result.file;
+        if (!fs.existsSync(full)) return sendJson({ error: 'File not found' }, 404);
+        try {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(fs.readFileSync(full, 'utf8'));
+        } catch { return sendJson({ error: 'Read error' }, 500); }
+      }
+      return sendJson(result.body || result, result.status || 200);
+    }
+
     const result = core.handleHttpRequest(coreReq);
 
     // Handle file serving for session files

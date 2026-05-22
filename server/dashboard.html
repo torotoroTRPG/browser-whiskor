@@ -599,7 +599,12 @@
               <button class="btn" id="cv-nav-fwd" title="Navigate forward">→</button>
               <button class="btn" id="cv-nav-reload" title="Reload page">↻</button>
               <span class="cv-sep"></span>
+              <button class="btn" id="cv-screen" title="Screenshot full page">📷</button>
+              <button class="btn" id="cv-explorer" title="Toggle autonomous explorer">🤖</button>
+              <span class="cv-sep"></span>
               <button class="btn" id="cv-theater" title="Toggle theater mode (expand canvas vertically)">⛶</button>
+              <span class="cv-sep"></span>
+              <button class="btn" id="cv-tools-toggle" title="Toggle tools panel">⚙ TOOLS</button>
               <span class="cv-sep"></span>
               <label><input type="checkbox" id="cv-bounds" checked> BOUNDS</label>
               <label><input type="checkbox" id="cv-colors"> COLORS</label>
@@ -619,6 +624,51 @@
             <div class="cv-wrap" id="cv-wrap"><canvas id="cv"></canvas></div>
             <div class="cv-grip" id="cv-grip"></div>
             <div class="cv-info" id="cv-info"></div>
+            <div id="cv-tools" style="display:none;margin-bottom:13px;padding:13px;background:var(--surface);backdrop-filter:blur(8px);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="fg"><label>NAVIGATE TO</label>
+                  <input type="text" id="act-url" placeholder="https://example.com" style="width:100%;padding:8px 13px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                  <button class="btn" id="act-url-go" style="margin-top:4px">GO</button>
+                </div>
+                <div class="fg"><label>TYPE TEXT</label>
+                  <div style="display:flex;gap:4px">
+                    <input type="text" id="act-type-text" placeholder="Text to type…" style="flex:1;padding:8px 13px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn" id="act-type-go">SEND</button>
+                  </div>
+                </div>
+                <div class="fg"><label>SCROLL PAGE</label>
+                  <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    <input type="number" id="act-sx" placeholder="X" style="width:60px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <input type="number" id="act-sy" placeholder="Y" style="width:60px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <input type="number" id="act-sdx" placeholder="ΔX" style="width:60px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <input type="number" id="act-sdy" placeholder="ΔY" style="width:60px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn" id="act-scroll-go">SCROLL</button>
+                  </div>
+                </div>
+                <div class="fg"><label>HOVER / SELECT / CHECK</label>
+                  <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    <input type="text" id="act-sel" placeholder="CSS selector…" style="width:140px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn" id="act-hover">HOVER</button>
+                    <button class="btn" id="act-select-opt">SELECT</button>
+                    <input type="text" id="act-sel-val" placeholder="value" style="width:80px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn" id="act-check">CHECK</button>
+                  </div>
+                </div>
+                <div class="fg"><label>EXECUTE JS</label>
+                  <div style="display:flex;gap:4px">
+                    <input type="text" id="act-js" placeholder="document.title" style="flex:1;padding:8px 13px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn btn-accent" id="act-js-go">▶ RUN</button>
+                  </div>
+                </div>
+                <div class="fg"><label>WAIT FOR ELEMENT</label>
+                  <div style="display:flex;gap:4px">
+                    <input type="text" id="act-wait-sel" placeholder="CSS selector…" style="flex:1;padding:8px 13px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <input type="number" id="act-wait-ms" value="5000" style="width:60px;padding:6px 8px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 11px/1 var(--font-mono);outline:none">
+                    <button class="btn" id="act-wait-go">WAIT</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <input class="search" id="txt-filter" placeholder="Filter words…">
             <div class="wg-hdr"><span>TEXT</span><span>X</span><span>Y</span><span>W</span><span>H</span><span>⊙</span></div>
             <div id="words-scroll"><div id="words"></div></div>
@@ -647,6 +697,116 @@
 
         <div class="pane" id="p-dom">
           <div class="card"><h3>DOM SNAPSHOT</h3><div class="json" id="dom-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-accessibility">
+          <div class="card"><h3>ACCESSIBILITY TREE</h3><div class="json" id="a11y-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-storage">
+          <div class="card"><h3>STORAGE</h3>
+            <div style="display:flex;gap:8px;margin-bottom:13px">
+              <button class="btn" id="sto-reload" title="Reload storage data">↻ RELOAD</button>
+              <select id="sto-source" class="cv-select">
+                <option value="localStorage">localStorage</option>
+                <option value="sessionStorage">sessionStorage</option>
+                <option value="cookies">Cookies</option>
+              </select>
+            </div>
+            <div class="json" id="sto-data"></div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-console">
+          <div class="card"><h3>CONSOLE LOGS</h3>
+            <div style="display:flex;gap:8px;margin-bottom:13px">
+              <button class="btn" id="con-reload" title="Reload console logs">↻ RELOAD</button>
+              <button class="btn" id="con-clear" title="Clear console logs display">✕ CLEAR</button>
+            </div>
+            <div style="font:200 10px/1.4 var(--font-mono)" id="con-data"></div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-perf">
+          <div class="card"><h3>PERFORMANCE METRICS</h3><div class="json" id="perf-data"></div></div>
+        </div>
+
+        <div class="pane" id="p-graph">
+          <div class="card"><h3>STATE GRAPH</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px">
+              <button class="btn" id="gr-reload">↻ REFRESH</button>
+              <input class="search" id="gr-search" placeholder="Search states…" style="width:200px;margin-bottom:0">
+              <span style="font:200 9px/1 var(--font-mono);color:var(--muted);align-self:center" id="gr-count"></span>
+            </div>
+            <div id="gr-list" style="max-height:400px;overflow-y:auto"></div>
+            <div id="gr-detail" style="display:none;margin-top:13px">
+              <h3 style="font:300 9px/1 var(--font-mono);color:var(--muted);letter-spacing:0.12em;margin-bottom:8px">STATE DETAIL</h3>
+              <div class="json" id="gr-detail-json" style="max-height:300px"></div>
+              <div style="margin-top:8px;display:flex;gap:8px">
+                <button class="btn" id="gr-nav">NAVIGATE TO STATE</button>
+                <button class="btn" id="gr-path">SHOW PATH</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-delta">
+          <div class="card"><h3>SMART DELTA</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px">
+              <button class="btn" id="dl-reload">↻ GET DELTA</button>
+              <button class="btn" id="dl-patterns">LIST PATTERNS</button>
+              <span style="font:200 9px/1 var(--font-mono);color:var(--muted);align-self:center" id="dl-info"></span>
+            </div>
+            <div class="json" id="dl-data"></div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-capture">
+          <div class="card"><h3>SCREENSHOT</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px">
+              <button class="btn btn-accent" id="cap-full">CAPTURE FULL PAGE</button>
+              <button class="btn btn-accent" id="cap-marks">CAPTURE + MARKS</button>
+              <span class="cv-sep"></span>
+              <button class="btn" id="cap-element">CAPTURE ELEMENT</button>
+              <input class="search" id="cap-sel" placeholder="CSS selector…" style="width:180px;margin-bottom:0">
+              <select id="cap-format" class="cv-select">
+                <option value="png">PNG</option>
+                <option value="jpeg">JPEG</option>
+              </select>
+              <span style="font:200 9px/1 var(--font-mono);color:var(--muted);align-self:center">padding</span>
+              <input type="number" id="cap-pad" value="4" min="0" max="50" style="width:50px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 10px/1 var(--font-mono);padding:4px 6px">
+            </div>
+            <div id="cap-result" style="display:none;margin-bottom:13px">
+              <a id="cap-link" href="#" target="_blank" style="font:200 9px/1 var(--font-mono);color:var(--accent)"></a>
+              <div style="margin-top:8px;max-height:400px;overflow:auto;background:var(--canvas-bg);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
+                <img id="cap-img" style="max-width:100%;display:block">
+              </div>
+            </div>
+            <div class="json" id="cap-data" style="max-height:200px"></div>
+          </div>
+        </div>
+
+        <div class="pane" id="p-profile">
+          <div class="card"><h3>TOOL PROFILES</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:13px">
+              <button class="btn" id="pr-status">PROFILE STATUS</button>
+              <button class="btn" id="pr-search-tools">SEARCH TOOLS</button>
+              <span class="cv-sep"></span>
+              <span style="font:200 9px/1 var(--font-mono);color:var(--muted);align-self:center">Load:</span>
+              <select id="pr-load" class="cv-select">
+                <option value="core">core</option>
+                <option value="debug">debug</option>
+                <option value="state-nav">state-nav</option>
+                <option value="delta">delta</option>
+                <option value="advanced-actions">advanced-actions</option>
+                <option value="admin">admin</option>
+                <option value="power">power</option>
+              </select>
+              <button class="btn" id="pr-load-btn">LOAD</button>
+              <button class="btn" id="pr-unload-btn">UNLOAD</button>
+            </div>
+            <div class="json" id="pr-data"></div>
+          </div>
         </div>
 
         <div class="pane" id="p-stream">
@@ -736,11 +896,24 @@
         'txt-n','cv-zoom','cv-zoom-v','cv-wrap','cv','cv-grip','cv-info','cv-tip',
         'cv-bounds','cv-colors','cv-overlay','cv-oov-mode','cv-dim-amt','cv-dim-v','cv-dim-row',
         'cv-interact','cv-undo','cv-redo','cv-nav-back','cv-nav-fwd','cv-nav-reload',
+        'cv-screen','cv-explorer','cv-tools-toggle','cv-tools',
         'txt-filter','words','words-scroll',
         'fw-data','net-n','net-filter','net-list',
         'ui-data','css-data','dom-data',
+        'a11y-data','sto-data','sto-source','sto-reload',
+        'con-data','con-reload','con-clear',
+        'perf-data',
+        'gr-list','gr-search','gr-count','gr-detail','gr-detail-json','gr-nav','gr-path','gr-reload',
+        'dl-data','dl-reload','dl-patterns','dl-info',
+        'cap-full','cap-marks','cap-element','cap-sel','cap-format','cap-pad',
+        'cap-result','cap-img','cap-link','cap-data',
+        'pr-status','pr-search-tools','pr-load','pr-load-btn','pr-unload-btn','pr-data',
         'stream-el',
-        'cfg-mode','cfg-plugins','cfg-raw'
+        'cfg-mode','cfg-plugins','cfg-raw',
+        'act-url','act-url-go','act-type-text','act-type-go',
+        'act-sx','act-sy','act-sdx','act-sdy','act-scroll-go',
+        'act-sel','act-hover','act-select-opt','act-sel-val','act-check',
+        'act-js','act-js-go','act-wait-sel','act-wait-ms','act-wait-go'
       ];
       ids.forEach(function(id) { D[id] = document.getElementById(id); });
     }
@@ -779,7 +952,11 @@
     var TAB_DEFS = [
       ['overview','Overview'], ['text','Text'], ['framework','Framework'],
       ['network','Network'], ['ui','UI'], ['css','CSS'],
-      ['dom','DOM'], ['stream','Stream'], ['config','Config']
+      ['dom','DOM'], ['accessibility','A11Y'], ['storage','Storage'],
+      ['console','Console'], ['perf','Perf'],
+      ['graph','Graph'], ['delta','Delta'],
+      ['capture','Capture'], ['profile','Profile'],
+      ['stream','Stream'], ['config','Config']
     ];
 
     function initTabs() {
@@ -938,6 +1115,14 @@
         case 'ui': return loadJSON('raw/ui/elements.json', D['ui-data']);
         case 'css': return loadJSON('raw/css/analysis.json', D['css-data']);
         case 'dom': return loadJSON('raw/dom/snapshot.json', D['dom-data']);
+        case 'accessibility': return loadA11Y();
+        case 'storage': return loadStorageData();
+        case 'console': return loadConsole();
+        case 'perf': return loadJSON('raw/perf/metrics.json', D['perf-data']);
+        case 'graph': return loadGraph();
+        case 'delta': /* manual trigger only */ break;
+        case 'capture': /* manual trigger only */ break;
+        case 'profile': /* manual trigger only */ break;
         case 'config': return loadConfig();
       }
     }
@@ -1666,6 +1851,306 @@
       D['words'].innerHTML = html;
     }
 
+    // ── Accessibility ────────────────────────────────────────────────────
+    async function loadA11Y() {
+      var d = await fetchSess('raw/accessibility/tree.json');
+      D['a11y-data'].textContent = d ? JSON.stringify(d, null, 2) : '(unavailable)';
+    }
+
+    // ── Storage ──────────────────────────────────────────────────────────
+    async function loadStorageData() {
+      var d = await fetchSess('raw/storage/data.json');
+      var source = D['sto-source'].value;
+      if (d && d[source]) {
+        D['sto-data'].textContent = JSON.stringify(d[source], null, 2);
+      } else if (d) {
+        D['sto-data'].textContent = JSON.stringify(d, null, 2);
+      } else {
+        D['sto-data'].textContent = '(unavailable)';
+      }
+    }
+
+    // ── Console ──────────────────────────────────────────────────────────
+    async function loadConsole() {
+      var d = await fetchSess('raw/console/logs.json');
+      if (!d || !d.logs || !d.logs.length) {
+        D['con-data'].innerHTML = '<span style="color:var(--muted)">(no logs)</span>';
+        return;
+      }
+      var html = '';
+      for (var i = Math.max(0, d.logs.length - 200); i < d.logs.length; i++) {
+        var l = d.logs[i];
+        var levelCls = l.level === 'error' ? 'color:var(--err)' : l.level === 'warn' ? 'color:var(--warn)' : 'color:var(--text)';
+        html += '<div style="padding:4px 8px;box-shadow:inset 0 -0.5px 0 0 var(--border);display:flex;gap:8px">'
+              + '<span style="color:var(--muted);font-size:9px;min-width:60px">' + esc(l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '') + '</span>'
+              + '<span style="' + levelCls + ';min-width:40px">' + esc(l.level || 'log') + '</span>'
+              + '<span>' + esc(typeof l.text === 'string' ? l.text : JSON.stringify(l.text)) + '</span>'
+              + '</div>';
+      }
+      D['con-data'].innerHTML = html;
+    }
+
+    // ── State Graph ──────────────────────────────────────────────────────
+    var S_stateList = [];
+
+    async function loadGraph() {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/states');
+        var data = r.ok ? await r.json() : null;
+        if (!data) { D['gr-list'].innerHTML = '<span style="color:var(--muted)">(no states)</span>'; D['gr-count'].textContent = ''; return; }
+        var states = Array.isArray(data) ? data : (data.states || []);
+        S_stateList = states;
+        D['gr-count'].textContent = states.length + ' states';
+        renderGraphList(states);
+      } catch(_) {
+        // Fallback: try old state API
+        try {
+          var idx = await (await fetch(S.api + '/api/sessions/' + S.tabId)).json();
+          D['gr-list'].innerHTML = '<span style="color:var(--muted)">State graph API not available. Index has ' + Object.keys(idx.files || {}).length + ' files.</span>';
+        } catch(e2) {
+          D['gr-list'].innerHTML = '<span style="color:var(--err)">Error loading states</span>';
+        }
+      }
+    }
+
+    function renderGraphList(states) {
+      var q = (D['gr-search'].value || '').toLowerCase();
+      var filtered = q ? states.filter(function(s) {
+        return (s.label && s.label.toLowerCase().indexOf(q) !== -1)
+            || (s.url && s.url.toLowerCase().indexOf(q) !== -1)
+            || (s.hash && s.hash.indexOf(q) !== -1)
+            || (s.tags && s.tags.some(function(t) { return t.toLowerCase().indexOf(q) !== -1; }));
+      }) : states;
+      var max = Math.min(filtered.length, 200);
+      var html = '';
+      for (var i = 0; i < max; i++) {
+        var s = filtered[i];
+        html += '<div class="se" style="cursor:pointer" data-hash="' + esc(s.hash || '') + '">'
+              + '<span class="se-ts">' + esc((s.hash || '').substring(0, 8)) + '</span>'
+              + '<span class="se-ty">' + esc(s.label || '—') + '</span>'
+              + '<span class="se-info">' + esc(s.url || '') + ' · visits: ' + (s.visitCount || 1) + '</span>'
+              + '</div>';
+      }
+      if (filtered.length > max) html += '<div style="padding:8px;color:var(--muted);font-size:9px">… ' + (filtered.length - max) + ' more</div>';
+      D['gr-list'].innerHTML = html;
+      D['gr-list'].querySelectorAll('.se').forEach(function(el) {
+        el.addEventListener('click', function() { showStateDetail(this.dataset.hash); });
+      });
+    }
+
+    async function showStateDetail(hash) {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/states/' + hash);
+        var detail = r.ok ? await r.json() : null;
+        if (!detail) { D['gr-detail-json'].textContent = '(not found)'; return; }
+        D['gr-detail'].style.display = '';
+        D['gr-detail-json'].textContent = JSON.stringify(detail, null, 2);
+        D['gr-detail'].dataset.hash = hash;
+      } catch(_) {
+        D['gr-detail-json'].textContent = '(error loading detail)';
+      }
+    }
+
+    // ── Smart Delta ──────────────────────────────────────────────────────
+    async function loadDelta() {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/raw/delta/smart.json');
+        var data = r.ok ? await r.json() : null;
+        D['dl-data'].textContent = data ? JSON.stringify(data, null, 2) : '(no delta data)';
+      } catch(_) {
+        D['dl-data'].textContent = '(error)';
+      }
+    }
+
+    async function loadPatterns() {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/raw/delta/patterns.json');
+        var data = r.ok ? await r.json() : null;
+        D['dl-data'].textContent = data ? JSON.stringify(data, null, 2) : '(no pattern data)';
+      } catch(_) {
+        D['dl-data'].textContent = '(error)';
+      }
+    }
+
+    // ── Screenshot Capture ───────────────────────────────────────────────
+    async function capFull(marks) {
+      try {
+        var r = await fetch(S.api + '/api/screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: S.tabId, marks: !!marks })
+        });
+        var data = r.ok ? await r.json() : null;
+        if (data && data.dataUrl) {
+          D['cap-img'].src = data.dataUrl;
+          D['cap-link'].href = data.dataUrl;
+          D['cap-link'].textContent = '📷 Screenshot ' + (data.filePath || '');
+          D['cap-result'].style.display = '';
+          D['cap-data'].textContent = JSON.stringify(data, null, 2);
+        } else {
+          D['cap-data'].textContent = JSON.stringify(data || { error: 'no dataUrl' }, null, 2);
+        }
+      } catch(e) {
+        D['cap-data'].textContent = '(error: ' + e.message + ')';
+      }
+    }
+
+    async function capElement() {
+      var selector = D['cap-sel'].value.trim();
+      if (!selector) { D['cap-data'].textContent = '(enter a CSS selector first)'; return; }
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tabId: S.tabId,
+            action: { type: 'capture_element_screenshot', selector: selector, padding: parseInt(D['cap-pad'].value) || 4, format: D['cap-format'].value }
+          })
+        });
+        var data = r.ok ? await r.json() : null;
+        if (data && data.ok && data.result && data.result.dataUrl) {
+          D['cap-img'].src = data.result.dataUrl;
+          D['cap-link'].href = data.result.dataUrl;
+          D['cap-link'].textContent = '📷 Element screenshot' + (data.result.filePath ? ' — ' + data.result.filePath : '');
+          D['cap-result'].style.display = '';
+          D['cap-data'].textContent = JSON.stringify(data.result, null, 2);
+        } else {
+          D['cap-data'].textContent = JSON.stringify(data || { error: 'no data' }, null, 2);
+        }
+      } catch(e) {
+        D['cap-data'].textContent = '(error: ' + e.message + ')';
+      }
+    }
+
+    // ── Tool Profiles ────────────────────────────────────────────────────
+    async function profileStatus() {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/profiles');
+        var data = r.ok ? await r.json() : null;
+        D['pr-data'].textContent = data ? JSON.stringify(data, null, 2) : '(no profile data)';
+      } catch(_) {
+        D['pr-data'].textContent = '(error)';
+      }
+    }
+
+    async function searchTools() {
+      try {
+        var r = await fetch(S.api + '/api/sessions/' + S.tabId + '/tools');
+        var data = r.ok ? await r.json() : null;
+        D['pr-data'].textContent = data ? JSON.stringify(data, null, 2) : '(no tool data)';
+      } catch(_) {
+        D['pr-data'].textContent = '(error)';
+      }
+    }
+
+    async function loadProfile(name) {
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tabId: S.tabId,
+            action: { type: 'load_profile', profile: name }
+          })
+        });
+        var data = r.ok ? await r.json() : null;
+        D['pr-data'].textContent = JSON.stringify(data || { error: 'no response' }, null, 2);
+      } catch(e) {
+        D['pr-data'].textContent = '(error: ' + e.message + ')';
+      }
+    }
+
+    async function unloadProfile(name) {
+      try {
+        var r = await fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tabId: S.tabId,
+            action: { type: 'unload_profile', profile: name }
+          })
+        });
+        var data = r.ok ? await r.json() : null;
+        D['pr-data'].textContent = JSON.stringify(data || { error: 'no response' }, null, 2);
+      } catch(e) {
+        D['pr-data'].textContent = '(error: ' + e.message + ')';
+      }
+    }
+
+    // ── Actions Toolbar ──────────────────────────────────────────────────
+    function initActionTools() {
+      // Navigate
+      D['act-url-go'].addEventListener('click', function() {
+        var url = D['act-url'].value.trim();
+        if (!url) return;
+        sendAction({ type: 'navigate', url: url }, 'navigate: ' + url);
+      });
+      D['act-url'].addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') D['act-url-go'].click();
+      });
+
+      // Type text
+      D['act-type-go'].addEventListener('click', function() {
+        var text = D['act-type-text'].value;
+        if (!text) return;
+        sendAction({ type: 'type_text', text: text }, 'type: ' + text.substring(0, 30));
+      });
+      D['act-type-text'].addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') D['act-type-go'].click();
+      });
+
+      // Scroll
+      D['act-scroll-go'].addEventListener('click', function() {
+        var action = { type: 'scroll' };
+        var sx = parseFloat(D['act-sx'].value), sy = parseFloat(D['act-sy'].value);
+        var sdx = parseFloat(D['act-sdx'].value), sdy = parseFloat(D['act-sdy'].value);
+        if (!isNaN(sx) || !isNaN(sy)) { action.x = isNaN(sx) ? undefined : sx; action.y = isNaN(sy) ? undefined : sy; }
+        if (!isNaN(sdx)) action.deltaX = sdx;
+        if (!isNaN(sdy)) action.deltaY = sdy;
+        sendAction(action, 'scroll');
+      });
+
+      // Hover
+      D['act-hover'].addEventListener('click', function() {
+        var sel = D['act-sel'].value.trim();
+        if (!sel) return;
+        sendAction({ type: 'hover', selector: sel }, 'hover: ' + sel);
+      });
+
+      // Select option
+      D['act-select-opt'].addEventListener('click', function() {
+        var sel = D['act-sel'].value.trim();
+        var val = D['act-sel-val'].value.trim();
+        if (!sel || !val) return;
+        sendAction({ type: 'select_option', selector: sel, value: val }, 'select: ' + sel + '=' + val);
+      });
+
+      // Checkbox
+      D['act-check'].addEventListener('click', function() {
+        var sel = D['act-sel'].value.trim();
+        if (!sel) return;
+        sendAction({ type: 'check_box', selector: sel, checked: true }, 'check: ' + sel);
+      });
+
+      // Execute JS
+      D['act-js-go'].addEventListener('click', function() {
+        var code = D['act-js'].value.trim();
+        if (!code) return;
+        sendAction({ type: 'execute_js', code: code }, 'exec JS');
+      });
+      D['act-js'].addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') D['act-js-go'].click();
+      });
+
+      // Wait for element
+      D['act-wait-go'].addEventListener('click', function() {
+        var sel = D['act-wait-sel'].value.trim();
+        var ms = parseInt(D['act-wait-ms'].value) || 5000;
+        if (!sel) return;
+        sendAction({ type: 'wait_for_element', selector: sel, timeoutMs: ms }, 'wait: ' + sel);
+      });
+    }
+
     // ── Framework ─────────────────────────────────────────────────────────
     async function loadFW() {
       var files = ['raw/react/snapshot.json','raw/vue/snapshot.json','raw/angular/snapshot.json','raw/svelte/snapshot.json','raw/dom/snapshot.json'];
@@ -1858,12 +2343,78 @@
       initTheme();
       initTabs();
       initCanvas();
+      initActionTools();
 
       D['txt-filter'].addEventListener('input', debounce(function() { filterWords(this.value); }, 200));
       D['net-filter'].addEventListener('input', debounce(function() { filterNet(this.value); }, 200));
       document.getElementById('btn-sync').addEventListener('click', refreshSessions);
       document.getElementById('btn-collect').addEventListener('click', triggerCollect);
       document.getElementById('btn-save-cfg').addEventListener('click', saveConfig);
+
+      // Tools toggle
+      D['cv-tools-toggle'].addEventListener('click', function() {
+        var panel = D['cv-tools'];
+        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+        this.classList.toggle('btn-active', panel.style.display !== 'none');
+      });
+
+      // Screenshot
+      D['cv-screen'].addEventListener('click', function() {
+        // Switch to capture tab and trigger full capture
+        switchTab('capture');
+        setTimeout(capFull, 200);
+      });
+
+      // Explorer toggle
+      D['cv-explorer'].addEventListener('click', function() {
+        var on = this.classList.toggle('btn-active');
+        fetch(S.api + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tabId: S.tabId,
+            action: { type: 'trigger_explorer', active: on, strategy: 'bfs' }
+          })
+        }).catch(function(){});
+        D['cv-info'].textContent = on ? 'Explorer ON (BFS)' : 'Explorer OFF';
+      });
+
+      // Storage
+      D['sto-reload'].addEventListener('click', loadStorageData);
+      D['sto-source'].addEventListener('change', loadStorageData);
+
+      // Console
+      D['con-reload'].addEventListener('click', loadConsole);
+      D['con-clear'].addEventListener('click', function() { D['con-data'].innerHTML = ''; });
+
+      // State graph
+      D['gr-reload'].addEventListener('click', loadGraph);
+      D['gr-search'].addEventListener('input', debounce(function() { renderGraphList(S_stateList); }, 200));
+      D['gr-nav'].addEventListener('click', function() {
+        var hash = D['gr-detail'].dataset.hash;
+        if (!hash) return;
+        sendAction({ type: 'navigate_to_state', hash: hash }, 'navigate_to_state: ' + hash.substring(0, 8));
+      });
+      D['gr-path'].addEventListener('click', function() {
+        var hash = D['gr-detail'].dataset.hash;
+        if (!hash) return;
+        sendAction({ type: 'get_navigation_path', hash: hash }, 'nav_path: ' + hash.substring(0, 8));
+      });
+
+      // Delta
+      D['dl-reload'].addEventListener('click', loadDelta);
+      D['dl-patterns'].addEventListener('click', loadPatterns);
+
+      // Capture
+      D['cap-full'].addEventListener('click', function() { capFull(false); });
+      D['cap-marks'].addEventListener('click', function() { capFull(true); });
+      D['cap-element'].addEventListener('click', capElement);
+
+      // Profiles
+      D['pr-status'].addEventListener('click', profileStatus);
+      D['pr-search-tools'].addEventListener('click', searchTools);
+      D['pr-load-btn'].addEventListener('click', function() { loadProfile(D['pr-load'].value); });
+      D['pr-unload-btn'].addEventListener('click', function() { unloadProfile(D['pr-load'].value); });
 
       refreshSessions();
       connectWS();

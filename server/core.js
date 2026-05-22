@@ -316,6 +316,36 @@ class WhiskorCore extends EventEmitter {
       return d ? { status: 200, body: d } : { status: 404, body: { error: 'Not found' } };
     }
 
+    // GET /api/sessions/:tabId/states  — list all state graph nodes
+    const statesM = p.match(/^\/api\/sessions\/(\d+)\/states$/);
+    if (method === 'GET' && statesM) {
+      const tabId = parseInt(statesM[1]);
+      const sessionData = this.cache.getSessionData(tabId);
+      if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
+      const siteVersion = sessionData.siteVersion;
+      const states = this.stateMachine.store?.getAllNodesFlat ? this.stateMachine.store.getAllNodesFlat({ siteVersion, limit: 999 }) : [];
+      return { status: 200, body: states };
+    }
+
+    // GET /api/sessions/:tabId/states/:hash  — single state detail
+    const stateHashM = p.match(/^\/api\/sessions\/(\d+)\/states\/([^/]+)$/);
+    if (method === 'GET' && stateHashM) {
+      const tabId = parseInt(stateHashM[1]);
+      const hash = stateHashM[2];
+      const sessionData = this.cache.getSessionData(tabId);
+      if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
+      const node = this.stateMachine.store?.getNodeByHash ? this.stateMachine.store.getNodeByHash(sessionData.siteVersion, hash) : null;
+      return node ? { status: 200, body: node } : { status: 404, body: { error: 'State not found' } };
+    }
+
+    // GET /api/sessions/:tabId/raw/delta/smart.json  — smart delta data (in-memory)
+    const deltaM = p.match(/^\/api\/sessions\/(\d+)\/raw\/delta\/smart\.json$/);
+    if (method === 'GET' && deltaM) {
+      const tabId = parseInt(deltaM[1]);
+      const delta = this.cache.getSmartDelta ? this.cache.getSmartDelta(tabId) : null;
+      return { status: 200, body: delta || { elapsed_ms: 0, frame_count: 0, motion_groups: [], _patterns: { new: null, known: null } } };
+    }
+
     const fileM = p.match(/^\/api\/sessions\/(\d+)\/(.+)$/);
     if (method === 'GET' && fileM) {
       const tabId = parseInt(fileM[1]);

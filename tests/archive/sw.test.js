@@ -17,7 +17,8 @@ function computeCrop(imgW, imgH, viewW, rect, padding) {
 
 describe('cropImage [sw.js element crop]', () => {
   it('should reject when clamping results in negative dimensions', () => {
-    const r = computeCrop(100, 100, 1920, { x: -200, y: -200, w: 10, h: 10 }, 0);
+    // sx clamps to 100 (= imgW), so sw = min(100-100, 1) = 0
+    const r = computeCrop(100, 100, 1920, { x: 1000, y: 1000, w: 10, h: 10 }, 0);
     assert.strictEqual(r.error, 'Crop region is outside the visible viewport');
   });
 
