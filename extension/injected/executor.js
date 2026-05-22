@@ -377,14 +377,17 @@
       }
     }
 
-    // Send result back to SW via bridge
-    chrome.runtime.sendMessage({
+    // Send result back to SW via bridge (MAIN world → postMessage → bridge → SW)
+    window.postMessage({
+      __BROWSER_WHISKOR__: true,
       type: 'ACTION_COMPLETE',
-      listenerId,
-      ok: result.ok !== false,
-      result: result.ok !== false ? result : undefined,
-      error: result.ok === false ? result.error : undefined,
-    }).catch(() => {});
+      payload: {
+        listenerId,
+        ok: result.ok !== false,
+        result: result.ok !== false ? result : undefined,
+        error: result.ok === false ? result.error : undefined,
+      },
+    }, '*');
   });
 
 })();

@@ -346,11 +346,11 @@ function executeInPage(tabId, action) {
     }, 12000);
 
     function listener(message) {
-      if (message.type === 'ACTION_COMPLETE' && message.listenerId === listenerId) {
+      if (message.type === 'ACTION_COMPLETE' && message.payload?.listenerId === listenerId) {
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(listener);
-        if (message.ok) resolve(message.result);
-        else reject(new Error(message.error));
+        if (message.payload?.ok) resolve(message.payload.result);
+        else reject(new Error(message.payload?.error));
       }
     }
     chrome.runtime.onMessage.addListener(listener);
