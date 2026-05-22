@@ -17,6 +17,7 @@ class WhiskorCore extends EventEmitter {
     super();
     this.swSockets = new Set();
     this.dashboardSockets = new Set();
+    this.logSubscribers = new Set();  // For dashboard log subscriptions
     this._pendingActions = new Map();
     this._wsToTabs = new Map();       // WebSocket → Set<tabId>
     this._tabDisconnectedAt = new Map(); // tabId → timestamp
@@ -57,6 +58,14 @@ class WhiskorCore extends EventEmitter {
   broadcastToDashboard(msg) {
     const raw = JSON.stringify(msg);
     for (const ws of this.dashboardSockets) {
+      if (ws.readyState === 1) ws.send(raw);
+    }
+  }
+
+  broadcastLog(level, ...args) {
+    const message = args.join(' ');
+    const raw = JSON.stringify({ type: 'LOG_ENTRY', level, message, ts: Date.now() });
+    for (const ws of this.logSubscribers) {
       if (ws.readyState === 1) ws.send(raw);
     }
   }
@@ -150,6 +159,13 @@ class WhiskorCore extends EventEmitter {
     }
 
     switch (msg.type) {
+      case 'SUBSCRIBE_LOGS':
+        if (this.dashboardSockets.has(fromWs)) {
+          this.logSubscribers.add(fromWs);
+          fromWs.send(JSON.stringify({ type: 'LOG_SUBSCRIBED' }));
+        }
+        break;
+        
       // Data collection → cache + dashboard
       case 'FRAMEWORK_DETECTION':
       case 'REACT_SNAPSHOT':

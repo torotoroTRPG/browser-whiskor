@@ -20,6 +20,7 @@ window.addEventListener('message', (event) => {
     tabUrl:   location.href,
     type:     event.data.type,
     payload:  event.data.payload,
+    ...event.data.payload,
     realtime: !!event.data.realtime,
     ts:       Date.now(),
   }).catch(() => {});

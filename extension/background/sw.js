@@ -228,7 +228,13 @@ async function handleServerMessage(msg) {
         switch (action.type) {
 
           case 'navigate':
-            await chrome.tabs.update(tabId, { url: action.url });
+            try {
+              await chrome.tabs.update(tabId, { url: action.url });
+            } catch (_) {
+              // Chrome race: tabs.update can throw "No tab with id" even when
+              // navigation starts (e.g. tab reloading). Verify tab exists.
+              try { await chrome.tabs.get(tabId); } catch { throw _; }
+            }
             result = { navigating: true, url: action.url };
             break;
 
@@ -245,6 +251,11 @@ async function handleServerMessage(msg) {
           case 'reload':
             await chrome.tabs.reload(tabId, { bypassCache: !!action.hard });
             result = { ok: true };
+            break;
+
+          case 'create_tab':
+            const newTab = await chrome.tabs.create({ url: action.url || 'about:blank' });
+            result = { ok: true, tabId: newTab.id, url: newTab.url };
             break;
 
           case 'set_viewport':
@@ -270,10 +281,11 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_SCREENSHOT': {
       const { reqId, tabId, opts } = msg;
       try {
-        const tab = await chrome.tabs.get(tabId);
+        let windowId;
+        try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
 
         let elements = null;
-        if (opts?.marks) {
+        if (opts?.marks && windowId) {
           try {
             const results = await chrome.scripting.executeScript({
               target: { tabId },
@@ -306,7 +318,7 @@ async function handleServerMessage(msg) {
           } catch (_) {}
         }
 
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        const dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, { format: 'png' });
 
         let markedDataUrl = null;
         if (opts?.marks && elements?.length) {
@@ -332,22 +344,25 @@ async function handleServerMessage(msg) {
       const { reqId, tabId, opts = {} } = msg;
 
       try {
-        const tab = await chrome.tabs.get(tabId);
+        let windowId;
+        try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
         let rect = null;
 
-        if (opts.selector) {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId },
-            world: 'MAIN',
-            func: (selector) => {
-              const el = document.querySelector(selector);
-              if (!el) return null;
-              const r = el.getBoundingClientRect();
-              return { x: r.left, y: r.top, w: r.width, h: r.height };
-            },
-            args: [opts.selector],
-          });
-          rect = results?.[0]?.result || null;
+        if (opts.selector && windowId) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              world: 'MAIN',
+              func: (selector) => {
+                const el = document.querySelector(selector);
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: r.left, y: r.top, w: r.width, h: r.height };
+              },
+              args: [opts.selector],
+            });
+            rect = results?.[0]?.result || null;
+          } catch (_) {}
           if (!rect) {
             sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId,
               error: `selector not found: ${opts.selector}` });
@@ -363,7 +378,7 @@ async function handleServerMessage(msg) {
 
         const pad = typeof opts.padding === 'number' ? Math.max(0, opts.padding) : 4;
         const format = opts.format === 'jpeg' ? 'jpeg' : 'png';
-        const fullDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        const fullDataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, {
           format,
           quality: format === 'jpeg' ? (opts.quality ?? 85) : undefined,
         });
@@ -443,11 +458,11 @@ function executeInPage(tabId, action) {
     }, 12000);
 
     function listener(message) {
-      if (message.type === 'ACTION_COMPLETE' && message.payload?.listenerId === listenerId) {
+      if (message.type === 'ACTION_COMPLETE' && message.listenerId === listenerId) {
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(listener);
-        if (message.payload?.ok) resolve(message.payload.result);
-        else reject(new Error(message.payload?.error));
+        if (message.ok) resolve(message.result);
+        else reject(new Error(message.error || 'Action failed'));
       }
     }
     chrome.runtime.onMessage.addListener(listener);

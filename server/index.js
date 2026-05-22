@@ -166,6 +166,20 @@ const httpServer = http.createServer((req, res) => {
     return res.end(fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '<h1>browser-whiskor v3</h1>');
   }
 
+  // Collect endpoint — handled early to avoid bodyPromise issues
+  if (method === 'POST' && (p === '/api/collect' || p === '/api/gather')) {
+    return readBody().then(async b => {
+      try {
+        core.triggerCollect(b?.tabId || null, b?.plugins || null);
+        log('info', `[collect] triggered for tabId=${b?.tabId}`);
+        sendJson({ ok: true, collected: true });
+      } catch (e) {
+        log('error', `[collect] error: ${e.message}`);
+        sendJson({ ok: false, error: e.message }, 500);
+      }
+    });
+  }
+
   // Screenshot endpoint (not in core, needs its own body read)
   if (method === 'POST' && p === '/api/screenshot') {
     return readBody().then(async b => {
@@ -270,7 +284,12 @@ const httpServer = http.createServer((req, res) => {
           catch (e) { result = { ok: false, error: e.message }; }
           break;
         default:
-          result = core.handleHttpRequest(coreReq);
+          const coreResult = core.handleHttpRequest(coreReq);
+          if (coreResult && typeof coreResult.body?.then === 'function') {
+            try { result = await coreResult.body; } catch (e) { result = { ok: false, error: e.message }; }
+          } else {
+            result = coreResult;
+          }
       }
 
       if (result && result.file) {
@@ -297,6 +316,8 @@ const httpServer = http.createServer((req, res) => {
     }
 
     sendJson(result.body, result.status);
+  }).catch(err => {
+    if (!res.headersSent) sendJson({ ok: false, error: err.message }, 500);
   });
 });
 
@@ -371,6 +392,9 @@ if (MOCK) {
 function log(level, ...a) {
   const p = level === 'warn' ? '⚠ ' : level === 'error' ? '✗ ' : '';
   console.error(p, ...a);
+  if (core && core.broadcastLog) {
+    core.broadcastLog(level, ...a);
+  }
 }
 
 process.on('SIGTERM', () => { wss.close(); httpServer.close(); process.exit(0); });
