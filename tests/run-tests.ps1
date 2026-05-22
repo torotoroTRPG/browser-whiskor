@@ -72,7 +72,7 @@ foreach ($line in $coverageLines) {
         $branch = $parts[2].Trim()
         $funcs = $parts[3].Trim()
         $uncovered = $parts[4].Trim()
-        $isMock = if ($file -match 'mock|fixture') { ' (mock)' } else { '' }
+        $isMock = if ($file -match 'mock|fixture') { ' (mock)' } elseif ($line -match 'helpers\\') { ' (helper)' } else { '' }
         $key = "$file${isMock}"
         # Keep the entry with the lowest coverage (most conservative)
         if (-not $detailMap.ContainsKey($key) -or [double]$stmt -lt [double]$detailMap[$key].stmt) {
