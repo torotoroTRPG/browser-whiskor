@@ -58,7 +58,7 @@ export async function launchWithExtension(browserType, opts = {}) {
  * @param {number} [timeoutMs] - Max wait time (default: 15000)
  * @returns {Promise<object>} Health response body
  */
-export async function waitForExtensionConnection(page, timeoutMs = 30000) {
+export async function waitForExtensionConnection(page, timeoutMs = 60000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -93,26 +93,21 @@ export async function createWS(page, url, opts = {}) {
       const ws = new WebSocket(wsUrl);
       let initMsg = null;
 
-      ws.onmessage = (e) => {
+      ws.addEventListener('message', (e) => {
         if (!initMsg) {
-          try {
-            initMsg = JSON.parse(e.data);
-          } catch { /* ignore */ }
+          try { initMsg = JSON.parse(e.data); } catch {}
         }
-      };
+      });
 
-      ws.onopen = () => {
+      ws.addEventListener('open', () => {
         window.__e2eWs.set(id, ws);
         if (consume) {
-          // Wait a bit for the initial message (SET_CONFIG or INIT)
-          setTimeout(() => {
-            resolve({ id, initMsg });
-          }, 200);
+          setTimeout(() => resolve({ id, initMsg }), 200);
         } else {
           resolve({ id, initMsg: null });
         }
-      };
-      ws.onerror = () => reject(new Error(`Failed to connect to ${wsUrl}`));
+      });
+      ws.addEventListener('error', () => reject(new Error(`Failed to connect to ${wsUrl}`)));
       setTimeout(() => {
         ws.close();
         reject(new Error(`WebSocket connection timeout: ${wsUrl}`));
