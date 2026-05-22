@@ -569,6 +569,7 @@
   // Tracks text elements that have entered the viewport at least once.
   // Monitors position changes, content updates, and movement status.
   // Prioritizes "moving" texts for frequent updates.
+  { // block-scoped to avoid duplicate declaration conflict with first copy
   const seenTexts = new Map(); // key: xpath -> { xpath, text, x, y, w, h, lastChecked, status, changeCount, lastChange, element }
   let _seenObserver = null;
   let _recheckTimer = null;
