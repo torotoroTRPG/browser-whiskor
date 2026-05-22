@@ -10,7 +10,6 @@ permissions:
   contents: write
 
 jobs:
-  # ── 1. Auto-sync shared/ to both extensions ────────────────────────────────
   auto-sync:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
@@ -62,7 +61,6 @@ jobs:
             git push
           fi
 
-  # ── 2. Verify sync integrity ───────────────────────────────────────────────
   verify-sync:
     runs-on: ubuntu-latest
     outputs:
@@ -91,7 +89,6 @@ jobs:
           if [ "$ERRORS" -gt 0 ]; then echo "::error::$ERRORS sync error(s)"; exit 1; fi
           echo "✅ All $TOTAL shared files in sync with both extensions"
 
-  # ── 3. Run tests ───────────────────────────────────────────────────────────
   run-tests:
     runs-on: ubuntu-latest
     needs: [verify-sync]
@@ -106,11 +103,9 @@ jobs:
 
       - name: Run tests and generate report
         run: |
-          # ── Collect per-file results ──────────────────────────────────────
           UNIT_PASS=0; UNIT_FAIL=0; UNIT_FILES=0
           INTG_PASS=0; INTG_FAIL=0; INTG_FILES=0
           STRS_PASS=0; STRS_FAIL=0; STRS_FILES=0
-
           UNIT_DETAILS=""; INTG_DETAILS=""; STRS_DETAILS=""
 
           for f in tests/unit/*.test.js; do
@@ -166,76 +161,75 @@ jobs:
           TOTAL_TESTS=$((TOTAL_PASS + TOTAL_FAIL))
           TOTAL_FILES=$((UNIT_FILES + INTG_FILES + STRS_FILES))
 
-          # ── Determine pass rate ──────────────────────────────────────────
           if [ "$TOTAL_TESTS" -gt 0 ]; then
             PASS_RATE=$(( TOTAL_PASS * 100 / TOTAL_TESTS ))
           else
             PASS_RATE=0
           fi
 
-          # ── Write summary ────────────────────────────────────────────────
-          cat >> $GITHUB_STEP_SUMMARY << SUMMARY
-  ╔══════════════════════════════════════════════════════════════════╗
-  ║                                                                  ║
-  ║                     browser-whiskor CI                           ║
-  ║                  Test Results & Sync Status                      ║
-  ║                                                                  ║
-  ╚══════════════════════════════════════════════════════════════════╝
+          {
+            echo "╔══════════════════════════════════════════════════════════════════╗"
+            echo "║                                                                  ║"
+            echo "║                     browser-whiskor CI                           ║"
+            echo "║                  Test Results & Sync Status                      ║"
+            echo "║                                                                  ║"
+            echo "╚══════════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  OVERVIEW"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            if [ "$TOTAL_FAIL" -eq 0 ]; then
+              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files — ✅ All passed**"
+            else
+              echo "**Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files — ❌ ${TOTAL_FAIL} failed**"
+            fi
+            echo "**Pass rate: ${PASS_RATE}%**"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  UNIT TESTS  (${UNIT_FILES} files, ${UNIT_PASS} pass, ${UNIT_FAIL} fail)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "| File | Pass | Fail |"
+            echo "|------|------|------|"
+            echo "$UNIT_DETAILS"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  INTEGRATION TESTS  (${INTG_FILES} files, ${INTG_PASS} pass, ${INTG_FAIL} fail)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "| File | Pass | Fail |"
+            echo "|------|------|------|"
+            echo "$INTG_DETAILS"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  STRESS TESTS  (${STRS_FILES} files, ${STRS_PASS} pass, ${STRS_FAIL} fail)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "| File | Pass | Fail |"
+            echo "|------|------|------|"
+            echo "$STRS_DETAILS"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    OVERVIEW
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  **Total: ${TOTAL_TESTS} tests in ${TOTAL_FILES} files** — $([ "$TOTAL_FAIL" -eq 0 ] && echo "✅ All passed" || echo "❌ ${TOTAL_FAIL} failed")
-  **Pass rate: ${PASS_RATE}%**
-
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    UNIT TESTS  (${UNIT_FILES} files)
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  **${UNIT_PASS} pass, ${UNIT_FAIL} fail**
-
-  | File | Pass | Fail |
-  |------|------|------|
-  ${UNIT_DETAILS}
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    INTEGRATION TESTS  (${INTG_FILES} files)
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  **${INTG_PASS} pass, ${INTG_FAIL} fail**
-
-  | File | Pass | Fail |
-  |------|------|------|
-  ${INTG_DETAILS}
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    STRESS TESTS  (${STRS_FILES} files)
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  **${STRS_PASS} pass, ${STRS_FAIL} fail**
-
-  | File | Pass | Fail |
-  |------|------|------|
-  ${STRS_DETAILS}
-  SUMMARY
-
-          # ── Sync status ──────────────────────────────────────────────────
           SYNC_TOTAL="${{ needs.verify-sync.outputs.sync_total }}"
           SYNC_ERRORS="${{ needs.verify-sync.outputs.sync_errors }}"
           if [ -n "$SYNC_TOTAL" ] && [ "$SYNC_TOTAL" -gt 0 ] 2>/dev/null; then
-            cat >> $GITHUB_STEP_SUMMARY << SYNC
-
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    SHARED/ SYNC STATUS
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  | Metric | Value |
-  |--------|-------|
-  | Shared files tracked | ${SYNC_TOTAL} |
-  | Sync errors | $([ "$SYNC_ERRORS" -eq 0 ] && echo "0 ✅" || echo "${SYNC_ERRORS} ❌") |
-  SYNC
+            {
+              echo ""
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "  SHARED/ SYNC STATUS"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              if [ "$SYNC_ERRORS" -eq 0 ]; then
+                echo "| Shared files tracked | ${SYNC_TOTAL} |"
+                echo "| Sync errors | 0 ✅ |"
+              else
+                echo "| Shared files tracked | ${SYNC_TOTAL} |"
+                echo "| Sync errors | ${SYNC_ERRORS} ❌ |"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # ── Fail if tests failed ─────────────────────────────────────────
           if [ "$TOTAL_FAIL" -gt 0 ]; then
             echo "::error::${TOTAL_FAIL} test(s) failed"
             exit 1
