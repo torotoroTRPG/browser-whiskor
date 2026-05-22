@@ -24,7 +24,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'node server/index.js',
+    command: process.platform === 'win32'
+      ? 'powershell -Command "$env:WHISKOR_CACHE_DIR=\'tests/tmp/test-cache\'; node server/index.js"'
+      : 'WHISKOR_CACHE_DIR=tests/tmp/test-cache node server/index.js',
     url: 'http://localhost:7892/health',
     reuseExistingServer: !process.env.CI,
   },

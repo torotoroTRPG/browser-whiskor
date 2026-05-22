@@ -18,7 +18,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const CACHE_ROOT = path.join(__dirname, '..', 'cache', 'sessions');
+const CACHE_ROOT = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
 fs.mkdirSync(CACHE_ROOT, { recursive: true });
 
 const STALE_THRESHOLD_MS = 30_000; // 30s

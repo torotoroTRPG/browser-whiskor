@@ -1,0 +1,23 @@
+{
+  "tabId": 1666801363,
+  "sessionId": 1779420197612,
+  "siteVersion": "default",
+  "createdAt": 1779420197612,
+  "updatedAt": 1779420219173,
+  "url": "https://www.google.com/search?q=steam%E4%BD%95%E3%81%97%E3%81%A6%E3%82%8B%E3%81%8B%E8%A1%A8%E7%A4%BA+intelij&oq=steam%E4%BD%95%E3%81%97%E3%81%A6%E3%82%8B%E3%81%8B%E8%A1%A8%E7%A4%BA+intelij&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIGCAEQIRgK0gEIODA3NGowajeoAgCwAgA&sourceid=chrome&ie=UTF-8",
+  "title": null,
+  "summary": {
+    "detectedFrameworks": [],
+    "textWordCount": 0,
+    "networkRequests": 1,
+    "consoleLogs": 0
+  },
+  "dataFreshness": {
+    "network-hook": 1779420219172
+  },
+  "files": {
+    "raw": {
+      "network": "raw/network/requests.json"
+    }
+  }
+}

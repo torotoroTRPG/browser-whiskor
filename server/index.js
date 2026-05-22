@@ -86,15 +86,35 @@ core.on('message', (msg) => {
 });
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ port: WS_PORT, host: HOST });
-
-wss.on('connection', (ws, req) => {
-  if (req.url === '/dashboard') {
-    core.handleDashboardConnect(ws, cache.getSessionList(), core.globalConfig);
-    return;
+let wss;
+try {
+  wss = new WebSocketServer({ port: WS_PORT, host: HOST });
+} catch (err) {
+  if (err.code === 'EADDRINUSE') {
+    log('warn', `[ws] Port ${WS_PORT} already in use — reusing existing server`);
+  } else {
+    log('error', `[ws] Failed to start: ${err.message}`);
+    process.exit(1);
   }
-  core.handleSWConnect(ws, core.globalConfig);
-});
+}
+
+if (wss) {
+  wss.on('connection', (ws, req) => {
+    if (req.url === '/dashboard') {
+      core.handleDashboardConnect(ws, cache.getSessionList(), core.globalConfig);
+      return;
+    }
+    core.handleSWConnect(ws, core.globalConfig);
+  });
+
+  wss.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      log('warn', `[ws] Port ${WS_PORT} already in use — reusing existing server`);
+    } else {
+      log('error', `[ws] Server error: ${err.message}`);
+    }
+  });
+}
 
 log('info', `[ws] Listening on ws://${HOST}:${WS_PORT}`);
 if (SECURITY.allowExecuteJs) {
@@ -125,6 +145,26 @@ const httpServer = http.createServer((req, res) => {
 
   const p = url.pathname;
 
+  // Dashboard HTML (GET, no body needed)
+  if (method === 'GET' && (p === '/' || p === '/dashboard')) {
+    const hp = path.join(__dirname, 'dashboard.html');
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '<h1>browser-whiskor v3</h1>');
+  }
+
+  // Screenshot endpoint (not in core, needs its own body read)
+  if (method === 'POST' && p === '/api/screenshot') {
+    return readBody().then(async b => {
+      try {
+        const opts = { marks: b.marks === true };
+        const result = await screenshots.capture(b.tabId, opts);
+        sendJson(result);
+      } catch (e) {
+        sendJson({ ok: false, error: e.message }, 500);
+      }
+    });
+  }
+
   // Delegate to core HTTP handler
   const coreReq = { method, url: { pathname: p }, body: null };
   let bodyPromise = Promise.resolve(null);
@@ -146,26 +186,6 @@ const httpServer = http.createServer((req, res) => {
       } catch { return sendJson({ error: 'Read error' }, 500); }
     }
 
-    // Screenshot endpoint (not in core)
-    if (method === 'POST' && p === '/api/screenshot') {
-      return readBody().then(async b => {
-        try {
-          const opts = { marks: b.marks === true };
-          const result = await screenshots.capture(b.tabId, opts);
-          sendJson(result);
-        } catch (e) {
-          sendJson({ ok: false, error: e.message }, 500);
-        }
-      });
-    }
-
-    // Dashboard HTML
-    if (method === 'GET' && (p === '/' || p === '/dashboard')) {
-      const hp = path.join(__dirname, 'dashboard.html');
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      return res.end(fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '<h1>browser-whiskor v3</h1>');
-    }
-
     sendJson(result.body, result.status);
   });
 });
@@ -174,6 +194,15 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
   log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
+});
+
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    log('warn', `[http] Port ${HTTP_PORT} already in use — reusing existing server`);
+  } else {
+    log('error', `[http] Server error: ${err.message}`);
+    console.error(err);
+  }
 });
 
 // ── MCP ───────────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withServer } from '../helpers/server-fixture.js';
-import { createSWClient, sleep } from '../helpers/ws-client.js';
+import { createSWClient, sleep, waitFor } from '../helpers/ws-client.js';
 import { createPortPool } from '../helpers/port-pool.js';
 
 const pool = createPortPool(5);

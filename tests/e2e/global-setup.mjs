@@ -140,6 +140,15 @@ export default async function globalSetup() {
     fs.mkdirSync(tmpDir, { recursive: true });
   }
 
+  // Create isolated test cache directory
+  const testCacheDir = path.join(tmpDir, 'test-cache');
+  if (fs.existsSync(testCacheDir)) {
+    fs.rmSync(testCacheDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(testCacheDir, { recursive: true });
+  // Create subdirectories for cache structure
+  fs.mkdirSync(path.join(testCacheDir, 'sessions'), { recursive: true });
+
   // Step 1: Copy extension/ to sandbox (incremental)
   console.log('  Copying extension/ to sandbox...');
   copyDirIncremental(EXTENSION_SRC, SANDBOX_DIR);
@@ -174,7 +183,11 @@ export default async function globalSetup() {
   }
 
   console.log(`✅ Sandbox ready at: ${path.relative(ROOT, SANDBOX_DIR)}`);
+  console.log(`✅ Test cache at: ${path.relative(ROOT, testCacheDir)}`);
   console.log('');
+
+  // Set environment variable for server to use test cache
+  process.env.WHISKOR_CACHE_DIR = testCacheDir;
 
   // Global teardown
   return async function globalTeardown() {
