@@ -41,6 +41,7 @@ if (-not (Test-Path $reportDir)) {
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 $reportFile   = Join-Path $reportDir "test-report-$ts.md"
 $jsonFile     = Join-Path $reportDir "test-results-$ts.json"
+$reportLatest = Join-Path $reportDir 'test-report-latest.md'
 
 # ── Print header ────────────────────────────────────────────────────────────
 Write-Color Cyan "╔══════════════════════════════════════════════════════╗"
@@ -166,6 +167,7 @@ $md += @"
 "@
 
 $md | Out-File $reportFile -Encoding utf8
+$md | Out-File $reportLatest -Encoding utf8
 
 # ── Print summary ───────────────────────────────────────────────────────────
 Write-Color Cyan "╔══════════════════════════════════════════════════════╗"
