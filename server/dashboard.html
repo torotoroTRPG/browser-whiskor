@@ -981,19 +981,8 @@
         });
     }
     
-    // Store extension logs from WebSocket
-    window.extensionLogs = [];
-    if (S.ws) {
-        S.ws.addEventListener('message', (event) => {
-            try {
-                var msg = JSON.parse(event.data);
-                if (msg.type === 'LOG_ENTRY') {
-                    window.extensionLogs.push(msg);
-                }
-            } catch {}
-        });
-    }
-    subscribeToExtensionLogs();
+    // ── State ───────────────────────────────────────────────────────────────
+    var S = {
       api: 'http://localhost:7892',
       tabId: null,
       sessions: [],
@@ -1023,6 +1012,22 @@
       actionFuture: [],
       maxHistory: 50,
     };
+
+    // Store extension logs from WebSocket
+    window.extensionLogs = [];
+    setTimeout(function() {
+        if (S.ws) {
+            S.ws.addEventListener('message', function(event) {
+                try {
+                    var msg = JSON.parse(event.data);
+                    if (msg.type === 'LOG_ENTRY') {
+                        window.extensionLogs.push(msg);
+                    }
+                } catch {}
+            });
+        }
+        subscribeToExtensionLogs();
+    }, 500);
 
     // ── DOM Refs (cached once) ──────────────────────────────────────────────
     var D = {};
