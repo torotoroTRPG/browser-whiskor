@@ -111,6 +111,14 @@ function getDefaults() {
     textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
     executeJs:  { captureConsoleDuringExec: true },
     agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false },
+    intelligence: {
+      clickability: {
+        enabled: true,
+        autoUnblock: true,
+        autoUnblockStrategies: ["closeButton", "escape", "backdrop"]
+      }
+      // TODO: [リトルエージェント用] cssOrigin, sourceFetcher, correlator, frameworkDomMap の設定をここに追加してください
+    },
   };
 }
 
@@ -166,6 +174,7 @@ function getMcpToolsDefaults() {
       write:    { enabled: true },
       capture:  { enabled: true },
       control:  { enabled: true },
+      intelligence: { enabled: true },
     },
     tools: {
       get_sessions:       { enabled: true, category: 'read' },
@@ -210,6 +219,8 @@ function getMcpToolsDefaults() {
       trigger_explorer:   { enabled: true, category: 'control' },
       navigate_to_state:  { enabled: true, category: 'control' },
       get_navigation_path: { enabled: true, category: 'control' },
+      analyze_click:      { enabled: true, category: 'intelligence' },
+      // TODO: [リトルエージェント用] explain_element, why_did_this_change, get_source_file, detect_site_updates を追加してください
     },
     presets: {},
   };

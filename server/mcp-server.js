@@ -25,6 +25,7 @@ require('./mcp/tools/read')(registry);
 require('./mcp/tools/write')(registry);
 require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
+require('./mcp/tools/intelligence')(registry);
 
 // ── Callbacks from index.js ───────────────────────────────────────────────────
 let _config = {};
