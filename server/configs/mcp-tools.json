@@ -22,6 +22,11 @@
       "enabled": true,
       "description": "制御系ツール（set_config, trigger_collect, trigger_explorer, state navigation）",
       "_comment": "false にするとcontrol系ツールすべてが非表示になる"
+    },
+    "intelligence": {
+      "enabled": true,
+      "description": "インテリジェンス系ツール（explain_element, detect_site_updates 他）",
+      "_comment": "false にするとintelligence系ツールすべてが非表示になる"
     }
   },
 
@@ -70,7 +75,13 @@
     "trigger_collect":    { "enabled": true,  "category": "control" },
     "trigger_explorer":   { "enabled": true,  "category": "control" },
     "navigate_to_state":  { "enabled": true,  "category": "control" },
-    "get_navigation_path": { "enabled": true, "category": "control" }
+    "get_navigation_path": { "enabled": true, "category": "control" },
+
+    "analyze_click":      { "enabled": true,  "category": "intelligence" },
+    "explain_element":    { "enabled": true,  "category": "intelligence" },
+    "why_did_this_change": { "enabled": true, "category": "intelligence" },
+    "get_source_file":    { "enabled": true,  "category": "intelligence" },
+    "detect_site_updates": { "enabled": true, "category": "intelligence" }
   },
 
   "presets": {
@@ -80,7 +91,8 @@
         "read": true,
         "write": false,
         "capture": false,
-        "control": false
+        "control": false,
+        "intelligence": true
       }
     },
     "read_and_capture": {
@@ -89,7 +101,8 @@
         "read": true,
         "write": false,
         "capture": true,
-        "control": false
+        "control": false,
+        "intelligence": true
       }
     },
     "full_access": {
@@ -98,7 +111,8 @@
         "read": true,
         "write": true,
         "capture": true,
-        "control": true
+        "control": true,
+        "intelligence": true
       }
     },
     "no_execute_js": {

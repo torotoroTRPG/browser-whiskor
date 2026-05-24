@@ -216,7 +216,40 @@
     "dom-mutations":   true,
     "accessibility":   true,
     "console-logger":  true,
-    "storage-reader":  true
+    "storage-reader":  true,
+    "css-origin":      true,
+    "source-fetcher":  true,
+    "framework-dom-map": true
+  },
+
+  "intelligence": {
+    "clickability": {
+      "enabled": true,
+      "autoUnblock": true,
+      "autoUnblockStrategies": ["closeButton", "escape", "backdrop"]
+    },
+    "cssOrigin": {
+      "enabled": true,
+      "maxPropertiesPerElement": 20,
+      "maxElements": 50,
+      "acquisitionLevel": 4
+    },
+    "sourceFetcher": {
+      "enabled": true,
+      "storeJs": false,
+      "maxCssSizeBytes": 524288,
+      "updateDetection": true
+    },
+    "correlator": {
+      "enabled": true,
+      "bufferCapacityPerTab": 200,
+      "retentionMs": 5000,
+      "confidenceFloor": 0.50,
+      "maxChainsPerSession": 500
+    },
+    "frameworkDomMap": {
+      "enabled": true
+    }
   },
 
   "react": {

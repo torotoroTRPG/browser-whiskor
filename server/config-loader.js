@@ -116,8 +116,29 @@ function getDefaults() {
         enabled: true,
         autoUnblock: true,
         autoUnblockStrategies: ["closeButton", "escape", "backdrop"]
+      },
+      cssOrigin: {
+        enabled: true,
+        maxPropertiesPerElement: 20,
+        maxElements: 50,
+        acquisitionLevel: 4
+      },
+      sourceFetcher: {
+        enabled: true,
+        storeJs: false,
+        maxCssSizeBytes: 524288,
+        updateDetection: true
+      },
+      correlator: {
+        enabled: true,
+        bufferCapacityPerTab: 200,
+        retentionMs: 5000,
+        confidenceFloor: 0.50,
+        maxChainsPerSession: 500
+      },
+      frameworkDomMap: {
+        enabled: true
       }
-      // TODO: [リトルエージェント用] cssOrigin, sourceFetcher, correlator, frameworkDomMap の設定をここに追加してください
     },
   };
 }
@@ -220,7 +241,10 @@ function getMcpToolsDefaults() {
       navigate_to_state:  { enabled: true, category: 'control' },
       get_navigation_path: { enabled: true, category: 'control' },
       analyze_click:      { enabled: true, category: 'intelligence' },
-      // TODO: [リトルエージェント用] explain_element, why_did_this_change, get_source_file, detect_site_updates を追加してください
+      explain_element:    { enabled: true, category: 'intelligence' },
+      why_did_this_change:{ enabled: true, category: 'intelligence' },
+      get_source_file:    { enabled: true, category: 'intelligence' },
+      detect_site_updates:{ enabled: true, category: 'intelligence' },
     },
     presets: {},
   };

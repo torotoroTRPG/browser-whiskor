@@ -31,6 +31,8 @@ const { WhiskorCore } = require('./core');
 const { checkAndRepair } = require('./cache-integrity');
 const patternRegistry = require('./pattern-registry');
 const mcpRegistry = require('./mcp/registry');
+const { TimeSeriesCorrelator } = require('./correlator');
+const sourceStore = require('./source-store');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -57,6 +59,17 @@ const SECURITY = {
 };
 
 // ── Create core with real modules ─────────────────────────────────────────────
+
+// Intelligence Layer: Correlator
+const intelligenceCfg = _cfg.plugins?.intelligence || {};
+const correlatorCfg   = intelligenceCfg.correlator || {};
+const correlator = new TimeSeriesCorrelator({
+  bufferCapacityPerTab: correlatorCfg.bufferCapacityPerTab || 200,
+  retentionMs:          correlatorCfg.retentionMs          || 5000,
+  confidenceFloor:      correlatorCfg.confidenceFloor      || 0.50,
+  maxChainsPerSession:  correlatorCfg.maxChainsPerSession  || 500,
+});
+
 const core = new WhiskorCore({
   cache,
   actions,
@@ -65,6 +78,8 @@ const core = new WhiskorCore({
   stateNavigator,
   deltaEngine,
   configLog,
+  correlator,
+  sourceStore,
   initialConfig: {
     mode: 'always_on',
     plugins: _cfg.plugins || {},
@@ -372,6 +387,8 @@ mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), scree
 mcp.setSecurity(SECURITY);
 mcp.setConfigLog(configLog);
 mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
+// Intelligence Layer: expose correlator, sourceStore, and cache to MCP tools
+mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
 configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
 if (MCP_MODE || !process.stdin.isTTY) mcp.startMcpServer();
 

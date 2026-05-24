@@ -14,7 +14,6 @@
   if (!registry) return;
 
   // ── ユーティリティ: 高速で一意性の高いセレクタ計算 ─────────────────────────
-  // TODO: [リトルエージェント用]
   // 根本的な考え方: ここでのセレクタは「後からCorrelatorが要素を特定できること」が目的です。
   function computeSelector(el) {
     if (el.nodeType === Node.TEXT_NODE) el = el.parentElement;

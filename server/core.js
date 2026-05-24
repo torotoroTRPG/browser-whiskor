@@ -34,6 +34,8 @@ class WhiskorCore extends EventEmitter {
     this.stateNavigator = opts.stateNavigator || { handleHashReport() {} };
     this.deltaEngine = opts.deltaEngine || { addFrame() { return null; } };
     this.configLog = opts.configLog || { validateChange() { return []; }, addChange() {}, autoRevertIfNeeded() { return null; } };
+    this.correlator   = opts.correlator   || null;
+    this.sourceStore  = opts.sourceStore  || null;
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',
@@ -177,8 +179,6 @@ class WhiskorCore extends EventEmitter {
       case 'SHADOW_DOM_SNAPSHOT':
       case 'DOM_SNAPSHOT':
       case 'TEXT_COORDS':
-      case 'NETWORK_REQUEST':
-      case 'NETWORK_RESPONSE':
       case 'UI_CATALOG':
       case 'CSS_ANALYSIS':
       case 'ACCESSIBILITY_TREE':
@@ -190,6 +190,55 @@ class WhiskorCore extends EventEmitter {
         await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         break;
+
+      // Network events → cache + dashboard + correlator
+      case 'NETWORK_REQUEST':
+      case 'NETWORK_RESPONSE':
+        await this.cache.handleMessage(msg);
+        this.broadcastToDashboard(msg);
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        }
+        break;
+
+      // ── Intelligence Layer messages ─────────────────────────────────────
+      case 'DOM_MUTATION': {
+        // Feed to correlator for causal-chain building
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        }
+        await this.cache.handleMessage(msg);
+        this.broadcastToDashboard(msg);
+        break;
+      }
+
+      case 'FRAMEWORK_DOM_MAP': {
+        // Persist to intelligence cache directory
+        this._persistIntelligenceData(msg.tabId, 'framework-dom-map.json', msg.payload);
+        this.broadcastToDashboard(msg);
+        break;
+      }
+
+      case 'CSS_ORIGIN_MAP': {
+        this._persistIntelligenceData(msg.tabId, 'css-origin-map.json', msg.payload);
+        this.broadcastToDashboard(msg);
+        break;
+      }
+
+      case 'SOURCE_CONTENT': {
+        if (this.sourceStore) {
+          const sessionDir = this.cache.getSessionDir ? this.cache.getSessionDir(msg.tabId) : null;
+          const changed    = this.sourceStore.handleSourceContent(msg, sessionDir, msg.sessionId);
+          if (changed.length) {
+            // Persist SOURCE_CHANGED events
+            this._appendSourceChanges(msg.tabId, changed);
+          }
+        }
+        this.broadcastToDashboard(msg);
+        break;
+      }
 
       case 'VIEWPORT_UPDATE': {
         await this.cache.handleMessage(msg);
@@ -207,6 +256,11 @@ class WhiskorCore extends EventEmitter {
 
       case 'TEXT_COORD_DELTA': {
         this.broadcastToDashboard(msg);
+        // Feed correlator for causal-chain building
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        }
         const payload = msg.payload || {};
         const frame = {
           timestamp: Date.now(),
@@ -271,12 +325,21 @@ class WhiskorCore extends EventEmitter {
             trigger: trigger || null,
           });
         }
+        // Feed correlator for causal-chain building
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        }
         this.broadcastToDashboard(msg);
         break;
       }
 
       case 'STATE_HASH_REPORT':
         this.stateNavigator.handleHashReport(msg);
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        }
         this.broadcastToDashboard(msg);
         break;
 
@@ -284,6 +347,10 @@ class WhiskorCore extends EventEmitter {
         const { siteVersion, from, to, action: act, trigger } = msg.payload || {};
         if (siteVersion && from) {
           this.stateMachine.addEdge(siteVersion, { from, to, action: act, trigger });
+        }
+        if (this.correlator) {
+          const newChains = this.correlator.addMessage(msg);
+          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
         }
         break;
       }
@@ -409,6 +476,57 @@ class WhiskorCore extends EventEmitter {
     }
 
     return { status: 404, body: { error: 'Not found', path: p } };
+  }
+
+
+  // ── Intelligence Layer helpers ──────────────────────────────────────────────
+
+  _persistIntelligenceData(tabId, filename, data) {
+    const sessionDir = this.cache.getSessionDir ? this.cache.getSessionDir(tabId) : null;
+    if (!sessionDir || !data) return;
+    try {
+      const fs   = require('fs');
+      const path = require('path');
+      const dir  = path.join(sessionDir, 'raw', 'intelligence');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, filename), JSON.stringify(data, null, 2), 'utf8');
+    } catch (e) {
+      // Non-fatal: best-effort persistence
+    }
+  }
+
+  _persistCausalChains(tabId, newChains) {
+    const sessionDir = this.cache.getSessionDir ? this.cache.getSessionDir(tabId) : null;
+    if (!sessionDir || !newChains.length) return;
+    try {
+      const fs   = require('fs');
+      const path = require('path');
+      const dir  = path.join(sessionDir, 'raw', 'intelligence');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const fpath  = path.join(dir, 'causal-chains.json');
+      let existing = [];
+      try { existing = JSON.parse(fs.readFileSync(fpath, 'utf8')); } catch (_) {}
+      const merged = [...existing, ...newChains]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 500); // maxChainsPerSession
+      fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf8');
+    } catch (_) {}
+  }
+
+  _appendSourceChanges(tabId, changed) {
+    const sessionDir = this.cache.getSessionDir ? this.cache.getSessionDir(tabId) : null;
+    if (!sessionDir || !changed.length) return;
+    try {
+      const fs   = require('fs');
+      const path = require('path');
+      const dir  = path.join(sessionDir, 'raw', 'intelligence');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const fpath  = path.join(dir, 'source-changes.json');
+      let existing = [];
+      try { existing = JSON.parse(fs.readFileSync(fpath, 'utf8')); } catch (_) {}
+      const merged = [...existing, ...changed].slice(-200);
+      fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf8');
+    } catch (_) {}
   }
 
   // ── Stale session cleanup ──────────────────────────────────────────────────

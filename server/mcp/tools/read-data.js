@@ -238,7 +238,7 @@ module.exports = function registerDataTools(registry) {
   tools.push({
     definition: {
       name: 'get_css_analysis',
-      description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Useful for understanding theming, design tokens, or style issues.',
+      description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Includes css_origin_map when intelligence layer is active. Useful for understanding theming, design tokens, or style issues.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -251,7 +251,13 @@ module.exports = function registerDataTools(registry) {
       const cache = cb.cache;
       const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
       if (!raw) return { error: 'CSS analysis not available.' };
-      return withFreshness(args.tabId, 'css-analyzer', raw, cache);
+      const result = await withFreshness(args.tabId, 'css-analyzer', raw, cache);
+      // Attach css_origin_map from intelligence layer if available
+      const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
+      if (originMap) {
+        result.css_origin_map = originMap;
+      }
+      return result;
     },
   });
 

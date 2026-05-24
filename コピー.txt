@@ -1,0 +1,1465 @@
+﻿
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 24.8s)
+
+_Thinking:_
+
+The user is in a planning/thinking phase. They're describing a large vision for the tool:
+
+1. **Comprehensive data theft** — collect as many types of information as possible (source code, live state, etc.)
+2. **Smart context delivery to AI** — the system should understand what source files are relevant to the current screen, and tell the AI about them
+3. **State navigation** — ability to return to previous states, with failure recovery
+4. **Source mapping** — create a map of source files and their relationships, keeping it updated
+5. **Binary diffing** — detect site updates by comparing binary sizes
+6. **ARIA tree + state map as an ASCII/living map** — show the user where they are in the state graph, like a minimap with a pointer
+7. **Plugin architecture** — components should be swappable, enable/disable
+8. **All aimed at improving the quality of the tool**
+
+This is a very high-level architectural discussion. They're not asking me to implement anything right now. They're thinking out loud and want to discuss.
+
+I should:
+1. Acknowledge their vision
+2. Provide a structured overview of where browser-whiskor currently stands relative to this vision
+3. Help them think through the architecture
+
+Key observations from their description:
+
+- They want the tool to not just collect data, but to UNDERSTAND the page's source structure and map it
+- They want AI-assisted state navigation with source-level awareness
+- They want a visual state map that shows the user's current position
+- They're thinking about plugin architecture
+
+This aligns with some existing features (state graph, navigation) but extends far beyond.
+
+Let me think about the current architecture in relation to their vision:
+
+**Current state:**
+- Data collection: 11 analyzers, all derived/rendered data
+- State graph: records state fingerprints, can navigate between states
+- Source catalog (`SOURCE_CATALOG`): collects URLs of scripts, stylesheets, images — but NOT their source content
+- Plugin system: each analyzer has `enabled` state, can be disabled
+
+**Gaps relative to their vision:**
+1. No source code retrieval (CSS/JS/HTML content)
+2. No source-to-screen mapping (which parts of which source files affect which visible elements)
+3. No ASCII/visual state map with user position indicator
+4. No binary diffing for update detection
+5. Plugin system exists but is simple (just enable/disable per analyzer)
+6. No "smart context" for AI (relevant sources, line numbers, etc.)
+
+I should present this analysis to the user and help them think through the architecture. But I should be careful — they said "考えちゅう" (still thinking), so I shouldn't push too hard. Just acknowledge and provide structured analysis.
+
+素晴らしい構想ですね。今の browser-whiskor と、その構想の対応関係を整理してみます。
+
+## 現状と構想のマッピング
+
+### ✅ すでにあるもの
+- **状態の記録・復元** → State graph + State navigator（指紋による状態遷移。精度はまだ荒い）
+- **プラグイン的なON/OFF** → `plugin-system.js` で各 analyzer の `enabled` 制御（バイナリフラグのみ）
+- **ARIAツリー** → `analyzers/accessibility.js`（ツリー構造は取れてる。視覚化は未実装）
+- **AIへのデータ提供** → MCP ツール群（`get_css_analysis`, `get_dom_snapshot`, `get_ui_catalog` など50ツール）
+- **ネットワーク監視** → `analyzers/network.js`（リクエスト/レスポンス本文も取れてる）
+
+### ❌ 欠けてるもの（構想に対して）
+| 構想 | ギャップ |
+|------|----------|
+| **ソースコード取得** | `SOURCE_CATALOG` で URL 一覧は取れてるが、中身は無い |
+| **ソース↔画面の関係マッピング** | 全く無い。どの .css のどの行がこのボタンの色を決めてるか、など |
+| **ASCII/動的地図 + ユーザー位置** | 状態グラフはあるが視覚化は生JSONのみ |
+| **バイナリ差分検出（サイト更新）** | 無い |
+| **AI への「関連ソース提示」** | 現状は「取れたデータを全部投げる」だけ。優先度・関連性の判断は無い |
+| **状態復元のエラーハンドリング** | `state-navigator.js` に `navigate()` はあるが精度は荒い（指紋ベース） |
+| **プラグインの高度化** | 今は単なる `enabled: true/false`。依存関係やバージョン管理は無い |
+
+### アーキテクチャの方向性案
+
+```
+┌─────────────────────────────────────────────┐
+│              AI Agent (MCP)                  │
+│   「今の画面」→「関連ソース」→「状態復元」   │
+└──────────┬────────────────────────┬──────────┘
+           │                        │
+    ┌──────▼──────┐         ┌──────▼──────┐
+    │ Data Layer  │         │ Source Layer│ ← NEW
+    │ (今の11 analyzer)│    │ (CSS/JS/HTML│
+    │  = LIVE状態  │         │  の実ファイル)│
+    └──────┬──────┘         └──────┬──────┘
+           │                        │
+    ┌──────▼────────────────────────▼──────┐
+    │         Mapping Engine (NEW)          │
+    │  どのソースのどの行が、どのDOM要素に    │
+    │  影響してるかの関係マップ              │
+    └────────────────┬──────────────────────┘
+                     │
+    ┌────────────────▼──────────────────────┐
+    │         State Visualizer (NEW)         │
+    │   状態グラフをASCIIマップで表示         │
+    │   ユーザー位置をポインターで表示        │
+    └─────────────────────────────────────────┘
+```
+
+**キーになる設計判断：**
+1. **Source Layer** — ソース取得は `chrome.devtools.inspectedWindow.getResources()`（DevTools 必須） vs `fetch` で個別取得（軽量だが CORS 制限）
+2. **Mapping Engine** — 現実的な精度？ CSS セレクタと DOM のマッチングは `document.querySelector` で可能。JS の影響範囲は静的に追うのはほぼ不可能（動的すぎる）
+3. **Plugin 化** — 各レイヤーを独立した `bw-plugin-*` として npm/zip で追加可能にする？その場合の依存関係解決は？
+
+まずどこから着手しますか？
+1. **Source Layer**（CSS/JS の実ファイル取得）
+2. **Mapping Engine**（ソース↔画面の関係）
+3. **Visualizer**（状態地図 + ポインター）
+4. **プラグインアーキテクチャ**の設計
+
+---
+
+## User
+
+2. Mapping Engine — 現実的な精度？ CSS セレクタと DOM のマッチングは         
+     document.querySelector で可能。JS                                            
+     の影響範囲は静的に追うのはほぼ不可能（動的すぎる） 
+
+コレ、SPAとかの場合てどうなんでしょうか。追えるんですか？
+例えば、reactアプリならbippyがいるので開発ツールレベルの事は何でも出来ますが
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 22.5s)
+
+_Thinking:_
+
+The user is asking about SPA (Single Page Applications) and whether the Mapping Engine can track JS influence on the DOM. They mention bippy (which browser-whiskor already has) as a React-specific tool that can give devtools-level insight.
+
+Let me think about this carefully.
+
+For SPAs, the challenge is:
+1. **Static analysis** of JS to understand which code affects which DOM — nearly impossible for SPAs because:
+   - Components are dynamically loaded
+   - State changes are event-driven
+   - The rendering tree is determined at runtime
+   - Minified/transpiled code makes static analysis impractical
+
+2. **Runtime tracking** — this is where browser-whiskor's existing tools shine:
+   - **bippy** (already bundled) can trace React component trees, state changes, and re-renders
+   - **DOM mutation observer** already tracks real-time DOM changes
+   - **Network interceptor** already tracks which API calls return data
+
+3. For a Mapping Engine, the question becomes:
+   - Can we link a DOM element back to the **source file and line** that produced it?
+   - For React with sourcemaps: bippy can get component names and props, but NOT source file/line in production builds (unless sourcemaps are available)
+   - For CSS: `document.styleSheets` gives us the rule index, and from there we can find the source stylesheet. But the exact line number in the original source file is lost in production CSS.
+   - For JS event handlers: `element.onclick` or `getEventListeners(element)` can tell us the handler function, but its source location is usually minified.
+
+So the realistic approach for a Mapping Engine is:
+
+1. **CSS-to-DOM mapping** — achievable:
+   - For each element, iterate computed styles
+   - Find which rule in which stylesheet matches
+   - The rule's `selectorText` + `style` property gives the mapping
+   - Can identify: "button.btn-primary gets `color: #ff0` from `style.css` rule #42"
+   - Can find the line number in the *compiled* CSS (via `cssRules[i].cssText`)
+   - Original source line: only possible if sourcemaps are available
+
+2. **JS-to-DOM mapping** — partially achievable:
+   - React (via bippy): Can trace component name → re-renders → affected DOM nodes
+   - Vue/Angular/Svelte: The adapters already capture component trees
+   - Generic: Cannot statically trace "this function call produced this DOM" for arbitrary JS
+
+3. **SPA-specific**:
+   - The key insight is that for SPAs, the "source code" is mostly JS bundles
+   - The rendered DOM is a SNAPSHOT of the current state, not something determined by static HTML
+   - Mapping "state → rendered output" IS possible with framework adapters
+   - But mapping "source code → rendered output" is NOT practically achievable for production SPAs
+
+Let me give the user a clear answer about what's realistic and what's not, and suggest a practical approach.
+
+SPA の場合、結論から言うと：
+
+## 分かること／分からないこと
+
+### ❌ 静的に追うのは実質不可能
+SPA の JS は webpack/vite で**1ファイルにバンドル・難読化**されてます。ソースマップが無い限り、どの関数がどの DOM を生んでるかは **人間でも追えません**。
+
+ただし…
+
+### ✅ bippy + フレームワークアダプタで「動的には」追える
+今 browser-whiskor が既に持ってるもので：
+
+| 仕組み | 取れる情報 |
+|--------|-----------|
+| **bippy**（React） | 「Component `UserCard` が `setState({name: "foo"})` で再レンダリングされ、DOM の `div.user-card > h3.name` が変わった」 |
+| **Vue/Svelte/Angular/Solid アダプタ** | 同様のコンポーネントツリー + 状態スナップショット |
+| **DOM mutation observer** | 「どの DOM が追加/削除/変更されたか」をリアルタイムで把握 |
+| **Network interceptor** | 「`GET /api/users/123` のレスポンスが来た直後に、DOM の `.user-name` が変わった」 |
+
+### つまり現実的な Mapping Engine は：
+
+「この DOM の変更は、**たぶんこのネットワーク通信がトリガーで、この React コンポーネントが再レンダリングして、この CSS クラスが適用された結果**です」という **確率的な関係グラフ** を runtime で構築する方向が現実的です。
+
+イメージ：
+```
+API Response (/api/users) 
+  → React setState (UserList component) 
+    → DOM mutation (div.user-card × 10 added) 
+      → CSS rules from app.css:42 (.user-card { display: grid; ... })
+```
+
+これは静的解析じゃなくて、**各レイヤー（network → framework → DOM → CSS）のイベントを時系列で相関させる** ことで実現できます。
+
+### ソースマップが使える場合
+拡張機能内蔵のソースマップ解決器（mozilla/source-map 等）を仕込めば、バンドルJS内の行番号から元の `.tsx` の行番号に逆引きできます。ただし：
+- 本番環境ではソースマップが配信されてないことが多い
+- 配信されてても `.map` ファイルが大きくて取得コストが高い
+- 企業サイトは意図的に非公開にしてる場合もある
+
+**どの程度の精度を目標にしますか？**
+- **A**: CSS の影響範囲のみ（ルール単位で「このスタイルシートの n 番目のルールが効いてる」まで）
+- **B**: A + Network→DOM の因果関係（「この API 叩いた後にこの DOM が変わった」の相関）
+- **C**: B + bippy 経由で Component→DOM の関係（「UserCard のレンダリング結果がこの DOM」
+- **D**: C + ソースマップ解決（可能な場合のみ、本番サイトではほぼ使えない）
+
+---
+
+## User
+
+色々なアプローチからフォールバックしつつ　て可能なのかな
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 30.6s)
+
+_Thinking:_
+
+The user is asking if a multi-approach fallback strategy is possible for the Mapping Engine. Let me think about this carefully and propose a concrete architecture.
+
+They want a system that:
+1. Tries the most precise approach first (e.g., bippy + component mapping)
+2. Falls back to less precise approaches if that fails
+3. Always produces SOME result, even if it's lower quality
+
+This is a very practical question. Let me design the architecture for this.
+
+The key insight is: different sites support different levels of introspection:
+- React sites with dev build → bippy works perfectly
+- React sites with production build → bippy works but less component info
+- Vue/Svelte/Angular → respective framework adapters
+- Static HTML / no framework → only generic DOM analysis
+- Minified/obfuscated JS → source map if available
+- No source map → only runtime correlation
+
+Let me outline a concrete multi-layer architecture.
+
+可能です。というか、**それが唯一の現実的な設計**です。フォールバックチェーンを各軸で設計します。
+
+## Mapping Engine の全体像
+
+```
+                  ┌────────── Layer 1: Framework ──────────┐
+                  │  bippy (React) → Vue adapter → ... →     │
+                  │  → none → generic DOM observer          │
+                  └──────────────────┬──────────────────────┘
+                                     ↓
+                  ┌────────── Layer 2: CSS Origin ──────────┐
+                  │  devtools.getResources() → fetch() →     │
+                  │  → document.styleSheets のみ → ...       │
+                  └──────────────────┬──────────────────────┘
+                                     ↓
+                  ┌────────── Layer 3: Source Map ──────────┐
+                  │  .map があったら解決 → 無ければ諦める    │
+                  │  (フォールバック先は無い。やれるかどうか)│
+                  └──────────────────┬──────────────────────┘
+                                     ↓
+                  ┌────────── Layer 4: Correlation ─────────┐
+                  │  時系列で Network→DOM→Style を紐付け     │
+                  └──────────────────┬──────────────────────┘
+                                     ↓
+                  ┌────────── OUTPUT ───────────────────────┐
+                  │  「このDOM要素には .card が効いていて、   │
+                  │   それは app.css:142 から。               │
+                  │   このDOMは UserCard の render 結果で、   │
+                  │   API /users のレスポンスがトリガー。     │
+                  │   (ソースマップ無しのためJS行は不明)」    │
+                  └─────────────────────────────────────────┘
+```
+
+## 各レイヤーのフォールバック詳細
+
+### Layer 1: DOM ↔ Component の関係
+
+```
+優先度1: bippy (React) 
+  → "この <div class="user-card"> は UserCard がレンダリングした"
+  → React DevTools のコンポーネントツリー + 実際の DOM node を紐付け
+
+優先度2: Vue adapter
+  → Vue の __vue_parent_component 参照から同様の紐付け
+
+優先度3: Svelte / Angular / Solid / Alpine adapter
+  → 各フレームワークの内部参照
+
+優先度4: DOM Mutation Observer のみ
+  → コンポーネント名は不明だが「何が変わったか」は分かる
+  → "div.user-card が追加された（レンダリング元は不明）"
+```
+
+### Layer 2: CSS ソース元の特定
+
+```
+優先度1: chrome.devtools.inspectedWindow.getResources()
+  → 全スタイルシートの生ソースを取得
+  → DevTools パネルが開いてる必要あり
+
+優先度2: document.styleSheets の cssRules[i].cssText
+  → スタイルシートの全ルールを取得（インライン・同一オリジンのみ）
+  → 外部 CDN は CORS 制限で空になる
+
+優先度3: fetch(stylesheet.href)
+  → 個別に fetch してテキスト取得（CORS 次第）
+  → Access-Control-Allow-Origin があれば取れる
+
+優先度4: そのスタイルシートの URL のみ記録
+  → 中身は取れないが「どこから来たか」だけは分かる
+```
+
+### Layer 3: ソースマップ解決
+
+```
+可否の分岐のみ:
+  .map が配信されていてアクセス可能 → 解決
+  .map が無い or 403 → 「ソースマップ無し」と記録
+  フォールバックは無い（無いものは無い）
+```
+
+### Layer 4: 時系列相関エンジン
+
+ここは全部のレイヤーと独立。常に動く。
+
+```
+Event Bus に流れる情報:
+  [t=0] NETWORK_RESPONSE GET /api/users → 200
+  [t=1] REACT_UPDATE UserCard, setState triggered
+  [t=2] DOM_MUTATION div.user-card × 3 added
+  [t=3] STYLE_RECOMPUTE .user-card { ... }
+  [t=4] TEXT_COORDS に新しい文字列 "Alice", "Bob", "Charlie"
+
+相関ルールの例:
+  "NETWORK_RESPONSE + 50ms以内の DOM_MUTATION → 関連あり"
+  "DOM_MUTATION と同じセレクタの CSS_RULE → そのスタイルが効いている"
+  "DOM_MUTATION の直近の FRAMEWORK_UPDATE → そのコンポーネントのレンダリング結果"
+```
+
+## データモデル
+
+```typescript
+interface MappedElement {
+  selector: string;           // ".user-card:nth-child(1)"
+  domNode: { tag, id, class, text };  // DOM の特徴
+  
+  // Layer 1 (framework)
+  component: {                // 無ければ null
+    name: string;             // "UserCard"
+    framework: "react" | "vue" | "svelte" | ...;
+    stateSnapshot: object;    // その時点の props/state
+    sourceMap: {              // あれば
+      originalFile: string;   // "src/components/UserCard.tsx"
+      originalLine: number;
+    } | null;
+  } | null;
+  
+  // Layer 2 (CSS)
+  styles: Array<{
+    rule: string;             // ".user-card { display: grid; gap: 16px; }"
+    sourceFile: string;       // "app.css" または URL
+    sourceLine: number;       // ファイル内の行番号
+    specificity: number;      // Specificity 値
+    inherited: boolean;       // 継承されたスタイルか
+  }>;
+  
+  // Layer 4 (correlation)
+  triggeredBy: Array<{
+    type: "network" | "user_action" | "timer" | "state_change";
+    detail: string;           // "GET /api/users → 200"
+    timestamp: number;
+    confidence: 0.0 ~ 1.0;    // 相関の確信度
+  }>;
+}
+```
+
+## AI との対話への適用イメージ
+
+ここまで揃えば、以下のような応答が可能になります：
+
+**User:** 「このボタンの色、何が決めてる？」
+**AI:**
+> 「`<button class="btn-primary">送信</button>` には:
+> - `app.css:142` `.btn-primary { background: #4f46e5; }` ← **これ**
+> - `tailwind.css` から継承で `font-weight: 600`
+> - このボタンは `FormComponent`（React, `src/Form.tsx:85`）がレンダリング
+> - ソースマップ有りの場合 → 元のファイルと行まで言える
+>
+> もっと詳しく見る？ 全 CSS ルールと DOM のマッチング一覧を出すよ」
+
+**User:** 「状態戻して」
+**AI:**
+> 「前の状態に戻るには:
+> 1. `/api/users` のレスポンスを前の値に書き換え
+> 2. `UserCard` を `setState(前の値)` で再レンダリング
+> 3. ページのスクロール位置を復元
+>
+> やってみる？（確実性: 78%。DOM の状態は復元できるけど、サーバー側に副作用があるかも）」
+
+## この設計のポイント
+
+1. **各レイヤーは独立** — CSS 取得が失敗しても framework mapping は動く
+2. **Confidence 値** — 「確実」「たぶん」「推測」を AI に伝えられる
+3. **情報が増えるほど精度が上がる** — 最初は `div.user-card` だけだったのが、bippy が動いたら `UserCard` と判明、ソースマップがあれば `UserCard.tsx:85` まで分かる
+4. **ユーザーに触らせる** — 「この DOM とこの CSS ルールの関係、合ってる？」と確認を取れる設計にするかどうか
+
+---
+
+実装の優先順位どうしますか？
+- **Phase 1**: Layer 2（CSS ソース取得）← 今の CSS analyzer を強化するだけなので比較的軽い
+- **Phase 2**: Layer 4（時系列相関）← 既に全イベントにタイムスタンプがあるので、バッファして相関を取る
+- **Phase 3**: Layer 1（Framework→DOM mapping）
+- **Phase 4**: Source map 解決
+- **Phase 5**: Confidence-based 応答生成
+
+という順番が現実的だと思いますが、どうでしょう？
+
+---
+
+## User
+
+現状このアプリに実装されてる部分と、大きく変えなくても出来る部分。
+今私が考えてる全てのアイデアと、
+
+後貴方が考えるアイデアと、など　纏めて書き出してください。草案的な物でも構いませんし、特に何か思うモノがあれば何かについてワンコメントつけてくれてもいいです
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 107.8s)
+
+_Thinking:_
+
+The user wants a comprehensive brain dump of:
+1. What's already implemented in the app
+2. What can be done without major changes
+3. All the ideas they've mentioned
+4. My own ideas
+5. Comments on anything noteworthy
+
+This is a planning/read-only phase. I should organize everything systematically.
+
+Let me think through all the features, subsystems, and ideas we've discussed, and organize them into a coherent document.
+
+**Tool: task**
+
+**Input:**
+```json
+{
+  "description": "Audit all existing features",
+  "prompt": "Read the following files and create a comprehensive inventory of ALL features, subsystems, data types, APIs, and MCP tools currently implemented:\n\n1. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\core.js` — all routeMessage cases, all methods on WhiskorCore\n2. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\mcp-server.js` — all registered MCP tools (list their names and what they do)\n3. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\index.js` — all HTTP API endpoints\n4. `C:\\JavaApp\\browser-extension\\browser-whiskor\\extension\\injected\\plugin-system.js` — the plugin system API\n5. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\state-machine.js` — what the state machine can do\n6. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\delta-engine.js` — what delta engine does\n7. `C:\\JavaApp\\browser-extension\\browser-whiskor\\server\\cache-writer.js` — what data gets cached/persisted\n\nFor each item, give:\n- The feature name\n- Brief description\n- Whether it's a \"core\" (always on) or \"plugin-like\" (configurable) feature\n\nReturn a organized markdown list grouped by subsystem.",
+  "subagent_type": "explore"
+}
+```
+
+**Output:**
+```
+task_id: ses_1ac72f9f1ffesNadcGsbHDc17L (for resuming to continue this task if needed)
+
+<task_result>
+Now I have all the data. Let me compile the comprehensive inventory.
+
+---
+
+# Comprehensive Feature & Subsystem Inventory — browser-whiskor v3
+
+---
+
+## 1. SERVER CORE SUBSYSTEM (`server/core.js` — `WhiskorCore` class)
+
+**Type: Core (always on)**
+
+### WebSocket Management
+| Feature | Description | Type |
+|---|---|---|
+| **SW Socket Set** | Tracks all connected service-worker WebSocket connections (`swSockets`) | Core |
+| **Dashboard Socket Set** | Tracks all connected dashboard WebSocket connections (`dashboardSockets`) | Core |
+| **Log Subscriber Set** | Manages dashboard sockets subscribed to real-time log entries (`logSubscribers`) | Core |
+| **WS-to-Tab Mapping** | Maps each WebSocket to its set of tab IDs for cleanup tracking (`_wsToTabs`) | Core |
+| **Disconnected-at Map** | Tracks when each tab disconnected (`_tabDisconnectedAt`) for stale session cleanup | Core |
+| **Stale Session Cleanup Timer** | Periodically (every 5 min) removes sessions disconnected >15 min (skips pinned sessions) | Core |
+
+### Message Routing (`routeMessage`) — All message types handled:
+| Message Type | Description | Type |
+|---|---|---|
+| `SUBSCRIBE_LOGS` | Dashboard subscribes to real-time log stream | Core |
+| `FRAMEWORK_DETECTION` | Framework detection result → cache + dashboard broadcast | Core |
+| `REACT_SNAPSHOT` | React component tree snapshot | Core |
+| `VUE_SNAPSHOT` | Vue 3 component snapshot | Core |
+| `VUE2_SNAPSHOT` | Vue 2 component snapshot | Core |
+| `ANGULAR_SNAPSHOT` | Angular component snapshot | Core |
+| `SVELTE_SNAPSHOT` | Svelte component snapshot | Core |
+| `DOM_GENERIC_SNAPSHOT` | Generic DOM snapshot (no known framework) | Core |
+| `SHADOW_DOM_SNAPSHOT` | Shadow DOM tree snapshot | Core |
+| `DOM_SNAPSHOT` | Alternative/legacy DOM snapshot | Core |
+| `TEXT_COORDS` | Visible text with pixel coordinates | Core |
+| `NETWORK_REQUEST` | Captured HTTP request | Core |
+| `NETWORK_RESPONSE` | Captured HTTP response (matched to request) | Core |
+| `UI_CATALOG` | Interactive elements catalog (buttons, links, inputs) | Core |
+| `CSS_ANALYSIS` | CSS custom properties and stylesheet analysis | Core |
+| `ACCESSIBILITY_TREE` | Full ARIA accessibility tree | Core |
+| `STORAGE_SNAPSHOT` | localStorage/sessionStorage/cookies | Core |
+| `CONSOLE_LOG` | Captured console output entries | Core |
+| `PERF_METRICS` | Web Vitals and performance metrics | Core |
+| `SOURCE_CATALOG` | Page source catalog (scripts, styles) | Core |
+| `PAGE_NAVIGATED` | Page navigation event (clears stale session data) | Core |
+| `VIEWPORT_UPDATE` | Viewport scroll/resize with delta frame recording | Core |
+| `TEXT_COORD_DELTA` | Text coordinate changes with smart delta aggregation | Core |
+| `ACTION_RESULT` | Response from an executed action → routed to action-executor | Core |
+| `SCREENSHOT_RESULT` / `ELEMENT_CAPTURE_RESULT` | Screenshot response → routed to screenshot-manager | Core |
+| `EXPLORER_STATE_UPDATE` | Explorer state graph node update → state-machine + next-action suggestion | Core |
+| `REACT_TRANSITION` | React state transition → state-machine edge recording | Core |
+| `STATE_HASH_REPORT` | State hash report → state-navigator | Core |
+| `EXPLORER_TRANSITION` | Generic explorer state transition → state-machine edge | Core |
+| `PING` | Heartbeat → responds with `PONG` | Core |
+
+### HTTP API Handler (`handleHttpRequest`)
+| Endpoint | Description | Type |
+|---|---|---|
+| `GET /health` | Server health with WS connections, session count, pending actions | Core |
+| `GET /api/config` | Get current global config | Core |
+| `POST /api/config` | Update global config | Core |
+| `POST /api/plugins/:id/enable\|disable` | Enable/disable a specific plugin | Core |
+| `GET /api/sessions` | List all sessions | Core |
+| `GET /api/sessions/:tabId` | Get session data by tabId | Core |
+| `GET /api/sessions/:tabId/states` | List state graph nodes for a session | Core |
+| `GET /api/sessions/:tabId/states/:hash` | Get single state node detail | Core |
+| `GET /api/sessions/:tabId/raw/delta/smart.json` | Get smart delta data | Core |
+| `GET /api/sessions/:tabId/:filepath` | Get arbitrary session file | Core |
+| `POST /api/collect` | Trigger manual data collection | Core |
+| `POST /api/action` | Execute an action (click, type, navigate, etc.) | Core |
+| `POST /api/sessions/:tabId/pin` | Pin session (prevent cleanup) | Core |
+| `DELETE /api/sessions/:tabId/pin` | Unpin session | Core |
+| `DELETE /api/sessions/:tabId` | Remove session entirely | Core |
+| `GET /api/graphs` | Get all state graphs summary | Core |
+
+### Broadcast Methods
+| Method | Description | Type |
+|---|---|---|
+| `broadcast(msg)` | Send message to all SW sockets | Core |
+| `broadcastToDashboard(msg)` | Send message to all dashboard sockets | Core |
+| `broadcastLog(level, ...args)` | Send log entry to log subscribers | Core |
+
+### Config Management
+| Method | Description | Type |
+|---|---|---|
+| `pushConfig(patch, source)` | Apply config patch with validation, broadcast `SET_CONFIG` | Core |
+| `triggerCollect(tabId, plugins)` | Broadcast `MANUAL_COLLECT` to trigger data collection | Core |
+| `triggerExplorer(tabId, active, strategy)` | Broadcast `EXPLORER_CONTROL` to start/stop autonomous exploration | Core |
+
+---
+
+## 2. MCP SERVER SUBSYSTEM (`server/mcp-server.js`)
+
+**Type: Core (always on as server component, but MCP stdio mode optional via `--mcp` flag)**
+
+### MCP Tool Registry (`server/mcp/registry.js`)
+| Feature | Description | Type |
+|---|---|---|
+| **Tool Registration** | `registerTool(definition, handler)` / `registerTools(array)` | Core |
+| **Tool Filtering** | `getFilteredTools()` — applies config-based enable/disable + profile-based visibility | Core |
+| **Tool Execution** | `callTool(name, args)` — runs handler with callbacks, tool-manager auto-load/unload | Core |
+| **Preset Application** | `applyPreset(presetName)` — batch enable/disable tool categories from config presets | Core |
+| **Config Management** | `setMcpToolsConfig` / `getMcpToolsConfig` / `isToolEnabled` | Core |
+| **Tool Manager Integration** | `setToolManager()` — connects tool-manager for profile-based visibility | Core |
+
+### MCP Transport (`server/mcp/transport.js`)
+| Feature | Description | Type |
+|---|---|---|
+| **stdio/JSON-RPC Server** | Starts MCP server using standard I/O for AI agent integration | Core |
+
+---
+
+### MCP TOOLS — Complete List (50 tools)
+
+#### READ — Basic Tools (`server/mcp/tools/read-basic.js`)
+| # | Tool Name | Description | Visibility |
+|---|---|---|---|
+| 1 | `get_sessions` | List all active inspection sessions (tabId, URL, title, data age, freshness) | Core (always available) |
+| 2 | `get_index` | Get full session index for a tab (available files, summary stats, freshness) | Core |
+| 3 | `get_text_coords` | Get visible text with pixel coordinates; supports exact search, fuzzy match, viewport filter | Core |
+| 4 | `get_viewport` | Get current viewport size/scroll position of the page | Core |
+| 5 | `get_framework_state` | Get component tree/state for detected framework (React, Vue, Angular, Svelte, etc.) | Core |
+
+#### READ — Data Tools (`server/mcp/tools/read-data.js`)
+| # | Tool Name | Description | Visibility |
+|---|---|---|---|
+| 6 | `get_network` | Get captured HTTP requests/responses with filtering by URL, type, status | Core |
+| 7 | `get_ui_catalog` | Get interactive UI elements (buttons, links, inputs, images) with coordinates | Core |
+| 8 | `get_accessibility` | Get full ARIA accessibility tree with role/name/state filtering | Core |
+| 9 | `get_storage` | Get localStorage, sessionStorage, cookies with key filtering | Core |
+| 10 | `get_console_logs` | Get captured console output with level/search filtering | Core |
+| 11 | `get_perf_metrics` | Get Web Vitals (LCP, FCP, CLS, FID/INP, TTFB) and resource timing | Core |
+| 12 | `get_css_analysis` | Get CSS custom properties, stylesheet stats, computed styles | Core |
+| 13 | `get_dom_snapshot` | Get generic DOM tree with ARIA attributes and global state | Core |
+
+#### READ — State Graph Tools (`server/mcp/tools/read-state.js`)
+| # | Tool Name | Description | Visibility (profile) |
+|---|---|---|---|
+| 14 | `get_state_map` | Get state-transition graph (nodes + edges) built by the explorer | `state-nav` profile |
+| 15 | `list_states` | List all recorded UI states with labels, tags, visit counts, filtering | `state-nav` profile |
+| 16 | `search_states` | Fuzzy-search states by label, tags, URL, keyState | `state-nav` profile |
+| 17 | `get_state_detail` | Get full metadata for a state including edges and optional snapshot | `state-nav` profile |
+| 18 | `pin_state` | Pin a state with custom label/tags (protected from eviction) | `state-nav` profile |
+| 19 | `lookup_pattern` | Look up a known UI pattern by reference ID (e.g. "pat-abc12345") | `delta` profile |
+| 20 | `list_patterns` | List all known UI patterns for a tab | `delta` profile |
+| 21 | `get_delta` | Get latest aggregated smart delta (motion groups, content updates, appearances) | `delta` profile |
+
+#### WRITE — Action Tools (`server/mcp/tools/write.js`)
+| # | Tool Name | Description | Visibility |
+|---|---|---|---|
+| 22 | `navigate_to` | Navigate tab to a URL via `chrome.tabs.update` | Core |
+| 23 | `click` | Click element by CSS selector, visible text, or coordinates (full mouse event sequence) | Core |
+| 24 | `right_click` | Right-click (context menu) on an element | Core |
+| 25 | `type_text` | Type text into an input (character-by-character for React/Vue compat) | Core |
+| 26 | `press_key` | Send keyboard events (supports modifier combos like "Control+a") | Core |
+| 27 | `hover` | Hover over an element (reveal dropdowns/tooltips) | Core |
+| 28 | `scroll_page` | Scroll page/element to position, by delta, or to element | Core |
+| 29 | `select_option` | Set `<select>` dropdown value | Core |
+| 30 | `check_box` | Check/uncheck checkbox or radio button | Core |
+| 31 | `drag` | Drag from one position to another (full HTML5 DnD event sequence) | Core |
+| 32 | `mouse_scroll` | Fire wheel event at position (for custom scrollable areas) | Core |
+| 33 | `execute_js` | Execute arbitrary JavaScript in page context (guarded by `allowExecuteJs`) | Core (behind security flag) |
+| 34 | `wait_for_element` | Wait until element appears in DOM (optionally visible) | Core |
+| 35 | `go_back` | Navigate back in browser history | Core |
+| 36 | `go_forward` | Navigate forward in browser history | Core |
+| 37 | `reload_page` | Reload the current page (optionally bypass cache) | Core |
+
+#### CAPTURE Tools (`server/mcp/tools/capture.js`, `server/mcp/tools/capture-element.js`)
+| # | Tool Name | Description | Visibility |
+|---|---|---|---|
+| 38 | `capture_screenshot` | Capture visible tab as base64 PNG with optional Set-of-Marks overlay | Core |
+| 39 | `refresh_data` | Trigger data collection and wait for fresh data | Core |
+| 40 | `capture_element_screenshot` | Crop screenshot to a specific DOM element or bounding rect | Core |
+
+#### CONTROL Tools (`server/mcp/tools/control.js`)
+| # | Tool Name | Description | Visibility (profile) |
+|---|---|---|---|
+| 41 | `set_config` | Update browser-whiskor config (mode, plugins, options) | `admin` profile |
+| 42 | `get_config_changes` | Get log of config changes made during this session | `admin` profile |
+| 43 | `trigger_collect` | Manually trigger data collection for specific plugins/tabs | Core |
+| 44 | `trigger_explorer` | Start/stop autonomous page explorer | `advanced-actions` profile |
+| 45 | `navigate_to_state` | Navigate from current state to target state by replaying recorded actions | `state-nav` profile |
+| 46 | `get_navigation_path` | Dry-run version of navigate_to_state (returns path without executing) | `state-nav` profile |
+| 47 | `load_profile` | Load a tool profile to make additional MCP tools available | Core |
+| 48 | `unload_profile` | Unload a previously loaded tool profile | Core |
+| 49 | `search_tools` | Search all available MCP tools by name/description without loading them | Core |
+| 50 | `profile_status` | Get current status of loaded tool profiles (idle turns, warnings) | Core |
+
+### MCP Tool Manager (`server/tool-manager.js`)
+| Feature | Description | Type |
+|---|---|---|
+| **Profile-based Visibility** | Core tools always visible; other profiles (`debug`, `state-nav`, `delta`, `advanced-actions`, `admin`, `power`) load on demand | Core |
+| **Auto-load Triggers** | Profiles auto-load when tool call/args match trigger patterns | Core |
+| **Auto-unload** | Idle profiles auto-unload after configurable number of turns to keep AI context lean | Core |
+| **Idle Warnings** | Issues warnings for long-active profiles | Core |
+| **Lazy Discovery** | `searchTools()` finds tools without loading their profile | Core |
+
+### MCP Config Wrapper (`server/mcp-server.js`)
+| Method | Description | Type |
+|---|---|---|
+| `setCallbacks` | Injects pushConfig, triggerCollect, triggerExplorer callbacks | Core |
+| `setActionCallbacks` | Injects callAction, captureScreenshot, captureElement callbacks | Core |
+| `setNavigateBroadcast` | Injects navigation broadcast function | Core |
+| `setConfigLog` | Injects config change log module | Core |
+| `setSecurity` | Injects security flags | Core |
+| `setStartupWarnings` | Injects startup warnings for tool responses | Core |
+| `startMcpServer()` | Starts MCP stdio server | Core |
+
+### MCP Presets (via `config-loader`)
+| Feature | Description | Type |
+|---|---|---|
+| **Tool Presets** | Named presets that batch-enable/disable categories of tools | Plugin-like (configurable) |
+
+---
+
+## 3. HTTP API SUBSYSTEM (`server/index.js`)
+
+**Type: Core (always on)**
+
+### Server Infrastructure
+| Feature | Description | Type |
+|---|---|---|
+| **WebSocket Server (port 7891)** | Accepts SW extension and dashboard connections on `/` and `/dashboard` paths | Core |
+| **HTTP Server (port 7892)** | REST API and dashboard HTML serving | Core |
+| **CORS** | Configurable allowed origins via `allowedMcpOrigins` | Core |
+| **CLI Flags** | `--mock` (inject mock data), `--verbose` (log all messages), `--mcp` (force MCP stdio) | Plugin-like |
+
+### Security Flags (all from config)
+| Flag | Description | Type |
+|---|---|---|
+| `allowExecuteJs` | Guard for `execute_js` MCP tool (default: false) | Plugin-like (configurable) |
+| `allowActions` | Master switch for all browser actions (default: true) | Plugin-like |
+| `allowScreenshots` | Master switch for screenshots (default: true) | Plugin-like |
+| `allowExplorer` | Master switch for autonomous explorer (default: true) | Plugin-like |
+| `allowedMcpOrigins` | CORS origin allowlist for HTTP API | Plugin-like |
+
+### HTTP Endpoints (not in core.js)
+| Endpoint | Description | Type |
+|---|---|---|
+| `GET /` or `GET /dashboard` | Serve `dashboard.html` UI | Core |
+| `POST /api/collect` or `POST /api/gather` | Trigger data collection (aliased) | Core |
+| `POST /api/screenshot` | Capture screenshot with optional Set-of-Marks | Core |
+| `GET /api/sessions/:tabId/raw/delta/patterns.json` | Pattern registry data for a tab | Core |
+| `GET /api/sessions/:tabId/profiles` | Tool profile status via HTTP | Core |
+| `GET /api/sessions/:tabId/tools` | List visible MCP tools for a tab | Core |
+| `POST /api/action` (with type dispatch) | Action execution with server-side type routing: | Core |
+| | `trigger_explorer` — start/stop explorer | |
+| | `navigate_to_state` — navigate to target state via BFS path | |
+| | `get_navigation_path` — dry-run navigation path | |
+| | `load_profile` / `unload_profile` — tool profile management | |
+| | `capture_element_screenshot` — element-level screenshot | |
+
+### Cache Integrity Check
+| Feature | Description | Type |
+|---|---|---|
+| **On Startup** | Non-blocking `checkAndRepair()` verifies session cache integrity with auto-repair | Core |
+
+### Auto-Revert (config)
+| Feature | Description | Type |
+|---|---|---|
+| **Startup Auto-Revert** | Reverts non-recommended agent-initiated config changes on restart | Plugin-like (configurable via `agentControl.autoRevertConfig`) |
+
+---
+
+## 4. PLUGIN SYSTEM (`extension/injected/plugin-system.js`)
+
+**Type: Core (loaded first in MAIN world)**
+
+### PluginRegistry Class
+| Feature | Description | Type |
+|---|---|---|
+| **Plugin Registration** | `register(plugin)` — stores plugin definition (`id`, `install`, `collect`, `runAt`, `emitType`, `priority`, `realtime`) | Core |
+| **Install All** | `installAll()` — loads stored config and installs all enabled plugins | Core |
+| **Run-by-Event** | `runAt(event)` — runs plugins matching `DOMContentLoaded` or `load` events, sorted by priority | Core |
+| **Update Config** | `updateConfig(newConfig)` — merges config, installs newly-enabled plugins, fires activation change listeners | Core |
+| **Manual Plugin Toggle** | `enable(id)` / `disable(id)` — toggle individual plugins | Core |
+| **Force Run** | `runPlugin(id)` — force-run a specific plugin immediately | Core |
+| **Debug** | `debug()` — returns installed/registered plugins, config, last logs for DevTools | Core |
+
+### PluginAPI (passed to each plugin)
+| Method | Description | Type |
+|---|---|---|
+| `emit(type, payload, realtime)` | Posts message to window via `postMessage` with `__BROWSER_WHISKOR__` flag | Core |
+| `getConfig()` | Returns current config from registry | Core |
+| `getLastInteraction()` | Returns last user interaction (click/keydown) info | Core |
+| `log(level, ...args)` | Buffered logging (max 200 entries), errors go to console.error | Core |
+| `onActivationChange(cb)` | Register callback for mode changes (on/off) | Core |
+
+### Config & Mode System
+| Feature | Description | Type |
+|---|---|---|
+| **Mode: always_on** | All registered plugins run automatically | Plugin-like |
+| **Mode: manual/api/selective** | Per-plugin enable/disable flags control activation | Plugin-like |
+| **Mode: off** | No plugins run | Plugin-like |
+| **Interaction Tracking** | Tracks last click/keydown (target, type, text, timestamp) | Core |
+| **sessionStorage Config** | Fast-path config loading from `__SI_CONFIG__` | Core |
+
+---
+
+## 5. STATE MACHINE (`server/state-machine.js` + `server/state-store.js`)
+
+**Type: Core (always on)**
+
+### State Graph Management
+| Feature | Description | Type |
+|---|---|---|
+| `addNode(siteVersion, data)` | Add or update a state node with semantic labeling, tags, keyState | Core |
+| `addEdge(siteVersion, data)` | Add or update a state transition edge with multi-target tracking and confidence scoring | Core |
+| `getGraph(siteVersion)` | Get entire state graph for a site version | Core |
+| `getAllGraphs()` | List all graphs (summary: node/edge count, timestamps) | Core |
+| `getUnvisitedActions(siteVersion, fromHash, uiCatalog)` | Find unvisited interactive elements (buttons/links not yet clicked) | Core |
+| `getNodeByHash(siteVersion, hash)` | Get single node with eviction restoration | Core |
+| `findGraphContaining(hash)` | Search all in-memory/disk graphs for a node hash | Core |
+| `getAllNodesFlat(options)` | List nodes with filtering (siteVersion, URL, tags), sorting, pagination | Core |
+| `pinNode(siteVersion, hash, label, tags)` | Pin state with custom label/tags (protected from LRU eviction) | Core |
+
+### State Fingerprinting (`server/state-fingerprint.js`)
+| Feature | Description | Type |
+|---|---|---|
+| **FNV-1a 32-bit Hash** | Deterministic hashing (base-36, 7 chars) for state identification | Core |
+| **DOM Hash** | Hash from URL + interactive elements (tag:text pairs) | Core |
+| **React Hash** | Hash from component tree shape + router pathname + Redux/Zustand keys | Core |
+| **Composite Hash** | React-priority composite (`fnv32(reactHash + '|' + domHash)`) | Core |
+| **Non-Deterministic Filter** | Strips timestamps, UUIDs, random keys, CSRF tokens before hashing | Core |
+| **Tree Shape Extraction** | Lightweight Fiber node → shape extraction | Core |
+| **Store Key Extraction** | Extracts Redux/Zustand top-level keys | Core |
+
+### State Semantics (`server/state-semantic.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `generateLabel(data)` | Human-readable label from URL path, title, keyState (auth, cart, search, modal, etc.) | Core |
+| `extractTags(data)` | Auto-tags from URL patterns and keyState (authenticated, cart-open, loading, etc.) | Core |
+| `extractKeyState(reactState)` | Extracts meaningful state keys (user, cart, checkout, search, boolean flags, counts) | Core |
+| `searchStates(graph, query)` | Fuzzy search states by label, tags, URL, keyState with bigram similarity scoring | Core |
+
+### Multi-Layer Storage
+| Feature | Description | Type |
+|---|---|---|
+| **L1: In-Memory** | Current active graphs in memory (max 500 nodes / 50 MB) | Core |
+| **L2: Disk Gzip** | Persisted to `cache/graphs/*.json.gz` | Core |
+| **L3: Eviction** | LRU eviction with protected tags (e.g. `authenticated`) | Core |
+| **Diff Storage** | Compressed diff for repeated visits (threshold: 4096 bytes) | Core |
+| **Snapshot Storage** | Full React/DOM snapshots saved separately on disk | Core |
+
+### Edge Confidence Model
+| Feature | Description | Type |
+|---|---|---|
+| **Count-based Base** | 0.4 (1x) → 0.6 (2x) → 0.8 (3-9x) → 0.95 (10x+) | Core |
+| **Recency Multiplier** | Within 1h=1.0, 1d=0.9, 7d=0.7, older=0.5 | Core |
+| **Consistency Multiplier** | Multi-target tracking penalizes inconsistency | Core |
+
+---
+
+## 6. DELTA ENGINE (`server/delta-engine.js`)
+
+**Type: Core (always on)**
+
+| Feature | Description | Type |
+|---|---|---|
+| **Frame Buffering** | Per-tab ring buffer (max 5 frames via `MAX_BUFFER_SIZE`) | Core |
+| **Time-based Flush** | Auto-flush after 1500ms of inactivity (`AGGREGATE_INTERVAL`) | Core |
+| **Motion Clustering** | Groups elements moving with same vector (tolerance: 3px) | Core |
+| **Scroll Detection** | If >70% of elements share a vector, classifies as scroll | Core |
+| **CSS Animation Filtering** | Ignores decorative changes (opacity-only, color-only, background-only, shadow-only) | Core |
+| **Content Update Detection** | Detects text/state changes without position change | Core |
+| **Appearance/Disappearance Tracking** | Detects newly appeared and removed elements | Core |
+| **Motion Group Construction** | Builds `motion_groups` with vector, count, sample element IDs | Core |
+| **Pattern Registry Integration** | Known patterns returned as `ref` IDs (deduplicates repeated motions) | Core |
+| `buildSmartDelta(frames, tabId)` | Converts buffered frames → aggregated smart delta object | Core |
+| `flushBuffer(tabId)` | Force-flush buffer and return aggregated delta | Core |
+| `getBufferState(tabId)` | Debug utility to inspect buffer state | Core |
+| `cleanup(tabId)` | Clean up per-tab buffer (tab disconnect) | Core |
+| `resetAll()` | Reset all buffers and pattern registry (testing) | Core |
+
+### Smart Delta Output Schema
+| Field | Description |
+|---|---|
+| `elapsed_ms` | Time span covered by aggregated frames |
+| `frame_count` | Number of frames aggregated |
+| `viewport` | Viewport change from→to with delta |
+| `scroll` | Detected scroll event with vector and affected count |
+| `motion_groups[]` | `{ref, vector, count, sampleIds}` for each motion cluster |
+| `content_updates[]` | `{id, text, state}` for in-place content changes |
+| `appearances[]` | Newly appeared elements with position |
+| `disappearances[]` | Removed elements with last known position |
+| `_patterns.new` | First-seen pattern definitions (full detail) |
+| `_patterns.known` | Previously-seen pattern refs (compact) |
+
+---
+
+## 7. CACHE WRITER (`server/cache-writer.js`)
+
+**Type: Core (always on)**
+
+### Directory Layout
+```
+cache/sessions/{siteVersion}/{tabId}-{sessionId}/
+  _index.json                          ← session metadata, freshness, file index
+  raw/
+    react/snapshot.json                ← React component tree
+    react/transitions.json             ← React transition history
+    vue/snapshot.json                  ← Vue 3 snapshot
+    vue/vue2-snapshot.json             ← Vue 2 snapshot
+    angular/snapshot.json              ← Angular snapshot
+    svelte/snapshot.json               ← Svelte snapshot
+    dom/snapshot.json                  ← DOM generic snapshot
+    dom/snapshot2.json                 ← Alternative DOM snapshot
+    dom/shadow-snapshot.json           ← Shadow DOM snapshot
+    visual/text-coords.json            ← Text coordinates (merged across collections)
+    visual/viewport.json               ← Viewport state
+    network/requests.json              ← Network request/response pairs
+    css/analysis.json                  ← CSS analysis
+    ui/elements.json                   ← UI catalog (interactive elements)
+    accessibility/tree.json            ← Accessibility tree
+    storage/data.json                  ← localStorage/sessionStorage/cookies
+    perf/metrics.json                  ← Performance metrics
+    console/logs.json                  ← Console log entries
+    sources/catalog.json               ← Source file catalog
+```
+
+### Data Persistence by Message Type
+| Message Type | File Written | Special Behavior | Type |
+|---|---|---|---|
+| `FRAMEWORK_DETECTION` | `_index.json` (summary) | Stores detected framework IDs in summary | Core |
+| `REACT_SNAPSHOT` | `raw/react/snapshot.json` | — | Core |
+| `REACT_TRANSITION` | `raw/react/transitions.json` | In-memory history (max 100), appended | Core |
+| `VUE_SNAPSHOT` | `raw/vue/snapshot.json` | — | Core |
+| `VUE2_SNAPSHOT` | `raw/vue/vue2-snapshot.json` | — | Core |
+| `ANGULAR_SNAPSHOT` | `raw/angular/snapshot.json` | — | Core |
+| `SVELTE_SNAPSHOT` | `raw/svelte/snapshot.json` | — | Core |
+| `DOM_GENERIC_SNAPSHOT` | `raw/dom/snapshot.json` | Stores `docTitle` as session title | Core |
+| `SHADOW_DOM_SNAPSHOT` | `raw/dom/shadow-snapshot.json` | — | Core |
+| `DOM_SNAPSHOT` | `raw/dom/snapshot2.json` | — | Core |
+| `TEXT_COORDS` | `raw/visual/text-coords.json` | **Merge with existing**: retains offscreen/seen texts across collections, marks them `fromCache: true`, regenerates `fullText` | Core |
+| `NETWORK_REQUEST` | `raw/network/requests.json` | Accumulates in-memory, flushes to disk on each request/response | Core |
+| `NETWORK_RESPONSE` | `raw/network/requests.json` | Matches by `requestId`, adds status/headers/body | Core |
+| `UI_CATALOG` | `raw/ui/elements.json` | — | Core |
+| `CSS_ANALYSIS` | `raw/css/analysis.json` | — | Core |
+| `ACCESSIBILITY_TREE` | `raw/accessibility/tree.json` | — | Core |
+| `STORAGE_SNAPSHOT` | `raw/storage/data.json` | — | Core |
+| `CONSOLE_LOG` | `raw/console/logs.json` | In-memory ring buffer (max 2000 entries) | Core |
+| `PERF_METRICS` | `raw/perf/metrics.json` | — | Core |
+| `SOURCE_CATALOG` | `raw/sources/catalog.json` | — | Core |
+| `PAGE_NAVIGATED` | Clears stale files + resets session state | Deletes `text-coords.json` and `viewport.json` to prevent cross-page data contamination | Core |
+| `VIEWPORT_UPDATE` | `raw/visual/viewport.json` | — | Core |
+
+### Query API
+| Method | Description | Type |
+|---|---|---|
+| `getSessionList()` | List all sessions with staleness tracking (30s threshold) | Core |
+| `getSessionData(tabId)` | Get session index with staleness info | Core |
+| `getSessionDir(tabId)` | Get session filesystem directory path | Core |
+| `readSessionFile(tabId, relPath)` | Read arbitrary session file with path traversal protection | Core |
+| `getConsoleLogs(tabId)` | Get in-memory console logs | Core |
+| `freshnessInfo(tabId, pluginId)` | Check if a plugin's data is stale | Core |
+| `removeSession(tabId)` | Delete session from disk and memory | Core |
+| `setSessionKeep(tabId, keep)` | Pin/unpin session (prevent cleanup) | Core |
+| `storeSmartDelta(tabId, delta)` | Store aggregated smart delta in memory | Core |
+| `getSmartDelta(tabId)` | Get smart delta with staleness info | Core |
+
+### Staleness Tracking
+| Feature | Description | Type |
+|---|---|---|
+| **STALE_THRESHOLD_MS** | 30 seconds — data older than this is considered stale | Core |
+| **Per-plugin freshness** | Each plugin's `capturedAt` tracked in `dataFreshness` map | Core |
+| **Session staleness** | Overall session data age tracked via `updatedAt` | Core |
+
+---
+
+## 8. PATTERN REGISTRY (`server/pattern-registry.js`)
+
+**Type: Core (always on, but pattern-based tools require `delta` profile)**
+
+| Feature | Description | Type |
+|---|---|---|
+| `registerPattern(tabId, delta)` | Register UI pattern; returns `{ref, isNew, def?}` — new patterns save full definition, known patterns return ref only | Core |
+| `getPatternDetail(ref)` | Get full pattern definition by reference ID (for `lookup_pattern` MCP tool) | Core |
+| `getPatternsForTab(tabId)` | List all patterns for a tab | Core |
+| `classifyPattern(delta)` | Auto-classify patterns as `motion` (scroll/slide), `appearance`, `state_change`, or `unknown` | Core |
+| **SHA-256 Hash Dedup** | Pattern definitions hashed → first 8 hex chars as unique ref | Core |
+| **Disk Persistence** | `cache/patterns/index.json` + per-pattern `cache/patterns/pat-{hash}.json` | Core |
+
+---
+
+## 9. SUPPORTING SUBSYSTEMS
+
+### Action Executor (`server/action-executor.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `execute(tabId, action, timeoutMs)` | Sends `EXECUTE_ACTION` to SW via broadcast; resolves when `ACTION_RESULT` arrives | Core |
+| `handleResult(msg)` | Matches `actionId` and resolves/rejects pending action promise | Core |
+| `pendingCount()` | Returns count of in-flight actions | Core |
+
+### Screenshot Manager (`server/screenshot-manager.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `capture(tabId, opts)` | Requests `CAPTURE_SCREENSHOT` from SW; saves PNG to `cache/screenshots/` | Core |
+| `captureElement(tabId, opts)` | Requests `CAPTURE_ELEMENT` from SW (element-cropped screenshot) | Core |
+| `handleResult(msg)` | Matches `reqId`, saves base64 to disk, resolves promise with `{dataUrl, filePath, width, height, elements?}` | Core |
+
+### State Navigator (`server/state-navigator.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `navigate(tabId, targetHash, options, executeAction, broadcast)` | BFS shortest path → action replay with step verification → URL fallback | Core |
+| `getNavigationPath(fromHash, toHash, siteVersion)` | Dry-run path finding with confidence scoring and warnings | Core |
+| `findPath(graph, fromHash, toHash, minConfidence)` | BFS on state graph (min confidence: 0.3) | Core |
+| `handleHashReport(msg)` | Resolves pending hash request via `STATE_HASH_REPORT` | Core |
+| `requestHash(tabId, broadcast, timeoutMs)` | Requests current state hash from browser (timeout: 5s) | Core |
+| **Concurrent Navigation Prevention** | Per-tab navigation lock | Core |
+
+### Config Change Log (`server/config-change-log.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `validateChange(patch)` | Validates against non-recommended rules (disabling plugins, security toggles, extreme values) | Core |
+| `addChange(entry)` | Logs config change with timestamp, source, warnings | Core |
+| `getActiveChanges()` | Returns non-reverted changes | Core |
+| `autoRevertIfNeeded(config, pushConfig)` | On startup, reverts dangerous/warning-level changes from previous session | Plugin-like (configurable) |
+| **Non-Recommended Rules** | 6 rules: plugin disable, `allowExecuteJs` off, `allowActions` off, `allowScreenshots` off, extreme `react.maxDepth`, extreme `textCoords.maxWords` | Core |
+
+### Cache Integrity (`server/cache-integrity.js`)
+| Feature | Description | Type |
+|---|---|---|
+| `checkAndRepair(cacheRoot, opts)` | Validates session cache structure; auto-repairs with orphan cleanup | Core (startup check) |
+
+---
+
+## 10. DATA TYPES (Summary of Key Types)
+
+| Type | Definition Location | Fields |
+|---|---|---|
+| **StateNode** | `state-store.js` | `hash, reactHash, domHash, hashSource, url, pathname, title, siteVersion, label, tags, keyState, pinned, pinnedLabel, uiSummary, firstSeen, lastSeen, visitCount, snapshotRef, hasReactState, routerPath, storeKeys` |
+| **StateEdge** | `state-store.js` | `from, to, action, trigger, selector, count, confidence, firstSeen, lastSeen, replayAction, multiTo` |
+| **StateGraph** | `state-store.js` | `siteVersion, createdAt, updatedAt, nodes{}, edges{}, edgeIndex{}, stats` |
+| **SmartDelta** | `delta-engine.js` | `elapsed_ms, frame_count, viewport, scroll, motion_groups[], content_updates[], appearances[], disappearances[], _patterns {new, known}` |
+| **Plugin** | `plugin-system.js` | `id, install(api), collect(api), runAt, emitType, priority, realtime` |
+| **Frame** | `delta-engine.js` | `timestamp, viewport {from, to}, deltas[]` |
+| **Config** | `core.js` | `mode, plugins{}, options {textCoords, network, react, console}` |
+| **Pattern** | `pattern-registry.js` | `type, subtype, label, vector, elementCount, contentChange, appeared, sampleIds, firstSeen` |
+
+---
+
+## 11. ARCHITECTURE SUMMARY
+
+| Subsystem | Location | Core/Plugin | Description |
+|---|---|---|---|
+| **Core Engine** | `server/core.js` | Core | WebSocket routing, broadcast, config, HTTP handler |
+| **HTTP/WS Servers** | `server/index.js` | Core | Port 7891 (WS), 7892 (HTTP), startup wiring |
+| **MCP Server** | `server/mcp-server.js` | Core | 50 MCP tools via stdio JSON-RPC |
+| **MCP Registry** | `server/mcp/registry.js` | Core | Tool registration, filtering, execution, presets |
+| **MCP Tool Manager** | `server/tool-manager.js` | Core | Profile-based visibility, auto-load/unload |
+| **Plugin System** | `extension/injected/plugin-system.js` | Core | Browser-side plugin lifecycle (register → install → collect → emit) |
+| **State Machine** | `server/state-machine.js` + `state-store.js` | Core | State graph with 3-layer storage, LRU, hashing |
+| **State Navigator** | `server/state-navigator.js` | Core | BFS pathfinding + action replay + URL fallback |
+| **Delta Engine** | `server/delta-engine.js` | Core | Frame buffering, motion clustering, scroll detection, smart delta aggregation |
+| **Cache Writer** | `server/cache-writer.js` | Core | Session persistence to disk, staleness tracking, merge logic for text coords |
+| **Pattern Registry** | `server/pattern-registry.js` | Core | SHA-256 pattern dedup, classification, persistent index |
+| **Action Executor** | `server/action-executor.js` | Core | Promise-based action dispatch to browser |
+| **Screenshot Manager** | `server/screenshot-manager.js` | Core | Screenshot capture/request with disk storage |
+| **Config Change Log** | `server/config-change-log.js` | Core | Change validation, logging, auto-revert |
+| **State Fingerprint** | `server/state-fingerprint.js` | Core | FNV-1a hashing, non-deterministic filtering, composite hashes |
+| **State Semantics** | `server/state-semantic.js` | Core | Label generation, tag extraction, keyState extraction, state search |
+| **Cache Integrity** | `server/cache-integrity.js` | Core | Startup validation and repair of session cache |
+
+All features are **Core (always on)** unless explicitly marked as **Plugin-like (configurable)** above. The MCP tools themselves are all registered at startup, but their *visibility* to the AI agent is controlled by the Tool Manager's profile system (core tools always visible; others behind `debug`, `state-nav`, `delta`, `advanced-actions`, `admin`, or `power` profiles).
+</task_result>
+```
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 42.6s)
+
+_Thinking:_
+
+Now I have a comprehensive inventory. Let me organize everything into a clear document for the user, covering:
+
+1. Already implemented parts
+2. Low-hanging fruit (small changes, big impact)
+3. All user's ideas (from all conversations)
+4. My additional ideas
+5. Comments on key points
+
+Let me think about what the user has mentioned across our conversations:
+
+User's ideas (in rough priority/chronological order):
+1. Right-click context menu → copy minimal enclosing HTML of an element
+2. Self-test framework (done!)
+3. Console log summary copy (done!)
+4. CSS source extraction improvement
+5. Source-level (CSS/JS/HTML) file extraction
+6. Mapping Engine: source ↔ live DOM relationship
+7. AI assistant that can: show relevant source files, trace source to DOM influence, attempt state recovery with graceful failure, build a "map" of the page with uncertainty
+8. Binary diff detection for site updates (extension updates too)
+9. ASCII/visual state map with user position pointer
+10. Plugin architecture for all these features
+11. Everything oriented toward improving tool quality
+
+My additional ideas:
+1. Time-series correlation engine (Network→DOM→Style chain)
+2. Confidence-based AI responses
+3. CSS specificity engine (which rule wins for each element)
+4. Source map resolver (if available)
+5. Framework↔DOM mapping (via bippy + adapters)
+6. State visualizer (ASCII graph + position)
+7. Component-level screenshot/visual diff
+8. Session replay (record and replay user interactions)
+9. Offline/standalone mode
+10. Plugin marketplace concept
+
+Let me organize this into a coherent document.
+
+## browser-whiskor v3 — 全機能・構想マップ
+
+---
+
+### 凡例
+- ✅ **済**: 実装済み
+- 🔧 **低コスト**: コードの小改修で実現可能（数時間〜数日）
+- 🏗️ **中コスト**: 新規サブシステムが必要（数日〜2週間）
+- 🧠 **高コスト**: 研究要素あり（2週間〜）
+- 💡 **私の提案**: 今回初めて出すアイデア
+- 🗣️ **ユーザー発案**: あなたが言及したアイデア
+
+---
+
+## 第1階層：すでにあるもの（全部 ✅）
+
+### データ収集（11 種類の analyzer）
+| データ | 内容 | 形式 | 補足 |
+|--------|------|------|------|
+| DOM スナップショット | ツリー構造（タグ/属性/テキスト/位置/影DOM） | JSON | 最大3000ノード |
+| テキスト座標 | 画面上の全単語の位置・フォント・色 | JSON | 最大5000単語、数MB |
+| UI カタログ | ボタン/リンク/入力欄/画像の一覧 + 位置 | JSON | |
+| CSS 解析 | デザイントークン + フレームワーク判定 | JSON | ⚠ 弱い（レベル0.5） |
+| ARIA ツリー | ロール/名前/状態/ランドマーク/フォーカス順 | JSON | 深さ12 |
+| ネットワーク | リクエスト/レスポンス（ヘッダ・本文4KB） | JSON | リアルタイム |
+| ストレージ | localStorage/sessionStorage/cookie | JSON | |
+| コンソール | console.log/warn/error の出力 | JSON | 最大2000件 |
+| パフォーマンス | FCP/LCP/CLS/長タスク/リソースタイミング | JSON | |
+| フレームワーク | React/Vue/Angular/Svelte/Solid の状態 | JSON | bippy 搭載 |
+| ソースカタログ | ページで使われてる全スクリプト・スタイルのURL | JSON | 中身は無い |
+
+### サーバー基盤
+- WebSocket サーバー (7891) + HTTP API (7892)
+- MCP サーバー（50ツール、JSON-RPC over stdio）
+- セッション管理（ディスク永続化、キャッシュ修復、ピン留め）
+- プラグイン管理（`plugin-system.js` で ON/OFF）
+- Config 変更ログと自動ロールバック
+
+### 状態管理
+- 状態グラフ（State Machine）：指紋ベースのノード・エッジ
+- 状態ナビゲーター（BFS 経路探索 + アクション再生）
+- セマンティックラベリング・タグ抽出・曖昧検索
+
+### デルタエンジン
+- フレームバッファリング
+- モーションクラスタリング / スクロール検出
+- コンテンツ更新検出 / 出現・消失追跡
+- パターンレジストリ（SHA-256 重複排除）
+
+### ダッシュボード (HTML 1枚)
+- セッション一覧 / タブ切替 UI
+- アクションツール（クリック・タイプ・JS実行など）
+- Self-Test（QUICK / PER-TAB / SCENARIO 3モード）
+- 📋 COPY LOGS ボタン（今回追加）
+
+---
+
+## 第2階層：低コストで追加できるもの 🔧
+
+| # | アイデア | 発案 | 内容 | 工数 |
+|---|----------|------|------|------|
+| 1 | **CSS 全ルール取得** | 🗣️ | `document.styleSheets` から全ルールの `cssText` を取得（現在はカスタムプロパティのみ） | 1日 |
+| 2 | **favicon.ico 404 解消** | 🗣️ | `<link rel="icon" href="data:,">` を dashboard.html に追加 | 5分 |
+| 3 | **右クリック要素コピー** | 🗣️ | コンテキストメニューに「要素の最小コードをコピー」を追加（SW の contextMenus API） | 2時間 |
+| 4 | **状態グラフの ASCII 地図表示** | 🗣️ | ダッシュボードでノードとエッジをテキストベースのツリー/グラフで表示 | 2日 |
+| 5 | **CSS specificity 解決** | 💡 | 各 DOM 要素に「このスタイルシートの n 番目のルールが効いてる」を `document.querySelector` で特定 | 2日 |
+| 6 | **SOURCE_CATALOG の中身追加** | 🗣️💡 | スクリプト・スタイルシートの中身を `fetch()` または `sheet.ownerNode.textContent` で取得 | 1日 |
+| 7 | **Collect のエラー分類改善** | 💡 | Self-Test の "Failed to fetch" → アドブロッカー検出メッセージに改善 | 1時間 |
+| 8 | **セッションの ZIP エクスポート** | 🗣️ | 1セッション分の全キャッシュファイルを ZIP でダウンロード | 1日 |
+
+---
+
+## 第3階層：中コスト（新規サブシステム）🏗️
+
+### 3-A: Mapping Engine（ソース↔画面の関係マッピング）
+
+| コンポーネント | 発案 | 説明 | 工数 |
+|---------------|------|------|------|
+| **CSS Origin Tracker** | 🗣️💡 | 各 DOM 要素に対して「どのスタイルシートのどのルールが効いてるか」を特定。フォールバック: `getResources` → `cssRules.cssText` → `fetch(href)` → URL のみ | 3日 |
+| **Time-series Correlator** | 💡 | Network Response → DOM Mutation → Style Recompute をタイムスタンプで相関。「この API がこの UI を変えた」を推定 | 4日 |
+| **Framework↔DOM Mapper** | 🗣️ | bippy の `__reactFiber` 参照 + DOM node を紐付け。「この `<button>` は `UserCard` の render 結果」 | 3日 |
+| **Confidence Scorer** | 💡 | 各関係に 0.0〜1.0 の確信度。情報が多いほど上がる | 2日 |
+
+**出力イメージ（AI への応答）:**
+> 「`<button class="btn-primary">送信</button>` には:
+> - `app.css:142` `.btn-primary { background: #4f46e5; }` ← **確実 (confidence 0.95)**
+> - このボタンは `FormComponent`（React, `src/Form.tsx:85`）の render → **ソースマップ有りの場合のみ**
+> - NETWORK_RESPONSE `POST /api/order` の 200ms 後に再レンダリング → **相関あり (0.72)**
+>
+> 全 CSS ルールのマッチング一覧を出す？ それともソース全文見る？」
+
+### 3-B: Source Layer
+
+| コンポーネント | 発案 | 説明 | 工数 |
+|---------------|------|------|------|
+| **CSS/JS 実ファイル取得** | 🗣️ | 3段階フォールバック: `getResources` → `fetch` → `styleSheets.cssRules` | 2日 |
+| **SourceMap Resolver** | 🗣️💡 | 配信されてたら解決。バンドルJSの行 → 元の `.tsx:行` | 2日 |
+| **画像は取らない** | 🗣️ | 方針決定済み | — |
+
+### 3-C: Visualizer（状態グラフの視覚化）
+
+| コンポーネント | 発案 | 説明 | 工数 |
+|---------------|------|------|------|
+| **ASCII 状態マップ** | 🗣️ | ノードとエッジをテキストベースで表示。`● → ● → ●` のようなグラフ | 2日 |
+| **ユーザー位置ポインター** | 🗣️ | 「今ここ」を `▼` や `→` でマップ上に表示 | 1日 |
+| **段階的レンダリング** | 🗣️ | 大規模グラフは最初は概要のみ→拡大で詳細 | 2日 |
+
+---
+
+## 第4階層：高コスト（研究要素あり）🧠
+
+| # | アイデア | 発案 | 説明 | 課題 |
+|---|----------|------|------|------|
+| 1 | **バイナリ差分更新検出** | 🗣️ | 「このCSS、前回と中身が違う→サイトが更新された」を自動検知 | ハッシュ比較は簡単だが、「部分置き換えで上書き」の自動判断は難しい |
+| 2 | **拡張機能自身の更新とバイナリ変化** | 🗣️ | 拡張機能が更新されたらリソースを再取得？ | そもそも拡張機能の更新検知は `chrome.runtime.onUpdateAvailable` で可能。再取得は一貫性とのトレードオフ |
+| 3 | **状態復元の高精度化** | 🗣️ | 「前に戻りたい」「失敗した」→ ソーストレース + 高速に地図 + 不確実性を許容した実行 | 現在は URL+指紋ベースのみ。SPA での復元精度が課題 |
+| 4 | **Session Replay** | 💡 | ユーザーの操作を記録して後で再生（クリック・タイプ・スクロールの時系列を再生） | Puppeteer/Playwright 相当のことを拡張機能内でやる。同期的なタイミング保証が難しい |
+
+---
+
+## 第5階層：アーキテクチャ全体像
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                     AI Agent (MCP / LLM)                          │
+│  「今のDOM見せて」「ソース見せて」「状態戻して」「地図見せて」    │
+└──┬───────┬───────┬───────┬──────┬───────┬───────┬───────┬──────┘
+   │       │       │       │      │       │       │       │
+┌──▼──┐ ┌─▼──┐ ┌─▼──┐ ┌──▼──┐ ┌▼───┐ ┌▼────┐ ┌▼────┐ ┌▼────┐
+│ LIVE │ │SRC │ │MAP │ │STATE│ │VIS │ │CORR │ │CONF │ │EXPRT│
+│ DATA │ │SRC │ │ENG │ │NAV  │ │UAL │ │ELATE│ │IDENC│ │(ZIP)│
+│11種  │ │CSS │ │CSS→│ │     │ │IZER│ │Net→ │ │E    │ │     │
+│ana-  │ │/JS │ │DOM │ │     │ │    │ │DOM→ │ │SCORE│ │     │
+│lyzer │ │    │ │    │ │     │ │    │ │Style│ │     │ │     │
+└──┬──┘ └──┬─┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘
+   │       │      │       │       │       │       │       │
+   └───────┴──────┴───────┴───────┴───────┴───────┴───────┴──
+                           │
+                  ┌────────▼────────┐
+                  │   Plugin API    │
+                  │  enable/disable │
+                  │  priority/order │
+                  │  dependencies   │
+                  └────────┬────────┘
+                           │
+                  ┌────────▼────────┐
+                  │   Core Server   │
+                  │ (WS + HTTP +    │
+                  │  MCP + Cache)   │
+                  └─────────────────┘
+```
+
+---
+
+## フェーズ提案（優先順位）
+
+### Phase 1: すぐやる（工数重視）🔧
+1. favicon 404 解消
+2. CSS 全ルール取得（レベルA）
+3. 要素の右クリックコピー
+4. SOURCE_CATALOG の中身追加
+
+### Phase 2: Mapping Engine 基礎 🏗️
+5. CSS Origin Tracker（どのスタイルシートのどのルールが効いてるか）
+6. Time-series Correlator（Network→DOM の相関）
+7. Framework↔DOM Mapper（bippy で Component→DOM）
+
+### Phase 3: 視覚化 🏗️
+8. 状態グラフの ASCII 表示 + ユーザー位置
+9. SourceMap Resolver（あれば）
+
+### Phase 4: AI 対話高度化 🧠
+10. Confidence Scorer の MCP 統合
+11. 状態復元の精度向上
+
+### Phase 5: エクスポート + 差分検出 🧠
+12. ZIP エクスポート
+13. バイナリ差分更新検出
+
+---
+
+どのフェーズから着手しますか？ また、マッピングの方針が固まってから **Phase 1 の 2（CSS 全ルール取得）** は先に実装してもいいですか？ 今の CSS analyzer が Phase 2 の CSS Origin Tracker の基盤になるので。
+
+---
+
+## User
+
+---
+
+## Assistant (Compaction · DeepSeek V4 Flash Free · 29.3s)
+
+_Thinking:_
+
+The user wants me to update the anchored summary with all the new information from this conversation. Let me organize everything that happened:
+
+1. Started a background server with logging
+2. Found that EXECUTE_ACTION_IN_PAGE was working on some tabs
+3. Found that bridge.js doesn't forward `listenerId` at top level
+4. Fixed bridge.js to spread `event.data.payload`
+5. Changed scenario navigation from `execute_js` to `navigate` action type
+6. Collect "Failed to fetch" was caused by ad blocker (`ERR_BLOCKED_BY_CLIENT`)
+7. Renamed collect endpoint from `/api/collect` to `/api/gather`
+8. Added `create_tab` action type to SW
+9. Fixed `chrome.tabs.update` race condition (throws even when navigation succeeds)
+10. Dashboard syntax error bug (missing `var S = {`)
+11. Added `st-copy-logs` to cacheDOM ID list
+12. User showed reference extension (ソースぶっこぬき機能) using `chrome.devtools.inspectedWindow.getResources()`
+13. Discussed CSS analyzer quality and mapping engine architecture
+14. Created `start.ps1` with port conflict handling
+15. All 308 tests pass consistently
+
+Let me compile this into a comprehensive summary.
+
+## Goal
+- Build a comprehensive self-test framework in the dashboard for manually testing all server APIs, extension actions, and full browser round-trips with error classification, and expand the system toward a full source-mapping + state-visualization engine.
+
+## Constraints & Preferences
+- Zero npm dependency on extension side; `ws` only on server.
+- Chrome MV3 + Firefox MV2 both supported; `shared/injected/` synced.
+- All 308 existing `node:test` tests must continue to pass.
+- Dashboard is a single HTML file (no build step, zero-deploy).
+- Self-test must work in 3 modes: Quick (no tab needed), Per-Tab (existing API checks), Scenario (full E2E with step engine).
+- English-only for scripts/UI is fine (user decided).
+- Bilingual support preferred for user-facing strings (start script).
+
+## Progress
+### Done
+- **Self-Test tab** added to dashboard with 3-mode selector (QUICK / PER-TAB / SCENARIO), RUN / CLEAR / COPY / COPY LOGS buttons, live result rows, and copyable text report.
+- **Quick Tests** (no tab needed): server health, config read/write, sessions list, CORS headers, 404 handling, graph API.
+- **Per-Tab Tests** (existing): session overview, states list, profiles/tools API, smart/patterns delta, all 10 data-type endpoints, graph endpoint, action ping, screenshot, collect.
+- **Scenario Tests** (full E2E): 4 built-in scenarios — Navigation & State, Action Execution, Data Collection, Full Suite. Each runs multi-step with after-action data collection and validation. URL configurable (default `https://the-internet.herokuapp.com`). Auto-creates tab via `create_tab` action (was broken `execute_js` + `window.open`).
+- **Error classification** in scenarios: `server`, `extension`, `browser`, `data`, `unknown`. Color-coded badge per category.
+- **Fixed `executeInPage` listenerId bug** (`extension/injected/bridge.js`): added `...event.data.payload` spread so `listenerId`/`ok`/`result`/`error` appear at top level of forwarded message (was nested inside `payload`, causing 12s timeout on all page-injected actions).
+- **Fixed action HTTP endpoint** (`server/index.js`): now `await`s the Promise from `core.handleHttpRequest()` so response body contains actual action result instead of `{}` (JSON.stringify of Promise).
+- **Fixed collect endpoint** (`server/index.js`): moved before `bodyPromise` handler with own `readBody()`, preventing body stream conflict.
+- **Fixed server `bodyPromise` crash** (`server/index.js`): added `.catch()` to `bodyPromise.then()`.
+- **Fixed screenshot `chrome.tabs.get` crash** (`extension/background/sw.js`): catch failure → fallback to `captureVisibleTab(undefined)` (current window).
+- **Fixed "No tab with id" race in navigate** (`extension/background/sw.js`): `chrome.tabs.update()` now wrapped in try-catch; if it throws but `chrome.tabs.get()` confirms tab exists, treat as success (Chrome race condition where navigation starts but Promise rejects).
+- **Added `create_tab` action type** (`extension/background/sw.js`): uses `chrome.tabs.create()` directly — works on any tab without needing `executeScript`.
+- **Added `create_tab` to scenario auto-create** (`server/dashboard.html`): auto-create now uses the new action type instead of broken `execute_js` + `window.open`.
+- **Collect "Failed to fetch" fixed**: root cause was adblocker (`ERR_BLOCKED_BY_CLIENT`) blocking `/api/collect` path. Renamed to `/api/gather` (old path kept as alias for backward compat).
+- **All scenario navigation** changed from `execute_js` (`window.location.href`) to `navigate` action type (`chrome.tabs.update`) — more reliable.
+- **Log subscription system** (`server/core.js` + `server/index.js`): `SUBSCRIBE_LOGS` WebSocket handler; `broadcastLog()` method; server `log()` function forwards to subscribed dashboards.
+- **Console log collector** (`server/dashboard.html`): overrides `console.*` to capture dashboard-side logs; receives server/extension logs via WebSocket; "📋 COPY LOGS" button copies combined log.
+- **`start.ps1`** created: port conflict detection with 10s timeout prompt (y/N) to override existing server; supports `-verbose` and `-mock` flags.
+- **Fixed dashboard syntax error** (`server/dashboard.html`): restored missing `var S = {` line that caused `Uncaught SyntaxError: Unexpected token ':'`.
+- **Fixed `st-copy-logs` undefined** (`server/dashboard.html`): added `'st-copy-logs'` to `cacheDOM()` ID list.
+- **Reference extension analyzed** (`参考(外)/ソースぶっこぬき機能_参考/`): uses `chrome.devtools.inspectedWindow.getResources()` to get raw source files (HTML/CSS/JS/images) and packs into ZIP via JSZip+FileSaver; no server involved.
+- All 308 tests pass consistently across all changes.
+
+### In Progress
+- **CSS analyzer is shallow** — currently only collects custom properties (`--*` tokens) + framework detection flags; no actual property values (`color`, `font-size`, etc.), no `@import`/`@font-face`/`@keyframes`, no per-element computed styles, no CORS-limited external sheets.
+- **Mapping Engine architecture** being designed — multi-layer fallback chain (Framework → CSS Origin → Source Map → Time-series Correlation) with confidence scores.
+- Discussion on how to handle SPA frameworks (React/Vue/etc.): bippy + adapaters for dynamic component↔DOM mapping; static JS analysis is infeasible due to bundling/minification.
+
+### Blocked
+- (none)
+
+## Key Decisions
+- Use `navigate` action type (`chrome.tabs.update`) instead of `execute_js` (`window.location.href`) for navigation in scenarios — `chrome.tabs.update` works on more tabs.
+- Use `create_tab` action type for auto-creating test tabs — direct API, no `executeScript` needed.
+- Collect endpoint path changed to `/api/gather` — adblocker-safe (old `/api/collect` kept as alias).
+- Server log subscription: dashboard sends `SUBSCRIBE_LOGS` via WebSocket, server pushes `LOG_ENTRY` messages — no polling needed.
+- CSS source extraction: plan to use fallback chain `devtools.getResources()` → `fetch()` → `document.styleSheets` → URL-only, each level degrading gracefully.
+- Framework↔DOM mapping: bippy (React) → Vue/Svelte/Angular adapters → generic DOM observer, with confidence scores.
+- The mapping engine is inherently probabilistic — static JS analysis is infeasible for SPA bundles; only runtime event correlation (Network→Framework→DOM→CSS timeline) is practical.
+- Self-test stays in dashboard HTML (not separate Node.js test files) because it's a manual developer tool.
+- English-only for scripts; bilingual for user-visible messages.
+
+## Next Steps
+1. Phase 1: Enhance CSS analyzer to collect full `cssRules[i].cssText` from all accessible stylesheets (level A).
+2. Phase 2: Implement time-series correlation engine (Network→DOM→CSS timeline) using existing timestamped events.
+3. Phase 3: Framework→DOM mapping via bippy + adapters for component-level attribution.
+4. Phase 4: Source map resolution when available (`.map` files).
+5. Phase 5: Visual state map with user position pointer (ASCII or simplified graph).
+6. Phase 6: Plugin architecture for each layer (enable/disable independently).
+
+## Critical Context
+- "No tab with id" error from `chrome.tabs.update()` can be a race condition even when navigation succeeds — SW now handles this gracefully.
+- `/api/gather` works (confirmed by curl test returning `{ ok: true, collected: true }`).
+- Adblockers (uBlock Origin etc.) block `/api/collect` but not `/api/gather`.
+- TabId `265844557` appears to be the devtools panel connection in sessions list — `chrome.tabs.*` APIs fail on it. Auto-create tab checkbox bypasses this.
+- `chrome.devtools.inspectedWindow.getResources()` returns ALL page resources (full source code) but requires DevTools panel to be open.
+- `document.styleSheets.cssRules` is limited by CORS for external sheets; `devtools.getResources()` bypasses CORS.
+- bippy (React DevTools protocol) can map components to DOM nodes at runtime — this is the most reliable way to get component→DOM relationships in SPA.
+- The three persistent failures (Collect, No tab with id, URL unchanged) are now all fixed.
+- User is considering a large-scale architecture: source-layer → mapping engine → state visualizer → confidence-based AI responses.
+
+## Relevant Files
+- `server/dashboard.html` — Self-test pane + console log collector + COPY LOGS button + scenario fixes
+- `server/index.js` — `/api/gather` endpoint, log forwarding in `log()` function
+- `server/core.js` — `logSubscribers`, `broadcastLog()`, `SUBSCRIBE_LOGS` handler
+- `extension/background/sw.js` — `create_tab` action, `navigate` error fallback
+- `extension/injected/bridge.js` — `...event.data.payload` spread fix
+- `extension/injected/analyzers/css.js` — Current CSS analyzer (shallow: tokens only)
+- `start.ps1` — Server start script with port conflict prompt
+- `参考(外)/ソースぶっこぬき機能_参考/` — Reference extension: full source ZIP download via `devtools.getResources()`
+
+---
+
+## User
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 7.4s)
+
+_Thinking:_
+
+The user is asking me to continue with next steps or stop and ask for clarification. Since I'm in plan mode (read-only), I should not make any edits. Let me think about what the next logical step would be based on our progress.
+
+Looking at the history, we've been working on:
+
+1. All the fixes (bridge.js, server/index.js, SW fixes, etc.) - DONE
+2. Self-test framework - DONE
+3. CSS analyzer enhancement - NEXT UP on the roadmap
+
+The user explicitly said in the phase proposal:
+- Phase 1 includes CSS full rules collection
+- They asked: "どのフェーズから着手しますか？ また、マッピングの方針が固まってから Phase 1 の 2（CSS 全ルール取得）は先に実装してもいいですか？"
+
+And I responded with the full progress summary, but didn't actually answer that question or ask for direction on what to do next.
+
+So I should ask the user which phase they want to start with. Let me ask them what they'd like to do next, since there are multiple possible directions:
+
+1. Phase 1: CSS analyzer enhancement (low cost, practical)
+2. Phase 2: Mapping Engine (medium cost, architectural)
+3. Something else on the list
+
+I should ask the user for direction since there are multiple paths forward.
+
+Phase 1 (CSS full rules) is the natural next step — it's low-cost, unblocks the Mapping Engine, and I can start reading the current CSS analyzer to plan the changes. But Phase 2 (CSS Origin Tracker / time-series correlation) is the bigger architectural payoff.
+
+Which direction do you want?
+
+1. **Phase 1-2: CSS analyzer → CSS Origin Tracker** — start by expanding `css.js` to collect full `cssRules[i].cssText`, then build the element→rule mapping
+2. **Phase 2-3: Time-series + Framework Mapper** — start with the network→DOM correlation engine and bippy integration
+3. **Phase 1-8: ZIP export** — quick win, gives you downloadable session snapshots
+4. Something else entirely
+
+---
+
+## User
+
+AI側に委譲する部分と、ソフト側がintelligenceに決定して実装する部分と ..mm　ソフト寄りに設計を進めたいんですよね。わかりますか
+
+---
+
+## Assistant (Plan · DeepSeek V4 Flash Free · 12.9s)
+
+_Thinking:_
+
+The user is saying in Japanese that they want to push the architecture toward the "software side" — i.e., have the software make deterministic decisions (not leave everything to the AI). They want the intelligence to be baked into the software side, not delegated to the LLM. Let me think about what this means concretely for browser-whiskor's architecture.
+
+Currently, the system collects raw data (DOM, CSS, etc.) and the AI (LLM via MCP) is supposed to interpret it. The user wants the "software side" to be smarter — to make autonomous decisions about what to collect, how to map things, how to detect changes, how to navigate the state graph, etc. They want less "throw raw data at the AI and let it figure it out" and more "software pre-digests, pre-decides, and presents conclusions to the AI."
+
+This aligns with the Mapping Engine (CSS Origin Tracker, Time-series Correlator, Framework↔DOM Mapper) and the Confidence Scorer — those are all "software-side intelligence" that pre-decides relationships instead of making the AI reverse-engineer them.
+
+Let me think about what this means for the architecture:
+
+1. **Current state**: AI says "give me the DOM" → software sends raw DOM JSON → AI has to figure out everything
+2. **Desired state**: AI says "what changed?" → software already tracked deltas, computed which CSS rules changed, correlated with which API calls, and returns "Button color changed from blue to red because `app.css:142` was modified, triggered by `POST /api/theme`"
+
+So the intelligence migration means:
+- **CSS Origin Tracker**: Software determines "this element got this style from this rule in this file" — AI just reads the conclusion
+- **Time-series Correlator**: Software determines "this network request caused this DOM mutation" — AI doesn't need to correlate timestamps
+- **Dependency Graph**: Software tracks "if I change X, Y and Z are also affected"
+- **State Change Reasoning**: When a state fails to restore, software explains *why* not just "it failed"
+- **Delta Engine already has part of this**: motion clustering, content update detection, pattern dedup — but it could be smarter about *semantic* deltas (not just structural)
+
+The user is asking me to understand this direction and confirm I'm on board. Let me respond in Japanese since they're expressing this in Japanese, and affirm understanding, then propose the concrete architectural implication.
+
+完全にわかります。
+
+今の設計は「データを取るだけ取って、解釈は全部AIに任せる」になってる。それを逆転させたい：
+
+**現状**: AI「このボタン、何色？」 → ソフトが生DOMをポン → AIがcssTextをパースして自力で特定
+
+**理想**: ソフトが「このボタン、`app.css:142` の `.btn-primary { background: #4f46e5 }` が効いてます。このルールは `POST /api/theme` の200ms後に更新されました。ついでに影響範囲は他に3箇所です」と**決定してから**AIに渡す
+
+つまり、「AIに判断させる領域」を狭め、「ソフトが確定的に結論を出す領域」を広げる。Mapping Engine（CSS Origin → Time-series Correlation → Framework↔DOM → Confidence Scorer）はまさにそれで、各レイヤーが「たぶん」ではなく「こうです」と決められる範囲を最大化する設計になる。
+
+**この方針で Phase 1-2（CSS全ルール → CSS Origin Tracker）から進めますか？** これがソフト側インテリジェンスの最初のレイヤーで、AIに「このCSSルールが効いてる」を確定情報として渡せるようになる。
+
+---
+

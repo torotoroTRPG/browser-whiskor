@@ -55,6 +55,14 @@ function setSecurity(sec) {
   registry.setCallbacks({ _security: sec });
 }
 
+function setIntelligenceCallbacks(correlator, sourceStore, cache) {
+  registry.setCallbacks({
+    _correlator:  correlator  || null,
+    _sourceStore: sourceStore || null,
+    cache:        cache       || null,
+  });
+}
+
 function setConfig(config) {
   _config = config;
 }
@@ -97,6 +105,7 @@ module.exports = {
   setCallbacks,
   setActionCallbacks,
   setSecurity,
+  setIntelligenceCallbacks,
   setNavigateBroadcast,
   setConfigLog,
   setStartupWarnings,

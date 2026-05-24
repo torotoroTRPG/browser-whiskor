@@ -9,7 +9,8 @@ Export-GitHistory.ps1
 GIT-HISTORY.md
 browser-whiskor-v3/
 直前のログ.txt
-参考/
+参考(内)/
+参考(外)/
 
 # Generated / temporary
 .idea/

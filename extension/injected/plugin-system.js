@@ -81,12 +81,39 @@
     // Called once in collector.js — installs all enabled plugins
     installAll() {
       this._loadStoredConfig().then(() => {
-        for (const plugin of this._plugins.values()) {
+        // Topological sort by dependencies
+        const sorted = this._topologicalSort();
+        for (const plugin of sorted) {
           if (this._isEnabled(plugin.id)) {
             this._safeInstall(plugin);
           }
         }
       });
+    }
+
+    // Topological sort: dependencies first, then dependents
+    _topologicalSort() {
+      const all = [...this._plugins.values()];
+      const visited = new Set();
+      const result = [];
+      const visit = (plugin, path) => {
+        if (visited.has(plugin.id)) return;
+        if (path.has(plugin.id)) {
+          console.warn(`[SI] Circular dependency detected: ${plugin.id}`);
+          return;
+        }
+        path.add(plugin.id);
+        const deps = plugin.dependencies || [];
+        for (const depId of deps) {
+          const dep = this._plugins.get(depId);
+          if (dep) visit(dep, path);
+        }
+        path.delete(plugin.id);
+        visited.add(plugin.id);
+        result.push(plugin);
+      };
+      for (const plugin of all) visit(plugin, new Set());
+      return result;
     }
 
     // Called at DOMContentLoaded / load events

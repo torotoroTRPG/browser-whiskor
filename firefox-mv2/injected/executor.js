@@ -90,9 +90,69 @@
         if (report.strategyUsed === 'direct') {
           try { el.click(); } catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
         } else if (report.strategyUsed === 'programmatic') {
-          // TODO: [リトルエージェント用] ここにReact Fiber/Vueインスタンスからの直接の関数呼び出しロジックを実装してください
-          // 現在はフォールバックとして direct click を使用します
-          try { el.click(); } catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
+          // Programmatic click: React Fiber / Vue instance direct handler invocation.
+          let handled = false;
+
+          // ── React Fiber path ──────────────────────────────────────────────
+          try {
+            const fiberKey = Object.keys(el).find(k =>
+              k.startsWith('__reactFiber$') || k.startsWith('__reactInternals$')
+            );
+            if (fiberKey) {
+              let cur = el[fiberKey];
+              while (cur) {
+                const props = cur.memoizedProps;
+                if (props) {
+                  const handler = props.onClick || props.onPointerUp || props.onMouseUp;
+                  if (typeof handler === 'function') {
+                    const rect = el.getBoundingClientRect();
+                    const synthEvent = {
+                      type: 'click', target: el, currentTarget: el,
+                      bubbles: true, cancelable: true, defaultPrevented: false,
+                      preventDefault() { this.defaultPrevented = true; },
+                      stopPropagation() {}, stopImmediatePropagation() {},
+                      nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
+                      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
+                      pageX: rect.left + rect.width / 2 + window.scrollX,
+                      pageY: rect.top + rect.height / 2 + window.scrollY,
+                      button: 0, buttons: 1, persist() {},
+                    };
+                    handler(synthEvent);
+                    handled = true;
+                    break;
+                  }
+                }
+                cur = cur.return;
+              }
+            }
+          } catch (_) {}
+
+          // ── Vue 3 path ────────────────────────────────────────────────────
+          if (!handled) {
+            try {
+              const vueKey = Object.keys(el).find(k => k.startsWith('__vueParentComponent'));
+              if (vueKey) {
+                const instance = el[vueKey];
+                let vnode = instance?.vnode || instance?.subTree;
+                let attempts = 0;
+                while (vnode && attempts++ < 10) {
+                  const handler = vnode.props?.onClick || vnode.props?.onPointerup;
+                  if (typeof handler === 'function') {
+                    handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    handled = true;
+                    break;
+                  }
+                  vnode = vnode.component?.vnode || vnode.parent;
+                }
+              }
+            } catch (_) {}
+          }
+
+          // ── Fallback ──────────────────────────────────────────────────────
+          if (!handled) {
+            try { el.click(); handled = true; }
+            catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
+          }
         } else {
           const btn = action.button === 'right' ? 2 : action.button === 'middle' ? 1 : 0;
           const evOpts = { bubbles: true, cancelable: true, view: window, button: btn };
