@@ -505,12 +505,11 @@
         0 0 0 1px var(--text),
         0 0 0 2px var(--border);
     }
+    #cap-scroll { position: relative; }
     #cap-marks-layer {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0;
       pointer-events: none;
-      overflow: hidden;
     }
-    #cap-img-wrap { position: relative; }
     .cap-marker {
       position: absolute;
       pointer-events: all;
@@ -883,8 +882,10 @@
                 <button class="btn" id="cap-expand" title="Expand capture preview" style="font-size:11px;padding:2px 6px">⛶</button>
               </div>
               <div id="cap-img-wrap" style="margin-top:8px;max-height:400px;overflow:auto;background:var(--canvas-bg);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
-                <img id="cap-img">
-                <div id="cap-marks-layer"></div>
+                <div id="cap-scroll" style="position:relative;display:inline-block;min-width:100%">
+                  <img id="cap-img">
+                  <div id="cap-marks-layer" style="position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none"></div>
+                </div>
               </div>
             </div>
             <div class="json" id="cap-data" style="max-height:200px"></div>
@@ -1136,7 +1137,7 @@
         'dl-data','dl-reload','dl-patterns','dl-info',
         'cap-full','cap-marks','cap-element','cap-sel','cap-format','cap-pad',
         'cap-result','cap-img','cap-link','cap-data','cap-expand','cap-img-wrap',
-        'cap-marks-layer','cap-copy','cap-toast',
+        'cap-marks-layer','cap-copy','cap-toast','cap-scroll',
         'pr-status','pr-search-tools','pr-load','pr-load-btn','pr-unload-btn','pr-data',
         'stream-el',
         'st-results','st-summary','st-run','st-clear','st-copy','st-copy-logs','st-report',
@@ -2285,6 +2286,19 @@
       D['cap-marks-layer'].innerHTML = '';
     }
 
+    function copyText(txt) {
+      try { navigator.clipboard.writeText(txt); return true; } catch(_) {}
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch(_) {}
+      return false;
+    }
+
     function showCapToast(msg) {
       D['cap-toast'].textContent = msg;
       D['cap-toast'].classList.add('show');
@@ -2298,108 +2312,97 @@
       _capElements = elements;
       var img = D['cap-img'];
       var layer = D['cap-marks-layer'];
-      var scaleX = img.clientWidth / vpW;
-      var scaleY = img.clientHeight / vpH;
 
-      for (var i = 0; i < elements.length; i++) {
-        var el = elements[i];
-        // Convert page center coordinates to top-left for the overlay
-        var left = (el.x - el.w / 2) * scaleX;
-        var top  = (el.y - el.h / 2) * scaleY;
-        var w    = el.w * scaleX;
-        var h    = el.h * scaleY;
+      var doRender = function() {
+        var scaleX = img.clientWidth / vpW;
+        var scaleY = img.clientHeight / vpH;
+        if (scaleX < 0.01 || scaleY < 0.01) { setTimeout(doRender, 50); return; }
 
-        var m = document.createElement('div');
-        m.className = 'cap-marker';
-        m.style.left   = Math.max(0, left) + 'px';
-        m.style.top    = Math.max(0, top) + 'px';
-        m.style.width  = Math.max(4, w) + 'px';
-        m.style.height = Math.max(4, h) + 'px';
-        m.dataset.idx  = i;
+        for (var i = 0; i < elements.length; i++) {
+          (function(idx) {
+            var el = elements[idx];
+            var left = (el.x - el.w / 2) * scaleX;
+            var top  = (el.y - el.h / 2) * scaleY;
+            var w    = el.w * scaleX;
+            var h    = el.h * scaleY;
 
-        // Visible badge: red circle with number (matching old drawMarksOnImage quality)
-        var badge = document.createElement('div');
-        badge.className = 'cap-badge';
-        var cx = Math.round(el.w * scaleX / 2);
-        var cy = Math.round(el.h * scaleY / 2);
-        var radius = Math.max(12, Math.min(28, Math.round(Math.min(el.w * scaleX, el.h * scaleY) * 0.45)));
-        var fontSize = Math.max(10, Math.round(radius * 0.9));
-        badge.textContent = el.id || '';
-        badge.style.cssText = 'position:absolute;left:' + (cx - radius) + 'px;top:' + (cy - radius + 1) + 'px;'
-          + 'width:' + (radius * 2) + 'px;height:' + (radius * 2) + 'px;'
-          + 'border-radius:50%;background:#e53e3e;color:#fff;border:2px solid #fff;'
-          + 'font:bold ' + fontSize + 'px/1 sans-serif;'
-          + 'display:flex;align-items:center;justify-content:center;'
-          + 'box-shadow:0 2px 6px rgba(0,0,0,0.4);'
-          + 'pointer-events:none;z-index:5;';
-        m.appendChild(badge);
+            var m = document.createElement('div');
+            m.className = 'cap-marker';
+            m.style.left   = Math.max(0, left) + 'px';
+            m.style.top    = Math.max(0, top) + 'px';
+            m.style.width  = Math.max(4, w) + 'px';
+            m.style.height = Math.max(4, h) + 'px';
+            m.dataset.idx  = idx;
 
-        // Tooltip
-        var tip = document.createElement('div');
-        tip.className = 'cap-tip';
-        var tagLine = '<div class="cap-tag">' + esc(el.tag) + (el.id ? ' #' + esc(el.id) : '') + '</div>';
-        var infoLine = '<div>' + esc(el.text || el.selector || '') + '</div>';
-        var coordLine = '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
-          + Math.round(el.x) + ',' + Math.round(el.y) + ' ' + el.w + '×' + el.h + '</div>';
-        tip.innerHTML = tagLine + infoLine + coordLine;
-        m.appendChild(tip);
+            // Badge: red circle with number (matching old drawMarksOnImage)
+            var badge = document.createElement('div');
+            var cx = el.w * scaleX / 2;
+            var cy = el.h * scaleY / 2;
+            var r = Math.max(12, Math.min(28, Math.round(Math.min(el.w * scaleX, el.h * scaleY) * 0.45)));
+            var fs = Math.max(10, Math.round(r * 0.9));
+            badge.textContent = el.id || '';
+            badge.style.cssText = 'position:absolute;left:' + (cx - r) + 'px;top:' + (cy - r + 1) + 'px;'
+              + 'width:' + (r * 2) + 'px;height:' + (r * 2) + 'px;border-radius:50%;'
+              + 'background:#e53e3e;color:#fff;border:2px solid #fff;'
+              + 'font:bold ' + fs + 'px/1 sans-serif;'
+              + 'display:flex;align-items:center;justify-content:center;'
+              + 'box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none;z-index:5;';
+            m.appendChild(badge);
 
-        // Events
-        m.addEventListener('click', function(e) {
-          e.stopPropagation();
-          this.classList.toggle('pinned');
-          // Expand tooltip with full detail when pinned
-          var idx = parseInt(this.dataset.idx);
-          var ed = _capElements ? _capElements[idx] : null;
-          if (this.classList.contains('pinned') && ed) {
-            var tipEl = this.querySelector('.cap-tip');
-            if (tipEl) {
-              var tg = '<div class="cap-tag">' + esc(ed.tag) + (ed.id ? ' #' + esc(ed.id) : '') + '</div>';
-              var inf = '<div>' + esc(ed.text || ed.selector || '') + '</div>';
-              var crd = '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
-                + Math.round(ed.x) + ',' + Math.round(ed.y) + ' ' + ed.w + '×' + ed.h + '</div>';
-              var extra = '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;font-size:8px;color:var(--muted)">'
-                + '<div>selector: ' + esc(ed.selector) + '</div>'
-                + '<div>tag: ' + esc(ed.tag) + '</div>'
-                + '<div>text: ' + esc((ed.text || '').slice(0, 120)) + '</div>'
-                + '<div>pos: ' + ed.x + ',' + ed.y + ' ' + ed.w + '×' + ed.h + '</div>'
-                + '</div>';
-              tipEl.innerHTML = tg + inf + crd + extra;
-            }
-          }
-        });
+            // Tooltip
+            var tip = document.createElement('div');
+            tip.className = 'cap-tip';
+            tip.innerHTML = '<div class="cap-tag">' + esc(el.tag) + (el.id ? ' #' + esc(el.id) : '') + '</div>'
+              + '<div>' + esc(el.text || el.selector || '') + '</div>'
+              + '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
+              + Math.round(el.x) + ',' + Math.round(el.y) + ' ' + el.w + '×' + el.h + '</div>';
+            m.appendChild(tip);
 
-        m.addEventListener('contextmenu', function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          var idx = parseInt(this.dataset.idx);
-          var ed = _capElements ? _capElements[idx] : null;
-          if (!ed) return;
-          var copyField = D['cap-copy'].value;
-          var txt;
-          if (copyField === 'full') {
-            txt = JSON.stringify(ed, null, 2);
-          } else if (copyField === 'selector') {
-            txt = ed.selector || '';
-          } else if (copyField === 'tag') {
-            txt = ed.tag || '';
-          } else if (copyField === 'text') {
-            txt = ed.text || '';
-          } else if (copyField === 'id') {
-            txt = ed.id != null ? String(ed.id) : '';
-          } else {
-            txt = ed.selector || '';
-          }
-          // If pinned, include additional detail
-          if (this.classList.contains('pinned')) {
-            txt += '\n---\ntag: ' + (ed.tag || '') + '\ntext: ' + (ed.text || '') + '\npos: ' + ed.x + ',' + ed.y + ' ' + ed.w + '×' + ed.h + '\nselector: ' + (ed.selector || '');
-          }
-          try { navigator.clipboard.writeText(txt); } catch(_) {}
-          showCapToast('Copied ' + copyField);
-        });
+            // Click: pin/unpin
+            m.addEventListener('click', function(e) {
+              e.stopPropagation();
+              this.classList.toggle('pinned');
+              var i = parseInt(this.dataset.idx);
+              var d = _capElements ? _capElements[i] : null;
+              if (this.classList.contains('pinned') && d) {
+                var t = this.querySelector('.cap-tip');
+                if (t) t.innerHTML = '<div class="cap-tag">' + esc(d.tag) + (d.id ? ' #' + esc(d.id) : '') + '</div>'
+                  + '<div>' + esc(d.text || d.selector || '') + '</div>'
+                  + '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
+                  + Math.round(d.x) + ',' + Math.round(d.y) + ' ' + d.w + '×' + d.h + '</div>'
+                  + '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;font-size:8px;color:var(--muted)">'
+                  + '<div>selector: ' + esc(d.selector) + '</div>'
+                  + '<div>tag: ' + esc(d.tag) + '</div>'
+                  + '<div>text: ' + esc((d.text || '').slice(0, 120)) + '</div>'
+                  + '<div>pos: ' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + '</div></div>';
+              }
+            });
 
-        layer.appendChild(m);
-      }
+            // Right-click: copy
+            m.addEventListener('contextmenu', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              var i = parseInt(this.dataset.idx);
+              var d = _capElements ? _capElements[i] : null;
+              if (!d) return;
+              var cf = D['cap-copy'].value;
+              var txt = cf === 'full' ? JSON.stringify(d, null, 2)
+                : cf === 'selector' ? (d.selector || '')
+                : cf === 'tag' ? (d.tag || '')
+                : cf === 'text' ? (d.text || '')
+                : cf === 'id' ? (d.id != null ? String(d.id) : '')
+                : (d.selector || '');
+              if (this.classList.contains('pinned'))
+                txt += '\n---\ntag:' + (d.tag||'') + ' text:' + (d.text||'') + ' pos:' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + ' sel:' + (d.selector||'');
+              if (copyText(txt)) showCapToast('Copied ' + cf);
+                else showCapToast('Copy failed');
+            });
+
+            layer.appendChild(m);
+          })(i);
+        }
+      };
+      doRender();
     }
 
     // ── Tool Profiles ────────────────────────────────────────────────────
