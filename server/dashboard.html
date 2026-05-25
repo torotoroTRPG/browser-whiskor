@@ -515,14 +515,11 @@
       position: absolute;
       pointer-events: all;
       cursor: crosshair;
-      border: 0.5px solid var(--accent);
-      border-radius: 2px;
-      background: rgba(0,0,0,0.03);
-      transition: background 150ms, box-shadow 150ms;
     }
     .cap-marker:hover {
-      background: rgba(197, 198, 199, 0.10);
-      box-shadow: 0 0 0 1px var(--accent);
+      box-shadow: inset 0 0 0 0.5px var(--accent);
+      background: rgba(197, 198, 199, 0.06);
+      border-radius: 2px;
     }
     .cap-marker .cap-tip {
       display: none;
@@ -2320,20 +2317,20 @@
         m.style.height = Math.max(4, h) + 'px';
         m.dataset.idx  = i;
 
-        // Visible badge: red circle with number (like SW drawMarksOnImage)
+        // Visible badge: red circle with number (matching old drawMarksOnImage quality)
         var badge = document.createElement('div');
         badge.className = 'cap-badge';
         var cx = Math.round(el.w * scaleX / 2);
         var cy = Math.round(el.h * scaleY / 2);
-        var radius = Math.max(8, Math.min(Math.round(Math.min(el.w, el.h) * scaleX), 18) * 0.45);
-        var fontSize = Math.max(8, radius * 0.85);
+        var radius = Math.max(12, Math.min(28, Math.round(Math.min(el.w * scaleX, el.h * scaleY) * 0.45)));
+        var fontSize = Math.max(10, Math.round(radius * 0.9));
         badge.textContent = el.id || '';
-        badge.style.cssText = 'position:absolute;left:' + (cx - radius) + 'px;top:' + (cy - radius) + 'px;'
+        badge.style.cssText = 'position:absolute;left:' + (cx - radius) + 'px;top:' + (cy - radius + 1) + 'px;'
           + 'width:' + (radius * 2) + 'px;height:' + (radius * 2) + 'px;'
-          + 'border-radius:50%;background:#e53e3e;color:#fff;'
-          + 'font:bold ' + fontSize + 'px sans-serif;'
+          + 'border-radius:50%;background:#e53e3e;color:#fff;border:2px solid #fff;'
+          + 'font:bold ' + fontSize + 'px/1 sans-serif;'
           + 'display:flex;align-items:center;justify-content:center;'
-          + 'box-shadow:0 1px 3px rgba(0,0,0,0.5);'
+          + 'box-shadow:0 2px 6px rgba(0,0,0,0.4);'
           + 'pointer-events:none;z-index:5;';
         m.appendChild(badge);
 
