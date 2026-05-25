@@ -75,9 +75,24 @@
 
     let sourceFile = null;
     let sourceLine = null;
+    // sourceHint: source-map resolution data for server-side SourceMapResolver.
+    // _debugSource contains the compiled file position; SourceMapResolver maps
+    // it back to the original .tsx/.jsx source file and line.
+    let sourceHint = null;
     if (componentFiber.type && componentFiber.type._debugSource) {
-      sourceFile = componentFiber.type._debugSource.fileName;
-      sourceLine = componentFiber.type._debugSource.lineNumber;
+      const ds = componentFiber.type._debugSource;
+      sourceFile = ds.fileName;
+      sourceLine = ds.lineNumber;
+      // Build sourceHint for server-side source map resolution.
+      // compiledFile is the bundle URL; compiledLine/Column are the *generated*
+      // positions. The server will resolve these to originalFile/originalLine.
+      if (ds.fileName) {
+        sourceHint = {
+          compiledFile:   ds.fileName,
+          compiledLine:   typeof ds.lineNumber   === 'number' ? ds.lineNumber   : null,
+          compiledColumn: typeof ds.columnNumber === 'number' ? ds.columnNumber : null,
+        };
+      }
     }
 
     return {
@@ -87,6 +102,7 @@
       state,
       sourceFile,
       sourceLine,
+      sourceHint,   // { compiledFile, compiledLine, compiledColumn } | null — for server source map resolution
       confidence: 1.00,
       acquisitionLevel: 1,
       _fiberRef: componentFiber // Programmatic click 等で直接参照するために内部保持

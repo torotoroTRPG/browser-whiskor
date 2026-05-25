@@ -243,23 +243,79 @@
   }
 
   // ── Recursive rule flattener for @layer, @scope, @media, @supports ─────────
-  // Returns flat array of { rule: CSSStyleRule, layerOrder: number, inScope: boolean }
+  // Returns flat array of { rule: CSSStyleRule, layerOrder: number, inScope: boolean, scopeProximity: number }
   //
   // layerOrder semantics (per CSS Cascade 5 spec):
   //   - unlayered styles win over all layered styles → layerOrder = Infinity
   //   - among layered styles, LATER-declared layer wins → higher layerOrder number wins
   //   - layerOrder 0 = first declared, 1 = second, etc.
   //
+  // scopeProximity semantics (per CSS Cascading 4 @scope spec):
+  //   - rules inside @scope have a "proximity" score: how close the scope root is to the target element
+  //   - proximity overrides specificity (CSS Cascading 4: proximity > specificity)
+  //   - un-scoped rules get scopeProximity = -1 (lose to any scoped rule at same layerOrder)
+  //   - scoped rules get scopeProximity = 1/(DOM depth + 1), so closer ancestors score higher
+  //
   // We pass a `layerRegistry` Map(layerName→order) built from @layer statements
   // at the start of each sheet, then assign orders as we encounter @layer blocks.
   let _layerCounter = 0;
+
+  /**
+   * Compute @scope proximity score for a target element against a CSSScopeRule.
+   * Returns a non-negative number (higher = scope root is closer to target).
+   * Returns 0 if the scope rule has no parseable root selector.
+   *
+   * Spec: CSS Cascading 4 — proximity = inverse of ancestor distance.
+   */
+  function computeScopeProximity(scopeRule, targetEl) {
+    // CSSScopeRule.scopeStart holds the scope-start selector text, e.g. ".card"
+    // Older Chrome versions expose it differently — try both APIs.
+    let rootSel = null;
+    try {
+      if (scopeRule.scopeStart) {
+        // Modern Chrome / Firefox: CSSRule.scopeStart is a CSSSelectorList text
+        rootSel = typeof scopeRule.scopeStart === 'string'
+          ? scopeRule.scopeStart
+          : (scopeRule.scopeStart.selectorText || null);
+      }
+    } catch (_) {}
+
+    if (!rootSel) return 0; // No parseable root → treat as unscoped
+
+    // Walk up from targetEl to find the nearest ancestor matching rootSel.
+    // scopeLower (scope end) is respected by checking scopeRule.scopeEnd if present.
+    let lowerSel = null;
+    try {
+      if (scopeRule.scopeEnd) {
+        lowerSel = typeof scopeRule.scopeEnd === 'string'
+          ? scopeRule.scopeEnd
+          : (scopeRule.scopeEnd.selectorText || null);
+      }
+    } catch (_) {}
+
+    let depth = 0;
+    let node = targetEl;
+    while (node && node !== document.documentElement.parentNode) {
+      try {
+        // If we've passed the lower bound, stop searching upward.
+        if (lowerSel && depth > 0 && node.matches && node.matches(lowerSel)) break;
+        if (node.matches && node.matches(rootSel)) {
+          // proximity = 1 / (depth + 1): depth 0 means element IS the root → highest proximity
+          return 1 / (depth + 1);
+        }
+      } catch (_) { break; }
+      node = node.parentElement;
+      depth++;
+    }
+    return 0; // targetEl is not inside this scope
+  }
 
   function buildLayerRegistry(ruleList) {
     // Pre-scan @layer statements to establish declaration order
     const registry = new Map(); // name → order (higher = later = wins)
     let order = 0;
     for (let i = 0; i < ruleList.length; i++) {
-      const rule = ruleList[i];
+      const rule = ruleList[i];\
       if (typeof CSSLayerStatementRule !== 'undefined' && rule instanceof CSSLayerStatementRule) {
         for (const name of (rule.nameList || [])) {
           if (!registry.has(name)) registry.set(name, order++);
@@ -272,7 +328,17 @@
     return registry;
   }
 
-  function flattenRules(ruleList, layerOrder, inScope, layerRegistry) {
+  /**
+   * flattenRules — now threads scopeRule through recursion so we can compute
+   * proximity against the target element at cascade-sort time.
+   *
+   * @param {CSSRuleList} ruleList
+   * @param {number}      layerOrder
+   * @param {boolean}     inScope
+   * @param {Map}         layerRegistry
+   * @param {CSSRule|null} activeScopeRule  — the innermost @scope rule in scope, or null
+   */
+  function flattenRules(ruleList, layerOrder, inScope, layerRegistry, activeScopeRule = null) {
     if (!layerRegistry) layerRegistry = buildLayerRegistry(ruleList);
     const result = [];
     for (let i = 0; i < ruleList.length; i++) {
@@ -282,23 +348,24 @@
         // Use the pre-registered order (or assign a new one if anonymous)
         const lo = layerRegistry.has(name) ? layerRegistry.get(name) : ++_layerCounter;
         const nested = buildLayerRegistry(rule.cssRules);
-        result.push(...flattenRules(rule.cssRules, lo, inScope, nested));
+        result.push(...flattenRules(rule.cssRules, lo, inScope, nested, activeScopeRule));
         continue;
       }
       if (typeof CSSLayerStatementRule !== 'undefined' && rule instanceof CSSLayerStatementRule) {
         continue; // order-declaration only, no rules
       }
       if (typeof CSSScopeRule !== 'undefined' && rule instanceof CSSScopeRule) {
-        result.push(...flattenRules(rule.cssRules, layerOrder, true, layerRegistry));
+        // Pass this scope rule down so leaf CSSStyleRules can record it for proximity calc.
+        result.push(...flattenRules(rule.cssRules, layerOrder, true, layerRegistry, rule));
         continue;
       }
       // @media, @supports, @container, @document — recurse same layer
       if (rule.cssRules) {
-        result.push(...flattenRules(rule.cssRules, layerOrder, inScope, layerRegistry));
+        result.push(...flattenRules(rule.cssRules, layerOrder, inScope, layerRegistry, activeScopeRule));
         continue;
       }
       if (rule instanceof CSSStyleRule) {
-        result.push({ rule, layerOrder, inScope });
+        result.push({ rule, layerOrder, inScope, activeScopeRule });
       }
     }
     return result;
@@ -342,6 +409,7 @@
       let bestCandidate = null;
       let bestSpecificity = -1;
       let bestLayerOrder  = -1;  // -1 = no match yet; Infinity = unlayered
+      let bestScopeProximity = -1; // -1 = unscoped; ≥0 = scoped (higher wins)
       let bestSheetIdx = -1;
       let bestRuleIdx = -1;
       let tieCount = 0;
@@ -377,7 +445,7 @@
         const flatRules = flattenRules(rules, Infinity, false); // Infinity = unlayered
 
         for (let ri = 0; ri < flatRules.length; ri++) {
-          const { rule, layerOrder } = flatRules[ri];
+          const { rule, layerOrder, activeScopeRule } = flatRules[ri];
           // Check if rule applies to element
           try {
             if (!el.matches(rule.selectorText)) continue;
@@ -388,25 +456,42 @@
           if (!declaredValue) continue;
 
           const spec = computeSpecificity(rule.selectorText);
-          // Cascade order: higher layerOrder wins (Infinity = unlayered = highest priority)
-          // Unlayered always beats layered at same specificity.
-          // Among layered rules, later-declared layer (higher index) wins.
-          if (
+
+          // Compute @scope proximity for this rule (CSS Cascading 4: proximity > specificity).
+          // -1 means unscoped (loses to any scoped rule at the same layerOrder).
+          // 0 means scoped but target is outside the scope (skip this rule).
+          // >0 means scoped and in-scope; higher = scope root is closer to target.
+          let proximity = -1; // unscoped default
+          if (activeScopeRule) {
+            proximity = computeScopeProximity(activeScopeRule, el);
+            if (proximity === 0) continue; // target is outside this @scope
+          }
+
+          // Cascade order (high-to-low priority):
+          //   1. layerOrder (Infinity = unlayered = highest)
+          //   2. scopeProximity (-1 = unscoped loses to any scoped at same layer)
+          //   3. specificity
+          //   4. sheet order (later sheet wins)
+          //   5. rule order within sheet
+          const winsOverBest =
             layerOrder > bestLayerOrder ||
-            (layerOrder === bestLayerOrder && spec > bestSpecificity) ||
-            (layerOrder === bestLayerOrder && spec === bestSpecificity && si > bestSheetIdx) ||
-            (layerOrder === bestLayerOrder && spec === bestSpecificity && si === bestSheetIdx && ri > bestRuleIdx)
-          ) {
-            if (layerOrder === bestLayerOrder && spec === bestSpecificity) {
+            (layerOrder === bestLayerOrder && proximity > bestScopeProximity) ||
+            (layerOrder === bestLayerOrder && proximity === bestScopeProximity && spec > bestSpecificity) ||
+            (layerOrder === bestLayerOrder && proximity === bestScopeProximity && spec === bestSpecificity && si > bestSheetIdx) ||
+            (layerOrder === bestLayerOrder && proximity === bestScopeProximity && spec === bestSpecificity && si === bestSheetIdx && ri > bestRuleIdx);
+
+          if (winsOverBest) {
+            if (layerOrder === bestLayerOrder && proximity === bestScopeProximity && spec === bestSpecificity) {
               tieCount++;
             } else {
               tieCount = 0;
             }
-            bestLayerOrder  = layerOrder;
-            bestSpecificity = spec;
-            bestSheetIdx = si;
-            bestRuleIdx = ri;
-            bestCandidate = rule;
+            bestLayerOrder      = layerOrder;
+            bestScopeProximity  = proximity;
+            bestSpecificity     = spec;
+            bestSheetIdx        = si;
+            bestRuleIdx         = ri;
+            bestCandidate       = rule;
           }
         }
       }

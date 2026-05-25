@@ -14,6 +14,10 @@
 const path = require('path');
 const { generateAsciiGraph } = require('../../state-visualizer');
 const conclusionCache = require('../../conclusion-cache');
+const SourceMapResolver = require('../../source-map-resolver');
+
+// Shared resolver instance (LRU cache, max 10 maps, 4MB limit per map)
+const _sourceMapResolver = new SourceMapResolver();
 
 module.exports = function registerIntelligenceTools(registry) {
   const tools = [];
@@ -139,6 +143,32 @@ module.exports = function registerIntelligenceTools(registry) {
         if (entry) component = entry.component;
       } else if (frameworkMap && frameworkMap.component) {
         component = frameworkMap.component;
+      }
+
+      // [4b] Task 3: resolve source map for React component if sourceHint is present.
+      // sourceHint = { compiledFile, compiledLine, compiledColumn } from framework-dom-map.js.
+      // SourceMapResolver maps the compiled bundle position → original .tsx/.jsx position.
+      if (component && component.sourceHint) {
+        try {
+          const { compiledFile, compiledLine, compiledColumn } = component.sourceHint;
+          const resolved = await _sourceMapResolver.resolve(compiledFile, compiledLine, compiledColumn);
+          if (resolved) {
+            // Prefer resolved original source over raw compiled file names
+            component = {
+              ...component,
+              sourceFile: resolved.originalFile,
+              sourceLine: resolved.originalLine,
+              sourceHint: {
+                ...component.sourceHint,
+                resolvedFile:   resolved.originalFile,
+                resolvedLine:   resolved.originalLine,
+                resolvedColumn: resolved.originalColumn,
+              },
+            };
+          }
+        } catch (_) {
+          // Source map resolution is best-effort; don't fail the whole request
+        }
       }
 
       // [5] Filter causal chains for our selector

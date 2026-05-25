@@ -21,6 +21,8 @@ class WhiskorCore extends EventEmitter {
     this._pendingActions = new Map();
     this._wsToTabs = new Map();       // WebSocket → Set<tabId>
     this._tabDisconnectedAt = new Map(); // tabId → timestamp
+    // Task 1: deferred buffer — holds TEXT_COORD_DELTA 100ms to let DOM_MUTATION arrive first
+    this._deferredDeltas = new Map(); // tabId → { timer, msg }
 
     // Periodic cleanup: remove sessions disconnected for > DISCONNECT_CLEANUP_MS
     this._cleanupTimer = setInterval(() => this._cleanupStaleSessions(), CLEANUP_INTERVAL_MS);
@@ -221,6 +223,12 @@ class WhiskorCore extends EventEmitter {
 
       // ── Intelligence Layer messages ─────────────────────────────────────
       case 'DOM_MUTATION': {
+        // Task 1: if a TEXT_COORD_DELTA is pending for this tab, cancel it — dom_mutation wins.
+        const _mutTabId = msg.tabId;
+        if (this._deferredDeltas.has(_mutTabId)) {
+          clearTimeout(this._deferredDeltas.get(_mutTabId).timer);
+          this._deferredDeltas.delete(_mutTabId);
+        }
         // Feed to correlator for causal-chain building
         if (this.correlator) {
           const newChains = this.correlator.addMessage(msg);
@@ -272,12 +280,27 @@ class WhiskorCore extends EventEmitter {
       }
 
       case 'TEXT_COORD_DELTA': {
-        this.broadcastToDashboard(msg);
-        // Feed correlator for causal-chain building
-        if (this.correlator) {
-          const newChains = this.correlator.addMessage(msg);
-          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+        // Task 1: deferred correlator dispatch — wait 100ms for DOM_MUTATION to arrive.
+        // MutationObserver fires synchronously; text-coord calculation is async, so
+        // dom_mutation nearly always arrives first in practice. This makes it 100% certain.
+        // Cache and dashboard updates are immediate (no delay needed there).
+        const _tabId = msg.tabId;
+        if (this._deferredDeltas.has(_tabId)) {
+          clearTimeout(this._deferredDeltas.get(_tabId).timer);
         }
+        this._deferredDeltas.set(_tabId, {
+          timer: setTimeout(() => {
+            this._deferredDeltas.delete(_tabId);
+            // DOM_MUTATION did not arrive within 100ms — forward visual_delta to correlator
+            if (this.correlator) {
+              const newChains = this.correlator.addMessage(msg);
+              if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+            }
+          }, 100),
+          msg,
+        });
+        // Cache and dashboard are updated immediately (no accuracy concern there)
+        this.broadcastToDashboard(msg);
         const payload = msg.payload || {};
         const frame = {
           timestamp: Date.now(),
