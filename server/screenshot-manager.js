@@ -77,6 +77,8 @@ function handleResult(msg) {
 
   const result = { ok: true, dataUrl, filePath, width, height, capturedAt: Date.now() };
   if (elements) result.elements = elements;
+  if (msg.rect) result.rect = msg.rect;
+  if (msg.padding) result.padding = msg.padding;
   p.resolve(result);
 }
 
