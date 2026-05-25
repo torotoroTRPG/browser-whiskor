@@ -43,7 +43,7 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (39 tools, configurable visibility)                 │
+│  MCP Layer (55 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
@@ -51,7 +51,7 @@ AI Agent (Claude / Cursor / etc.)
 │  mcp/tools/read.js      ← 18 read tools (sessions, DOM, etc.) │
 │  mcp/tools/write.js     ← 16 write tools (click, type, drag, etc.) │
 │  mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh)│
-│  mcp/tools/control.js   ← 6 control tools (config, explorer)  │
+│  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
 │                                                                │
 │  Tool visibility: per-tool on/off, category toggle, presets    │
 │  Config: server/configs/mcp-tools.json                         │
@@ -203,11 +203,11 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.6: 49 tools)
+## MCP Tools (v3.11: 55 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 49 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 55 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
@@ -218,6 +218,8 @@ Instead of exposing all 49 tools at once, browser-whiskor uses **dynamic profile
 | **advanced-actions** (+10) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page | "drag", "hover", "select" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
+
+Tools not listed in any profile (intelligence, capture_element_screenshot, accessibility, perf, css_analysis, dom_snapshot, state_map) are available on demand at any time.
 
 **How it works:**
 1. **Core tools** are always available.
@@ -281,11 +283,22 @@ Instead of exposing all 49 tools at once, browser-whiskor uses **dynamic profile
 | `go_back` / `go_forward` | Browser history |
 | `reload_page` | Reload |
 
+### Intelligence
+
+| Tool | Description |
+|------|-------------|
+| `explain_element` | Explain why an element has its current CSS appearance (selector, specificity, cascade, sourcemap) |
+| `why_did_this_change` | Correlate a UI change with network events and framework transitions |
+| `analyze_click` | Analyze a click target's React/Vue event handlers before clicking |
+| `get_source_file` | Retrieve source file content by URL or hash |
+| `detect_site_updates` | Cross-session: detect which CSS/JS files have changed |
+
 ### Capture
 
 | Tool | Description |
 |------|-------------|
 | `capture_screenshot` | Screenshot (base64 PNG), optionally with numbered markers (SoM) |
+| `capture_element_screenshot` | Element-level screenshot by selector or rect with padding |
 | `refresh_data` | Trigger data collection + wait for completion |
 
 ### Control
@@ -484,7 +497,7 @@ The agent can then say "click element 1" instead of dealing with raw coordinates
 
 ## Testing & Quality
 
-**308 automated tests** covering core logic, server routing, and stress scenarios.
+**308 automated tests** covering core logic, server routing, and stress scenarios (273 unit, 20 integration, 11 stress, 4 e2e).
 
 | Category | Count | Scope |
 |----------|-------|-------|

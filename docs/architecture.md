@@ -34,7 +34,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    50 tools available, organized in a layered architecture:                  │
+│    55 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
@@ -47,6 +47,9 @@
 │                             capture_element)                                │
 │    mcp/tools/capture-element.js ← element screenshot crop+encode            │
 │    mcp/tools/control.js   ← 10 control tools (set_config → profile_status)  │
+│    mcp/tools/intelligence.js ← 5 intelligence tools                       │
+│    (explain_element, why_did_this_change, analyze_click,                   │
+│     get_source_file, detect_site_updates)                                  │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
 │    │  READ (21)       │ get_sessions, get_index, get_text_coords,        │  │
@@ -65,6 +68,10 @@
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CAPTURE (3)     │ capture_screenshot (± SoM marks), refresh_data,   │
 │                  │ capture_element_screenshot (selector/rect/padding)  │  │
+│    ├──────────────────┼──────────────────────────────────────────────────┤  │
+│    │  INTELLIGENCE (5)│ explain_element, why_did_this_change,            │  │
+│    │                  │ analyze_click, get_source_file,                  │  │
+│    │                  │ detect_site_updates                              │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CONTROL (10)    │ set_config, get_config_changes, trigger_collect, │  │
 │    │                  │ trigger_explorer, navigate_to_state,             │  │
@@ -149,11 +156,12 @@
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │  Analyzers (collect page-level data) — 13 total                       │ │
+│  │  Analyzers (collect page-level data) — 15 total                       │ │
 │  │  text-coords.js, network.js, css.js, css-origin.js,                   │ │
 │  │  source-fetcher.js, ui-catalog.js, perf.js, dom-mutations.js,          │ │
-│  │  shadow-dom.js, dom-snapshot.js, accessibility.js,                     │ │
-│  │  console-logger.js, storage-reader                                     │ │
+│  │  shadow-dom.js, dom-snapshot.js, clickability.js,                     │ │
+│  │  framework-dom-map.js, accessibility.js, console-logger.js,            │ │
+│  │  storage-reader                                                        │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  lib/bippy.iife.js — React Fiber traversal (third-party, bundled)           │
@@ -519,8 +527,9 @@
       version-helper.js   — Runtime version detection
       adapters/           — Framework-specific state extractors (react split into
       react-hooks.js + react-state-managers.js + react.js, 9 adapters total)
-      analyzers/          — Page data collectors (13 analyzers incl.
-      css-origin.js, source-fetcher.js, shadow-dom.js, dom-snapshot.js)
+      analyzers/          — Page data collectors (15 analyzers incl.
+      css-origin.js, source-fetcher.js, clickability.js,
+      framework-dom-map.js, shadow-dom.js, dom-snapshot.js)
     lib/bippy.iife.js     — React Fiber traversal library
 
   firefox-mv2/            — Firefox Manifest V2 build (mirrors extension/)

@@ -6,13 +6,14 @@
  * 階層:
  *   mcp-server.js (エントリポイント)
  *     → mcp/registry.js (ツール登録・フィルタリング)
- *       → mcp/tools/read.js
- *       → mcp/tools/write.js
- *       → mcp/tools/capture.js
- *       → mcp/tools/control.js
+ *     → mcp/tools/read.js
+ *     → mcp/tools/write.js
+ *     → mcp/tools/capture.js
+ *     → mcp/tools/control.js
+ *     → mcp/tools/intelligence.js
  *     → mcp/transport.js (stdio/JSON-RPC)
  *
- * 既存の全42ツールを保持。機能変更なし。
+ * 全55ツール（READ 21, WRITE 16, CAPTURE 3, CONTROL 10, INTELLIGENCE 5）。
  */
 'use strict';
 
