@@ -14,7 +14,91 @@ const pendingPageActions = new Map();
 const PAGE_ACTION_TIMEOUT = 15000;
 let pingTimer = null;
 
-// ── Element crop helper ───────────────────────────────────────────────────────
+// ── Adaptive Collection Scheduler (Firefox MV2 mirror of sw.js version) ───────
+// Identical design to the Chrome SW version — only the inject API differs:
+// MV2 uses browser.tabs.executeScript({ code }) instead of chrome.scripting.
+
+const SCHEDULER_DEFAULTS = {
+  enabled:              false,
+  activeIntervalMs:     5000,
+  quiescentIntervalMs:  30000,
+  quiescentAfterMs:     60000,
+};
+
+class CollectionScheduler {
+  constructor() {
+    this._cfg  = { ...SCHEDULER_DEFAULTS };
+    this._tabs = new Map(); // tabId → { timer, lastActivityAt, quiescent }
+  }
+
+  configure(cfg = {}) {
+    const prev = this._cfg;
+    this._cfg  = { ...SCHEDULER_DEFAULTS, ...cfg };
+    const changed =
+      this._cfg.enabled            !== prev.enabled            ||
+      this._cfg.activeIntervalMs   !== prev.activeIntervalMs   ||
+      this._cfg.quiescentIntervalMs !== prev.quiescentIntervalMs;
+    if (changed) {
+      for (const tabId of this._tabs.keys()) this._restart(tabId);
+    }
+  }
+
+  watchTab(tabId) {
+    if (this._tabs.has(tabId)) return;
+    this._tabs.set(tabId, { timer: null, lastActivityAt: Date.now(), quiescent: false });
+    this._restart(tabId);
+  }
+
+  unwatchTab(tabId) {
+    const state = this._tabs.get(tabId);
+    if (state?.timer != null) clearTimeout(state.timer);
+    this._tabs.delete(tabId);
+  }
+
+  markActive(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state) return;
+    const wasQuiescent    = state.quiescent;
+    state.lastActivityAt  = Date.now();
+    state.quiescent       = false;
+    if (wasQuiescent) this._restart(tabId);
+  }
+
+  stopAll() {
+    for (const tabId of [...this._tabs.keys()]) this.unwatchTab(tabId);
+  }
+
+  _restart(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state) return;
+    if (state.timer != null) { clearTimeout(state.timer); state.timer = null; }
+    if (!this._cfg.enabled) return;
+    const delay = state.quiescent
+      ? this._cfg.quiescentIntervalMs
+      : this._cfg.activeIntervalMs;
+    state.timer = setTimeout(() => this._tick(tabId), delay);
+  }
+
+  _tick(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state || !this._cfg.enabled) return;
+    state.timer = null;
+
+    // Firefox MV2: inject via browser.tabs.executeScript
+    browser.tabs.executeScript(tabId, {
+      code: `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: {} }, '*');`,
+    }).catch(() => {});
+
+    if (!state.quiescent && (Date.now() - state.lastActivityAt) >= this._cfg.quiescentAfterMs) {
+      state.quiescent = true;
+    }
+    this._restart(tabId);
+  }
+}
+
+const collectionScheduler = new CollectionScheduler();
+
+
 async function cropImage(dataUrl, rect, padding, format, quality) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -109,6 +193,7 @@ function connectWs() {
   });
   ws.addEventListener('close', () => {
     wsReady = false; ws = null; stopPing();
+    collectionScheduler.stopAll();
     broadcastToPanels({ type: 'SERVER_STATUS', connected: false });
     scheduleReconnect();
   });
@@ -139,6 +224,7 @@ async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'SET_CONFIG': {
       await browser.storage.local.set({ SI_CONFIG: msg.config });
+      collectionScheduler.configure(msg.config?.adaptiveCollection);
       const tabs = await browser.tabs.query({});
       for (const tab of tabs) {
         browser.tabs.executeScript(tab.id, {
@@ -368,8 +454,13 @@ browser.runtime.onMessage.addListener((message, sender) => {
       return;
     }
     const enriched = { ...message, tabId: sender.tab?.id };
+    const senderTabId = sender.tab?.id;
+    if (senderTabId != null) {
+      collectionScheduler.watchTab(senderTabId);
+      collectionScheduler.markActive(senderTabId);
+    }
     sendToServer(enriched);
-    panelPorts.get(sender.tab?.id)?.postMessage(enriched);
+    panelPorts.get(senderTabId)?.postMessage(enriched);
   }
 });
 
@@ -401,9 +492,11 @@ function broadcastToPanels(msg) {
 
 browser.tabs.onRemoved.addListener((tabId) => {
   cleanupTabActions(tabId);
+  collectionScheduler.unwatchTab(tabId);
   sendToServer({ type: 'TAB_CLOSED', tabId });
 });
 browser.webNavigation.onCommitted.addListener(({ tabId, url, frameId }) => {
   if (frameId !== 0) return;
+  collectionScheduler.markActive(tabId);
   sendToServer({ type: 'PAGE_NAVIGATED', tabId, payload: { url }, from: 'sw' });
 });

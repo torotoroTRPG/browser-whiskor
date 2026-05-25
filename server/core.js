@@ -34,8 +34,9 @@ class WhiskorCore extends EventEmitter {
     this.stateNavigator = opts.stateNavigator || { handleHashReport() {} };
     this.deltaEngine = opts.deltaEngine || { addFrame() { return null; } };
     this.configLog = opts.configLog || { validateChange() { return []; }, addChange() {}, autoRevertIfNeeded() { return null; } };
-    this.correlator   = opts.correlator   || null;
-    this.sourceStore  = opts.sourceStore  || null;
+    this.correlator       = opts.correlator       || null;
+    this.sourceStore      = opts.sourceStore      || null;
+    this._conclusionCache = opts.conclusionCache  || null;
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',
@@ -181,7 +182,13 @@ class WhiskorCore extends EventEmitter {
       case 'CONSOLE_LOG':
       case 'PERF_METRICS':
       case 'SOURCE_CATALOG':
+        await this.cache.handleMessage(msg);
+        this.broadcastToDashboard(msg);
+        break;
+
       case 'PAGE_NAVIGATED':
+        // Invalidate conclusion cache — page state has changed, prior conclusions are stale
+        if (this._conclusionCache) this._conclusionCache.invalidate(msg.tabId);
         await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         break;

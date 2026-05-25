@@ -28,6 +28,11 @@ require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
 require('./mcp/tools/intelligence')(registry);
 
+// replay_session ツール — array-push pattern (see replay.js)
+const _replayTools = [];
+require('./mcp/tools/replay')(_replayTools);
+for (const t of _replayTools) registry.registerTool(t.definition, t.handler);
+
 // ── Callbacks from index.js ───────────────────────────────────────────────────
 let _config = {};
 let _sessionId = 'default';
@@ -61,6 +66,13 @@ function setIntelligenceCallbacks(correlator, sourceStore, cache) {
     _correlator:  correlator  || null,
     _sourceStore: sourceStore || null,
     cache:        cache       || null,
+  });
+}
+
+function setReplayCallbacks(requestHash, sessionReplay) {
+  registry.setCallbacks({
+    _requestHash:  requestHash  || null,
+    _sessionReplay: sessionReplay || null,
   });
 }
 
@@ -118,4 +130,5 @@ module.exports = {
   initToolManager,
   processToolCall,
   toolManager,
+  setReplayCallbacks,
 };

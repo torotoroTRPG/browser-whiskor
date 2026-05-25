@@ -71,8 +71,17 @@ class TimeSeriesCorrelator {
     const buffer = this._bufferFor(event.tabId);
     const newChains = [];
 
-    if (event.type === 'dom_mutation' || event.type === 'visual_delta') {
+    if (event.type === 'dom_mutation') {
+      // High-precision MutationObserver signal — always correlate.
       newChains.push(...this._correlateDomEvent(buffer, event));
+    } else if (event.type === 'visual_delta') {
+      // TEXT_COORD_DELTA is the fallback proxy.  When a dom_mutation already
+      // covers the same time window, skip the lower-precision visual_delta so
+      // the resulting chain records "mutation_observer" rather than
+      // "text_coord_delta" as the dom.signal.  (Proposal A priority rule.)
+      if (!this._hasDomMutationCoverage(buffer, event.timestamp)) {
+        newChains.push(...this._correlateDomEvent(buffer, event));
+      }
     }
 
     if (event.type === 'framework_snapshot') {
@@ -175,17 +184,29 @@ class TimeSeriesCorrelator {
     chains.sort((a, b) => b.confidence - a.confidence || a.deltaMs - b.deltaMs);
     return chains.slice(0, 3);
   }
+  // Returns true if a high-precision dom_mutation event exists within ±windowMs
+  // of the given timestamp.  Used to suppress lower-precision visual_delta
+  // (TEXT_COORD_DELTA) correlations when MutationObserver data is available.
+  // (Proposal A priority rule.)
+  _hasDomMutationCoverage(buffer, timestamp, windowMs = 500) {
+    return buffer.events.some(
+      e => e.type === 'dom_mutation' && Math.abs(e.timestamp - timestamp) <= windowMs
+    );
+  }
+
   // Rule 2: Framework snapshot → DOM (100ms window, 0.85 base confidence)
   // A recent framework component update is treated as strong evidence for a
   // subsequent DOM change.  The method stores a chain that links the snapshot
   // to any DOM mutation or visual delta that arrived in the same buffer within
-  // the short look-back window.
+  // the short look-back window.  DOM_MUTATION events are preferred over
+  // visual_delta when both are present (Proposal A priority rule).
   _correlateFrameworkEvent(buffer, snapshotEvent) {
     const windowMs = 100;
-    const baseDomEvents = [
-      ...buffer.before(snapshotEvent.timestamp, 'dom_mutation', windowMs),
-      ...buffer.before(snapshotEvent.timestamp, 'visual_delta', windowMs),
-    ];
+    const mutationEvents = buffer.before(snapshotEvent.timestamp, 'dom_mutation', windowMs);
+    const visualEvents   = buffer.before(snapshotEvent.timestamp, 'visual_delta', windowMs);
+    // Prefer higher-precision dom_mutation; fall back to visual_delta only if
+    // no mutation events are present in the look-back window.
+    const baseDomEvents = mutationEvents.length ? mutationEvents : visualEvents;
     if (!baseDomEvents.length) return [];
 
     const chains = [];

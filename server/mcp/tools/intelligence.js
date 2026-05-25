@@ -13,6 +13,7 @@
 
 const path = require('path');
 const { generateAsciiGraph } = require('../../state-visualizer');
+const conclusionCache = require('../../conclusion-cache');
 
 module.exports = function registerIntelligenceTools(registry) {
   const tools = [];
@@ -74,6 +75,19 @@ module.exports = function registerIntelligenceTools(registry) {
       const selector = args.selector;
       const timeoutMs = args.timeoutMs || 8000;
       const sinceMs   = args.sinceMs   || 5000;
+
+      // [0] Conclusion cache check — skip full collection if page state is unchanged
+      const sessionDir       = cache.getSessionDir ? cache.getSessionDir(tabId) : null;
+      const cssOriginPath    = sessionDir ? require('path').join(sessionDir, 'raw/intelligence/css-origin-map.json')    : null;
+      const frameworkMapPath = sessionDir ? require('path').join(sessionDir, 'raw/intelligence/framework-dom-map.json') : null;
+      const cachedHash       = cache.readSessionFile(tabId, 'raw/intelligence/_conclusion-key.json');
+      const invalidationKey  = conclusionCache.buildInvalidationKey(
+        cachedHash?.compositeHash,
+        conclusionCache.fileContentHash(cssOriginPath),
+        conclusionCache.fileContentHash(frameworkMapPath)
+      );
+      const cached = conclusionCache.get(tabId, selector, invalidationKey);
+      if (cached) return { ...cached, _fromCache: true };
 
       // [1] Trigger on-demand collection: css-origin + framework-dom-map
       if (cb._triggerCollect) {
@@ -147,7 +161,7 @@ module.exports = function registerIntelligenceTools(registry) {
         ? Math.min(...styles.map(s => s.confidence))
         : null;
 
-      return {
+      const result = {
         element: { selector },
         styles,
         component: component || null,
@@ -159,6 +173,13 @@ module.exports = function registerIntelligenceTools(registry) {
           causalChains: causalChains ? (Array.isArray(causalChains) ? causalChains.length : 0) : 0,
         },
       };
+
+      // Store in conclusion cache for future requests
+      if (invalidationKey) {
+        conclusionCache.set(tabId, selector, invalidationKey, result);
+      }
+
+      return result;
     },
   });
 

@@ -33,6 +33,7 @@ const patternRegistry = require('./pattern-registry');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
 const sourceStore = require('./source-store');
+const conclusionCache = require('./conclusion-cache');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -80,6 +81,7 @@ const core = new WhiskorCore({
   configLog,
   correlator,
   sourceStore,
+  conclusionCache,
   initialConfig: {
     mode: 'always_on',
     plugins: _cfg.plugins || {},

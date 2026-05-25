@@ -78,7 +78,115 @@ async function drawMarksOnImage(dataUrl, elements) {
 const panelPorts = new Map(); // tabId → port
 let pingTimer = null;
 
-// ── Element crop helper ───────────────────────────────────────────────────────
+// ── Adaptive Collection Scheduler ─────────────────────────────────────────────
+// Periodically fires MANUAL_COLLECT to whiskor-active tabs from the Service
+// Worker — so the timing logic lives in the long-running SW, not in the
+// ephemeral MAIN-world collector.js (which is destroyed on each navigation).
+//
+// Design: two-speed cadence.
+//   • active     — fast interval while the page is observed as changing
+//   • quiescent  — slow interval after quiescentAfterMs of inactivity
+//
+// A tab is "watched" the first time we receive a collector message from it
+// (i.e. whiskor is injected and running).  The scheduler stops cleanly when
+// the WebSocket disconnects and resumes when it reconnects.
+//
+// Configured via config.json → adaptiveCollection.  Default: disabled.
+
+const SCHEDULER_DEFAULTS = {
+  enabled:              false,
+  activeIntervalMs:     5000,
+  quiescentIntervalMs:  30000,
+  quiescentAfterMs:     60000,
+};
+
+class CollectionScheduler {
+  constructor() {
+    this._cfg  = { ...SCHEDULER_DEFAULTS };
+    // tabId → { timer: TimeoutId|null, lastActivityAt: number, quiescent: bool }
+    this._tabs = new Map();
+  }
+
+  /** Apply a new config subset (called on SET_CONFIG / CONFIG_FROM_PANEL). */
+  configure(cfg = {}) {
+    const prev = this._cfg;
+    this._cfg  = { ...SCHEDULER_DEFAULTS, ...cfg };
+    const changed =
+      this._cfg.enabled            !== prev.enabled            ||
+      this._cfg.activeIntervalMs   !== prev.activeIntervalMs   ||
+      this._cfg.quiescentIntervalMs !== prev.quiescentIntervalMs;
+    if (changed) {
+      for (const tabId of this._tabs.keys()) this._restart(tabId);
+    }
+  }
+
+  /** Start tracking a tab (idempotent). */
+  watchTab(tabId) {
+    if (this._tabs.has(tabId)) return;
+    this._tabs.set(tabId, { timer: null, lastActivityAt: Date.now(), quiescent: false });
+    this._restart(tabId);
+  }
+
+  /** Stop tracking a tab and clear its timer. */
+  unwatchTab(tabId) {
+    const state = this._tabs.get(tabId);
+    if (state?.timer != null) clearTimeout(state.timer);
+    this._tabs.delete(tabId);
+  }
+
+  /** Signal page activity (navigation, incoming data).  Resumes active cadence. */
+  markActive(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state) return;
+    const wasQuiescent    = state.quiescent;
+    state.lastActivityAt  = Date.now();
+    state.quiescent       = false;
+    if (wasQuiescent) this._restart(tabId); // resume fast cadence immediately
+  }
+
+  /** Stop all timers (e.g. WS disconnect). */
+  stopAll() {
+    for (const tabId of [...this._tabs.keys()]) this.unwatchTab(tabId);
+  }
+
+  // ── private ──────────────────────────────────────────────────────────────
+
+  _restart(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state) return;
+    if (state.timer != null) { clearTimeout(state.timer); state.timer = null; }
+    if (!this._cfg.enabled) return;
+    const delay = state.quiescent
+      ? this._cfg.quiescentIntervalMs
+      : this._cfg.activeIntervalMs;
+    state.timer = setTimeout(() => this._tick(tabId), delay);
+  }
+
+  _tick(tabId) {
+    const state = this._tabs.get(tabId);
+    if (!state || !this._cfg.enabled) return;
+    state.timer = null;
+
+    chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.postMessage(
+        { __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: {} }, '*'
+      ),
+      world: 'MAIN',
+    }).catch(() => {});
+
+    // Transition to quiescent cadence after prolonged inactivity
+    if (!state.quiescent && (Date.now() - state.lastActivityAt) >= this._cfg.quiescentAfterMs) {
+      state.quiescent = true;
+    }
+
+    this._restart(tabId); // schedule the next tick
+  }
+}
+
+const collectionScheduler = new CollectionScheduler();
+
+
 async function cropImage(dataUrl, rect, padding, format, quality) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -148,6 +256,7 @@ function connectWs() {
     wsReady = false;
     ws = null;
     stopPing();
+    collectionScheduler.stopAll();
     broadcastToPanels({ type: 'SERVER_STATUS', connected: false });
     scheduleReconnect();
   });
@@ -193,6 +302,7 @@ async function handleServerMessage(msg) {
 
     case 'SET_CONFIG': {
       await chrome.storage.local.set({ SI_CONFIG: msg.config });
+      collectionScheduler.configure(msg.config?.adaptiveCollection);
       // Push config into every open tab
       const tabs = await chrome.tabs.query({});
       for (const tab of tabs) {
@@ -544,8 +654,15 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     }
 
     const enriched = { ...message, tabId: sender.tab?.id, frameId: sender.frameId };
+    // Register this tab with the scheduler (idempotent) and mark it active so
+    // the adaptive cadence resets to the fast interval.
+    const senderTabId = sender.tab?.id;
+    if (senderTabId != null) {
+      collectionScheduler.watchTab(senderTabId);
+      collectionScheduler.markActive(senderTabId);
+    }
     sendToServer(enriched);
-    panelPorts.get(sender.tab?.id)?.postMessage(enriched);
+    panelPorts.get(senderTabId)?.postMessage(enriched);
   }
   // ACTION_COMPLETE is handled by the listener inside executeInPage
 });
@@ -588,6 +705,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     if (msg.type === 'SET_CONFIG') {
       chrome.storage.local.set({ SI_CONFIG: msg.config });
+      collectionScheduler.configure(msg.config?.adaptiveCollection);
       sendToServer({ type: 'CONFIG_FROM_PANEL', config: msg.config });
     }
   });
@@ -605,10 +723,14 @@ function broadcastToPanels(msg) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   cleanupTabActions(tabId);
+  collectionScheduler.unwatchTab(tabId);
   sendToServer({ type: 'TAB_CLOSED', tabId });
 });
 
 chrome.webNavigation.onCommitted.addListener(({ tabId, url, frameId }) => {
   if (frameId !== 0) return; // main frame only
+  // Navigation is strong activity evidence — reset quiescent state if the tab
+  // is already being watched.  (watchTab is called on first data message.)
+  collectionScheduler.markActive(tabId);
   sendToServer({ type: 'PAGE_NAVIGATED', tabId, payload: { url }, from: 'sw' });
 });

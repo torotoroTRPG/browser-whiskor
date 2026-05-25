@@ -118,6 +118,7 @@ function getDefaults() {
     react:      { maxDepth: 80, maxProps: 30, maxHooks: 25, trackStateTransitions: true, captureRedux: true, captureZustand: true, captureReactQuery: true, debounceMs: 200 },
     textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
     executeJs:  { captureConsoleDuringExec: true },
+    adaptiveCollection: { enabled: false, activeIntervalMs: 5000, quiescentIntervalMs: 30000, quiescentAfterMs: 60000 },
     agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false },
     intelligence: {
       clickability: {

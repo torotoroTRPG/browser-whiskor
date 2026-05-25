@@ -3,6 +3,7 @@
 > 生成日時: 2026-05-24  
 > 基準ドキュメント: `docs/architecture.md` (v3), `docs/ideas/ARCHITECTURE_INTELLIGENCE_LAYER.md` (v4 ratified)  
 > 備考: Extended Proposals (A–G) は `[PROPOSAL]` ステータスのため原則未実装でも contradiction とは見なさないが、dom-mutations.js のように部分的に実装が存在するものは記載。
+> 2026-05-25 更新: Proposals F (Session Replay) と G (Conclusion Cache) が実装完了。server/session-replay.js, server/conclusion-cache.js, server/mcp/tools/replay.js が新規追加。
 
 ---
 
@@ -129,10 +130,10 @@
 
 ---
 
-## サマリ: 全矛盾解決済み ✅
+## サマリ: 全矛盾解決済み ✅ · 追加提案 F/G 実装完了
 
 ```
-全10件の矛盾は修正完了:
+全10件の矛盾は修正完了 + Proposal F (Session Replay) および G (Conclusion Cache) 実装完了:
   C1  →  manifest直し (2行)                  ✅ Subsystem 5 蘇生
   H1  →  correlator.js Rule 2 追加 (~30行)    ✅ Framework→DOM 相関実装
   H2  →  core.js +6行                         ✅ SNAPSHOT correlator feed

@@ -280,6 +280,15 @@
     "_comment_ja": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
   },
 
+    "adaptiveCollection": {
+    "enabled": false,
+    "activeIntervalMs": 5000,
+    "quiescentIntervalMs": 30000,
+    "quiescentAfterMs": 60000,
+    "_comment_en": "Periodic re-collection fired from the Service Worker. enabled:false disables entirely (default). When enabled, MANUAL_COLLECT is sent to whiskor-active tabs at activeIntervalMs; after quiescentAfterMs of no page activity the cadence drops to quiescentIntervalMs.",
+    "_comment_ja": "Service Workerから定期的にMANUAL_COLLECTを送信する機能。enabled:falseで無効（デフォルト）。有効時はアクティブなタブにactiveIntervalMs間隔で収集を指示し、quiescentAfterMs間操作がない場合はquiescentIntervalMs間隔に切り替わる。"
+  },
+
   "agentControl": {
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,

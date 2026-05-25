@@ -27,6 +27,11 @@
       "enabled": true,
       "description": "インテリジェンス系ツール（explain_element, detect_site_updates 他）",
       "_comment": "false にするとintelligence系ツールすべてが非表示になる"
+    },
+    "replay": {
+      "enabled": true,
+      "description": "リプレイ系ツール（replay_session）",
+      "_comment": "false にするとリプレイ系ツールすべてが非表示になる"
     }
   },
 
@@ -82,7 +87,8 @@
     "why_did_this_change": { "enabled": true, "category": "intelligence" },
     "get_source_file":    { "enabled": true,  "category": "intelligence" },
     "detect_site_updates": { "enabled": true, "category": "intelligence" },
-    "get_state_map_visual": { "enabled": true, "category": "intelligence" }
+    "get_state_map_visual": { "enabled": true, "category": "intelligence" },
+    "replay_session":      { "enabled": true, "category": "replay" }
   },
 
   "presets": {
@@ -93,7 +99,8 @@
         "write": false,
         "capture": false,
         "control": false,
-        "intelligence": true
+        "intelligence": true,
+        "replay": false
       }
     },
     "read_and_capture": {
@@ -103,7 +110,8 @@
         "write": false,
         "capture": true,
         "control": false,
-        "intelligence": true
+        "intelligence": true,
+        "replay": false
       }
     },
     "full_access": {
@@ -113,7 +121,8 @@
         "write": true,
         "capture": true,
         "control": true,
-        "intelligence": true
+        "intelligence": true,
+        "replay": true
       }
     },
     "no_execute_js": {
