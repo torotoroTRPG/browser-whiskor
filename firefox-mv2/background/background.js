@@ -139,50 +139,6 @@ async function cropImage(dataUrl, rect, padding, format, quality) {
 }
 
 // ── Set-of-Marks: Draw numbered markers on screenshot ────────────────────────
-async function drawMarksOnImage(dataUrl, elements) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-
-        const radius = Math.max(12, Math.min(img.width, img.height) * 0.015);
-        const fontSize = Math.max(10, radius * 0.9);
-
-        for (const el of elements) {
-          const { x, y, id } = el;
-          ctx.save();
-          ctx.shadowColor = 'rgba(0,0,0,0.5)';
-          ctx.shadowBlur = 4;
-          ctx.shadowOffsetX = 1;
-          ctx.shadowOffsetY = 1;
-          ctx.beginPath();
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          ctx.fillStyle = '#e53e3e';
-          ctx.fill();
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.restore();
-          ctx.font = `bold ${fontSize}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#fff';
-          ctx.fillText(String(id), x, y + 1);
-        }
-
-        resolve(canvas.toDataURL('image/png'));
-      } catch (e) { reject(e); }
-    };
-    img.onerror = () => reject(new Error('Failed to load image for marks overlay'));
-    img.src = dataUrl;
-  });
-}
-
 function connectWs() {
   try { ws = new WebSocket(WS_URL); } catch { scheduleReconnect(); return; }
   ws.addEventListener('open', () => {
@@ -306,14 +262,9 @@ async function handleServerMessage(msg) {
 
         const dataUrl = await browser.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
 
-        let markedDataUrl = null;
-        if (opts?.marks && elements?.length) {
-          try { markedDataUrl = await drawMarksOnImage(dataUrl, elements); } catch (_) {}
-        }
-
         sendToServer({
           type: 'SCREENSHOT_RESULT', reqId,
-          dataUrl: markedDataUrl || dataUrl,
+          dataUrl: dataUrl,
           elements: elements || null,
           vpWidth:  vpWidth,
           vpHeight: vpHeight,

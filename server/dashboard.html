@@ -517,10 +517,11 @@
       cursor: crosshair;
       border: 0.5px solid var(--accent);
       border-radius: 2px;
+      background: rgba(0,0,0,0.03);
       transition: background 150ms, box-shadow 150ms;
     }
     .cap-marker:hover {
-      background: rgba(197, 198, 199, 0.08);
+      background: rgba(197, 198, 199, 0.10);
       box-shadow: 0 0 0 1px var(--accent);
     }
     .cap-marker .cap-tip {
@@ -2319,6 +2320,23 @@
         m.style.height = Math.max(4, h) + 'px';
         m.dataset.idx  = i;
 
+        // Visible badge: red circle with number (like SW drawMarksOnImage)
+        var badge = document.createElement('div');
+        badge.className = 'cap-badge';
+        var cx = Math.round(el.w * scaleX / 2);
+        var cy = Math.round(el.h * scaleY / 2);
+        var radius = Math.max(8, Math.min(Math.round(Math.min(el.w, el.h) * scaleX), 18) * 0.45);
+        var fontSize = Math.max(8, radius * 0.85);
+        badge.textContent = el.id || '';
+        badge.style.cssText = 'position:absolute;left:' + (cx - radius) + 'px;top:' + (cy - radius) + 'px;'
+          + 'width:' + (radius * 2) + 'px;height:' + (radius * 2) + 'px;'
+          + 'border-radius:50%;background:#e53e3e;color:#fff;'
+          + 'font:bold ' + fontSize + 'px sans-serif;'
+          + 'display:flex;align-items:center;justify-content:center;'
+          + 'box-shadow:0 1px 3px rgba(0,0,0,0.5);'
+          + 'pointer-events:none;z-index:5;';
+        m.appendChild(badge);
+
         // Tooltip
         var tip = document.createElement('div');
         tip.className = 'cap-tip';
@@ -2335,17 +2353,21 @@
           this.classList.toggle('pinned');
           // Expand tooltip with full detail when pinned
           var idx = parseInt(this.dataset.idx);
-          var ed = _capElements[idx];
-          if (this.classList.contains('pinned')) {
+          var ed = _capElements ? _capElements[idx] : null;
+          if (this.classList.contains('pinned') && ed) {
             var tipEl = this.querySelector('.cap-tip');
-            if (tipEl && ed) {
+            if (tipEl) {
+              var tg = '<div class="cap-tag">' + esc(ed.tag) + (ed.id ? ' #' + esc(ed.id) : '') + '</div>';
+              var inf = '<div>' + esc(ed.text || ed.selector || '') + '</div>';
+              var crd = '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
+                + Math.round(ed.x) + ',' + Math.round(ed.y) + ' ' + ed.w + '×' + ed.h + '</div>';
               var extra = '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;font-size:8px;color:var(--muted)">'
                 + '<div>selector: ' + esc(ed.selector) + '</div>'
                 + '<div>tag: ' + esc(ed.tag) + '</div>'
                 + '<div>text: ' + esc((ed.text || '').slice(0, 120)) + '</div>'
                 + '<div>pos: ' + ed.x + ',' + ed.y + ' ' + ed.w + '×' + ed.h + '</div>'
                 + '</div>';
-              tipEl.innerHTML = tagLine + infoLine + coordLine + extra;
+              tipEl.innerHTML = tg + inf + crd + extra;
             }
           }
         });
