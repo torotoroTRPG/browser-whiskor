@@ -281,6 +281,5 @@ module.exports = function registerStateTools(registry) {
       return delta;
     },
   });
-
   registry.registerTools(tools);
 };

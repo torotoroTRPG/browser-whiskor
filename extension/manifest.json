@@ -52,6 +52,7 @@
         "injected/analyzers/accessibility.js",
         "injected/analyzers/console-logger.js",
         "injected/analyzers/storage-reader.js",
+        "injected/analyzers/clickability.js",
         "injected/executor.js",
         "injected/explorer.js",
         "injected/collector.js",

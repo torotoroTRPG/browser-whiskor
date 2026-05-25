@@ -75,6 +75,10 @@ class TimeSeriesCorrelator {
       newChains.push(...this._correlateDomEvent(buffer, event));
     }
 
+    if (event.type === 'framework_snapshot') {
+      newChains.push(...this._correlateFrameworkEvent(buffer, event));
+    }
+
     buffer.add(event);
 
     if (newChains.length) {
@@ -158,6 +162,7 @@ class TimeSeriesCorrelator {
         framework: frameworkEvents.length ? frameworkEvents[frameworkEvents.length - 1].summary : null,
         dom: {
           eventType: domEvent.type,
+          signal: domEvent.type === 'dom_mutation' ? 'mutation_observer' : 'text_coord_delta',
           mutationCount: domEvent.mutationCount || 0,
           sampleSelectors: domEvent.sampleSelectors || [],
           summary: domEvent.summary || null,
@@ -170,9 +175,53 @@ class TimeSeriesCorrelator {
     chains.sort((a, b) => b.confidence - a.confidence || a.deltaMs - b.deltaMs);
     return chains.slice(0, 3);
   }
-}
+  // Rule 2: Framework snapshot → DOM (100ms window, 0.85 base confidence)
+  // A recent framework component update is treated as strong evidence for a
+  // subsequent DOM change.  The method stores a chain that links the snapshot
+  // to any DOM mutation or visual delta that arrived in the same buffer within
+  // the short look-back window.
+  _correlateFrameworkEvent(buffer, snapshotEvent) {
+    const windowMs = 100;
+    const baseDomEvents = [
+      ...buffer.before(snapshotEvent.timestamp, 'dom_mutation', windowMs),
+      ...buffer.before(snapshotEvent.timestamp, 'visual_delta', windowMs),
+    ];
+    if (!baseDomEvents.length) return [];
 
-function normalizeMessage(msg = {}) {
+    const chains = [];
+    for (const domEvent of baseDomEvents) {
+      const deltaMs = snapshotEvent.timestamp - domEvent.timestamp;
+      const confidence = Math.max(
+        this.options.confidenceFloor,
+        Math.round((0.85 - (deltaMs / windowMs) * 0.10) * 100) / 100
+      );
+      if (confidence < this.options.confidenceFloor) continue;
+
+      chains.push({
+        id: `chain-${snapshotEvent.tabId}-fw-${domEvent.timestamp}-${snapshotEvent.timestamp}`,
+        type: 'CAUSAL_CHAIN',
+        tabId: snapshotEvent.tabId,
+        timestamp: snapshotEvent.timestamp,
+        confidence,
+        rule: 'framework_dom_temporal',
+        deltaMs,
+        network: null,
+        framework: snapshotEvent.summary || null,
+        dom: {
+          eventType: domEvent.type,
+          signal: domEvent.type === 'dom_mutation' ? 'mutation_observer' : 'text_coord_delta',
+          mutationCount: domEvent.mutationCount || 0,
+          sampleSelectors: domEvent.sampleSelectors || [],
+          summary: domEvent.summary || null,
+          timestamp: domEvent.timestamp,
+        },
+      });
+    }
+
+    chains.sort((a, b) => b.confidence - a.confidence || a.deltaMs - b.deltaMs);
+    return chains.slice(0, 3);
+  }
+
   const payload = msg.payload || {};
   const tabId = Number(msg.tabId);
   if (!Number.isFinite(tabId)) return null;
@@ -240,6 +289,29 @@ function normalizeMessage(msg = {}) {
         from: payload.from || payload.fromReact || null,
         to: payload.to || payload.toReact || payload.currentHash || null,
         trigger: payload.trigger || null,
+      },
+    };
+  }
+
+  // Rule 2 input: framework component snapshots provide high-confidence DOM
+  // change context — forward them as framework_snapshot events so the
+  // correlator can build Rule-2 and Rule-3 chains.
+  if (
+    msg.type === 'REACT_SNAPSHOT'    ||
+    msg.type === 'VUE_SNAPSHOT'      ||
+    msg.type === 'VUE2_SNAPSHOT'     ||
+    msg.type === 'VUE3_SNAPSHOT'     ||
+    msg.type === 'ANGULAR_SNAPSHOT'  ||
+    msg.type === 'SVELTE_SNAPSHOT'
+  ) {
+    return {
+      type: 'framework_snapshot',
+      tabId,
+      timestamp: payload.timestamp || payload.ts || payload.capturedAt || Date.now(),
+      summary: {
+        sourceType: msg.type,
+        componentCount: Array.isArray(payload.components) ? payload.components.length : null,
+        rootComponent: payload.rootComponent || payload.root || null,
       },
     };
   }

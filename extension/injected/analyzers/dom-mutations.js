@@ -79,6 +79,7 @@
 
     if (recordsToEmit.length > 0 && _api) {
       _api.emit('DOM_MUTATION', {
+        type: 'DOM_MUTATION',
         timestamp: Date.now(),
         batchDurationMs: BATCH_WINDOW_MS,
         records: recordsToEmit

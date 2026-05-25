@@ -129,21 +129,21 @@
 
 ---
 
-## サマリ: 修正優先度
+## サマリ: 全矛盾解決済み ✅
 
 ```
-階層別:
-  C1  →  manifest直し (2行)                  ← これだけで Subsystem 5 が蘇生
-  H2  →  core.js +6行                         ← これ + H1 で相関精度が大幅向上
-  H1  →  correlator.js に Rule 2 追加 (~30行)
-  H3  →  correlator.js +2行
-  M1  →  dom-mutations.js +1行
-  M2  →  source-fetcher.js 1行
-  L1〜L4  →  任意
+全10件の矛盾は修正完了:
+  C1  →  manifest直し (2行)                  ✅ Subsystem 5 蘇生
+  H1  →  correlator.js Rule 2 追加 (~30行)    ✅ Framework→DOM 相関実装
+  H2  →  core.js +6行                         ✅ SNAPSHOT correlator feed
+  H3  →  correlator.js +2行                   ✅ dom.signal フィールド追加
+  M1  →  dom-mutations.js +1行                ✅ type フィールド追加
+  M2  →  source-fetcher.js 1行                ✅ dependencies 設定済み
+  L1  →  Level 1 bridge                       ✅ postMessage 方式に置換
+  L2  →  docs/architecture.md                 ✅ intelligence.js 追記
+  L3  →  analyze_click カテゴリ               ✅ "core" に統一
+  L4  →  state-visualizer.js                  ✅ MCP tool 化
 ```
-
-推奨着手順: **C1 → H2 → H1 → H3 → M1 → M2 → L1-L4**  
-(C1 は行数最小で最大のインパクト。H1 は H2 なしでは動作しないため H2 を先に)
 
 ---
 

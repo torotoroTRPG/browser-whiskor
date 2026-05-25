@@ -1,237 +1,134 @@
 /**
- * analyzers/dom-mutations.js  –  MAIN world  (v2 rewrite)
- *
- * High-fidelity DOM mutation streaming for browser-whiskor.
- *
- * Improvements over v1:
- *   - Records before/after values for attribute changes
- *   - Records meaningful content for added/removed nodes
- *     (tag, id, classes, data-*, textContent snippet, rect)
- *   - characterData tracking (text node changes)
- *   - Smart batching with per-category rate limiting
- *   - Budget guard: when overwhelmed, excess ops are summarised
- *   - Overflow counter so consumers know data was compressed
- *   - Debounce 80ms for snappier realtime feel
- *
- * Emits: DOM_MUTATIONS (realtime: true)
+ * analyzers/dom-mutations.js
+ * 
+ * Extended Proposal A: DOM_MUTATION Event Type
+ * 
+ * 座標変化（TEXT_COORD_DELTA）では捕捉できない「非可視要素の挿入」「属性値のみの変更」
+ * を正確にトラッキングするための MutationObserver ベースの監視エンジン。
+ * Time-series Correlator で高精度な因果関係を構築するために使用される。
  */
 'use strict';
 
-(function () {
+(function() {
   const registry = window.__SI_REGISTRY__;
   if (!registry) return;
 
-  // ── Tunables ───────────────────────────────────────────────────────────────
-  const DEBOUNCE_MS       = 80;
-  const MAX_STRUCTURAL    = 40;
-  const MAX_TEXT          = 30;
-  const MAX_ATTRS_PER_EL  = 10;
-  const TEXT_PREVIEW_LEN  = 120;
-  const NODE_TEXT_LEN     = 100;
-
-  // ── Selector helper ───────────────────────────────────────────────────────
-  function quickSelector(el) {
-    if (!el || el.nodeType !== 1) return null;
-    try {
-      if (el.id) return '#' + CSS.escape(el.id);
-      const testId = el.getAttribute('data-testid') || el.getAttribute('data-cy') ||
-                     el.getAttribute('data-qa');
-      if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
-      const tag = el.tagName.toLowerCase();
-      const parent = el.parentElement;
-      if (!parent) return tag;
-      const siblings = parent.querySelectorAll(':scope > ' + tag);
-      if (siblings.length === 1) return tag;
-      const idx = [...siblings].indexOf(el) + 1;
-      return `${tag}:nth-of-type(${idx})`;
-    } catch (_) {
-      return el.tagName?.toLowerCase() || 'unknown';
+  // ── ユーティリティ: 高速で一意性の高いセレクタ計算 ─────────────────────────
+  // 根本的な考え方: ここでのセレクタは「後からCorrelatorが要素を特定できること」が目的です。
+  function computeSelector(el) {
+    if (el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+    if (!el || !el.tagName || el === document.body || el === document.documentElement) {
+      return el && el.tagName ? el.tagName.toLowerCase() : 'unknown';
     }
-  }
+    if (el.id) return `#${CSS.escape(el.id)}`;
 
-  function getNodeSummary(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent?.trim();
-      return text ? { nodeType: 'text', text: text.slice(0, TEXT_PREVIEW_LEN) } : null;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return null;
-
-    const summary = {
-      tag:     node.tagName.toLowerCase(),
-      id:      node.id || null,
-      classes: (typeof node.className === 'string'
-                 ? node.className
-                 : (node.className && node.className.baseVal) || '')
-                 .trim().split(/\s+/).slice(0, 8),
-    };
-
-    const dataAttrs = {};
-    for (const name of node.getAttributeNames()) {
-      if (name.startsWith('data-')) dataAttrs[name] = (node.getAttribute(name) || '').slice(0, 80);
-    }
-    if (Object.keys(dataAttrs).length) summary.data = dataAttrs;
-
-    const semantic = {};
-    for (const a of ['role', 'type', 'name', 'href', 'src', 'aria-label',
-                      'aria-hidden', 'placeholder', 'value']) {
-      const v = node.getAttribute(a);
-      if (v != null) semantic[a] = v.slice(0, 120);
-    }
-    if (Object.keys(semantic).length) summary.attrs = semantic;
-
-    let directText = '';
-    for (const child of node.childNodes) {
-      if (child.nodeType === Node.TEXT_NODE) directText += child.textContent;
-    }
-    const trimmed = directText.trim();
-    if (trimmed) {
-      summary.text = trimmed.slice(0, NODE_TEXT_LEN);
-    } else {
-      const full = node.textContent?.trim();
-      if (full) summary.text = full.slice(0, NODE_TEXT_LEN);
-    }
-
-    try {
-      const r = node.getBoundingClientRect();
-      if (r.width || r.height) {
-        summary.rect = {
-          x: Math.round(r.left + window.scrollX),
-          y: Math.round(r.top  + window.scrollY),
-          w: Math.round(r.width),
-          h: Math.round(r.height),
-        };
+    const parts = [];
+    let current = el;
+    let depth = 0;
+    while (current && current !== document.body && current !== document.documentElement && depth < 4) {
+      let segment = current.tagName.toLowerCase();
+      const classes = [...(current.classList || [])].filter(
+        c => !/^[a-z]{1,3}-[a-zA-Z0-9]{4,8}$/.test(c) && !/^\d/.test(c)
+      );
+      if (classes.length) {
+        segment += '.' + CSS.escape(classes[0]);
       }
-    } catch (_) {}
-
-    summary.childCount = node.children.length;
-    return summary;
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = [...parent.children].filter(s => s.tagName === current.tagName);
+        if (siblings.length > 1) {
+          const idx = siblings.indexOf(current) + 1;
+          segment += `:nth-child(${idx})`;
+        }
+      }
+      parts.unshift(segment);
+      current = parent;
+      depth++;
+    }
+    return parts.join(' > ') || el.tagName.toLowerCase();
   }
 
-  // ── Batch accumulator ──────────────────────────────────────────────────────
-
-  function newBatch() {
-    return {
-      structural:           [],
-      attrs:                new Map(),
-      text:                 [],
-      structural_overflow:  0,
-      text_overflow:        0,
-    };
-  }
-
-  let _batch   = newBatch();
-  let _timer   = null;
-  let _api     = null;
+  // ── Mutation Handler & Batching ───────────────────────────────────────────
   let _observer = null;
+  let batchQueue = [];
+  let batchTimeout = null;
+  const BATCH_WINDOW_MS = 16; // Proposal A: 16ms window
+  let _api = null;
 
   function flushBatch() {
-    _timer = null;
-    if (!_api) return;
+    if (batchQueue.length === 0) return;
+    
+    const recordsToEmit = [];
+    const attrMap = new Map();
 
-    const b = _batch;
-    _batch = newBatch();
-
-    const attrsList = [];
-    for (const [el, attrMap] of b.attrs) {
-      for (const [attr, entry] of attrMap) {
-        attrsList.push(entry);
+    // Coalescing Rule (Proposal A)
+    // 属性と文字データの変更は要素+プロパティ単位で最新のものに上書き統合。
+    // childList（要素の挿入・削除）はトランジェントな状態を追うため統合せず全て送る。
+    for (const record of batchQueue) {
+      if (record.mutationType === 'attributes' || record.mutationType === 'characterData') {
+        const key = `${record.targetSelector}_${record.mutationType}_${record.attributeName || ''}`;
+        attrMap.set(key, record);
+      } else if (record.mutationType === 'childList') {
+        recordsToEmit.push(record);
       }
     }
 
-    const hasData = b.structural.length || attrsList.length || b.text.length;
-    if (!hasData) return;
+    for (const record of attrMap.values()) {
+      recordsToEmit.push(record);
+    }
 
-    _api.emit('DOM_MUTATIONS', {
-      ts:         Date.now(),
-      structural: b.structural.length   ? b.structural : undefined,
-      attributes: attrsList.length      ? attrsList    : undefined,
-      text:       b.text.length         ? b.text       : undefined,
-      _overflow: (b.structural_overflow || b.text_overflow) ? {
-        structural: b.structural_overflow,
-        text:       b.text_overflow,
-      } : undefined,
-    }, true);
+    if (recordsToEmit.length > 0 && _api) {
+      _api.emit('DOM_MUTATION', {
+        type: 'DOM_MUTATION',
+        timestamp: Date.now(),
+        batchDurationMs: BATCH_WINDOW_MS,
+        records: recordsToEmit
+      }, true); // realtime: true
+    }
+
+    batchQueue = [];
+    batchTimeout = null;
   }
-
-  function scheduleBatch() {
-    if (_timer) return;
-    _timer = setTimeout(flushBatch, DEBOUNCE_MS);
-  }
-
-  // ── Mutation handler ───────────────────────────────────────────────────────
 
   function handleMutations(mutations) {
-    for (const m of mutations) {
+    for (const mut of mutations) {
+      if (mut.target && mut.target.id === 'si-ui-container') continue;
 
-      if (m.type === 'childList' && m.addedNodes.length) {
-        for (const node of m.addedNodes) {
-          const summary = getNodeSummary(node);
-          if (!summary) continue;
-          if (_batch.structural.length < MAX_STRUCTURAL) {
-            _batch.structural.push({ op: 'add', ...summary });
-          } else {
-            _batch.structural_overflow++;
-          }
-        }
+      const record = {
+        mutationType: mut.type,
+        targetSelector: computeSelector(mut.target)
+      };
+
+      if (mut.type === 'childList') {
+        record.addedCount = mut.addedNodes.length;
+        record.removedCount = mut.removedNodes.length;
+        if (record.addedCount === 0 && record.removedCount === 0) continue;
+      } else if (mut.type === 'attributes') {
+        record.attributeName = mut.attributeName;
+        record.oldValue = mut.oldValue;
+        record.newValue = mut.target.getAttribute(mut.attributeName);
+      } else if (mut.type === 'characterData') {
+        record.oldValue = mut.oldValue;
+        record.newValue = mut.target.nodeValue;
       }
 
-      if (m.type === 'childList' && m.removedNodes.length) {
-        for (const node of m.removedNodes) {
-          const summary = getNodeSummary(node);
-          if (!summary) continue;
-          delete summary.rect;
-          if (_batch.structural.length < MAX_STRUCTURAL) {
-            _batch.structural.push({ op: 'remove', ...summary });
-          } else {
-            _batch.structural_overflow++;
-          }
-        }
-      }
-
-      if (m.type === 'attributes' && m.target.nodeType === 1) {
-        const el = m.target;
-        if (!_batch.attrs.has(el)) _batch.attrs.set(el, new Map());
-        const attrMap = _batch.attrs.get(el);
-
-        if (attrMap.size < MAX_ATTRS_PER_EL) {
-          attrMap.set(m.attributeName, {
-            selector:  quickSelector(el),
-            tag:       el.tagName.toLowerCase(),
-            attribute: m.attributeName,
-            oldValue:  m.oldValue,
-            newValue:  el.getAttribute(m.attributeName),
-          });
-        }
-      }
-
-      if (m.type === 'characterData') {
-        const parent = m.target.parentElement;
-        if (_batch.text.length < MAX_TEXT) {
-          _batch.text.push({
-            oldValue:       m.oldValue?.trim().slice(0, TEXT_PREVIEW_LEN),
-            newValue:       m.target.textContent?.trim().slice(0, TEXT_PREVIEW_LEN),
-            parentTag:      parent?.tagName?.toLowerCase() || null,
-            parentSelector: parent ? quickSelector(parent) : null,
-          });
-        } else {
-          _batch.text_overflow++;
-        }
-      }
+      batchQueue.push(record);
     }
 
-    scheduleBatch();
+    if (!batchTimeout && batchQueue.length > 0) {
+      batchTimeout = setTimeout(flushBatch, BATCH_WINDOW_MS);
+    }
   }
 
-  // ── Plugin registration ────────────────────────────────────────────────────
-
+  // ── Plugin Registration ───────────────────────────────────────────────────
   registry.register({
     id:          'dom-mutations',
-    name:        'DOM Mutation Observer',
-    version:     '2.0.0',
+    name:        'DOM Mutation Observer (Proposal A)',
+    version:     '3.0.0', // v2 -> v3 (Prop A)
     runAt:       'document_start',
     realtime:    true,
     priority:    4,
-    emitType:    'DOM_MUTATIONS',
+    emitType:    'DOM_MUTATION',
     cacheTarget: null,
 
     install(api) {
@@ -242,12 +139,13 @@
         if (!document.body) return;
         _observer = new MutationObserver(handleMutations);
         _observer.observe(document.body, {
-          childList:              true,
-          subtree:                true,
-          attributes:             true,
-          attributeOldValue:      true,
-          characterData:          true,
-          characterDataOldValue:  true,
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+          attributeOldValue: true,
+          // Proposal A: "high volume; opt-in only" -> false
+          characterDataOldValue: false 
         });
       };
 

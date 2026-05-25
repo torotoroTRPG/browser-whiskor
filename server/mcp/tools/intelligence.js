@@ -12,6 +12,7 @@
 'use strict';
 
 const path = require('path');
+const { generateAsciiGraph } = require('../../state-visualizer');
 
 module.exports = function registerIntelligenceTools(registry) {
   const tools = [];
@@ -348,6 +349,34 @@ module.exports = function registerIntelligenceTools(registry) {
           ? 'No source file changes detected. Either the site has not changed or source files have not been fetched yet.'
           : undefined,
       };
+    },
+  });
+
+  // ── get_state_map_visual ──────────────────────────────────────────────────
+  tools.push({
+    definition: {
+      name: 'get_state_map_visual',
+      description: 'Returns an ASCII-art state graph for the current site. Shows the navigation topology (● root, ○ visited, ◎ pinned nodes) with edge labels indicating the actions that triggered each transition. Useful for understanding what states the agent has explored and how they relate.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          siteVersion: {
+            type: 'string',
+            description: 'Site version key. Defaults to the "default" graph when omitted.',
+          },
+          maxNodes: {
+            type: 'number',
+            description: 'Maximum nodes to render (default 40).',
+          },
+        },
+        required: [],
+      },
+    },
+    handler: async (args) => {
+      const siteVersion = args.siteVersion || 'default';
+      const maxNodes = args.maxNodes || 40;
+      const graph = generateAsciiGraph(siteVersion, maxNodes);
+      return { siteVersion, graph };
     },
   });
 
