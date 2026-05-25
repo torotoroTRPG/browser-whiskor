@@ -497,6 +497,15 @@
     .n-dur { text-align: right; color: var(--muted); }
     .n-init { color: var(--muted); font-size: 9px; }
 
+    /* --- Capture Preview --- */
+    #cap-img {
+      display: block; max-width: 100%;
+      margin: 0 auto;
+      box-shadow:
+        0 0 0 1px var(--text),
+        0 0 0 2px var(--border);
+    }
+
     /* --- JSON --- */
     .json {
       padding: 13px; font: 200 11px/1.5 var(--font-mono);
@@ -802,7 +811,7 @@
                 <button class="btn" id="cap-expand" title="Expand capture preview" style="font-size:11px;padding:2px 6px">⛶</button>
               </div>
               <div id="cap-img-wrap" style="margin-top:8px;max-height:400px;overflow:auto;background:var(--canvas-bg);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
-                <img id="cap-img" style="max-width:100%;display:block">
+                <img id="cap-img">
               </div>
             </div>
             <div class="json" id="cap-data" style="max-height:200px"></div>
