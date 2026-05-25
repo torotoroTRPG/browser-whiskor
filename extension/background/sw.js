@@ -396,7 +396,7 @@ async function handleServerMessage(msg) {
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
 
-        let elements = null;
+        let elements = null, vpWidth = null, vpHeight = null;
         if (opts?.marks && windowId) {
           try {
             const results = await chrome.scripting.executeScript({
@@ -422,11 +422,14 @@ async function handleServerMessage(msg) {
                     selector: el.id ? `#${el.id}` : el.className ? `${el.tagName.toLowerCase()}.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}` : el.tagName.toLowerCase(),
                   });
                 }
-                return els;
+                return { elements: els, vpWidth: window.innerWidth, vpHeight: window.innerHeight };
               },
               world: 'MAIN',
             });
-            elements = results?.[0]?.result || [];
+            const r = results?.[0]?.result || {};
+            elements = r.elements || [];
+            vpWidth  = r.vpWidth  || null;
+            vpHeight = r.vpHeight || null;
           } catch (_) {}
         }
 
@@ -444,6 +447,8 @@ async function handleServerMessage(msg) {
           reqId,
           dataUrl: markedDataUrl || dataUrl,
           elements: elements || null,
+          vpWidth:  vpWidth,
+          vpHeight: vpHeight,
           capturedAt: Date.now(),
         });
       } catch (e) {

@@ -79,6 +79,8 @@ function handleResult(msg) {
   if (elements) result.elements = elements;
   if (msg.rect) result.rect = msg.rect;
   if (msg.padding) result.padding = msg.padding;
+  if (msg.vpWidth) result.vpWidth = msg.vpWidth;
+  if (msg.vpHeight) result.vpHeight = msg.vpHeight;
   p.resolve(result);
 }
 

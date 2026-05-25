@@ -505,6 +505,72 @@
         0 0 0 1px var(--text),
         0 0 0 2px var(--border);
     }
+    #cap-marks-layer {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    #cap-img-wrap { position: relative; }
+    .cap-marker {
+      position: absolute;
+      pointer-events: all;
+      cursor: crosshair;
+      border: 0.5px solid var(--accent);
+      border-radius: 2px;
+      transition: background 150ms, box-shadow 150ms;
+    }
+    .cap-marker:hover {
+      background: rgba(197, 198, 199, 0.08);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .cap-marker .cap-tip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%; transform: translateX(-50%);
+      background: var(--bg);
+      color: var(--text);
+      font: 200 10px/1.3 var(--font-mono);
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      white-space: nowrap;
+      max-width: 320px;
+      overflow: hidden; text-overflow: ellipsis;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .cap-marker:hover .cap-tip,
+    .cap-marker.pinned .cap-tip { display: block; }
+    .cap-marker.pinned {
+      background: rgba(197, 198, 199, 0.12);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .cap-marker.pinned .cap-tip {
+      pointer-events: auto;
+      white-space: normal;
+      max-width: 420px;
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+    }
+    .cap-marker .cap-tag {
+      font: 200 8px/1 var(--font-mono);
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      margin-bottom: 2px;
+    }
+    #cap-toast {
+      position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: var(--text); color: var(--bg);
+      font: 200 10px/1 var(--font-mono);
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      opacity: 0;
+      transition: opacity 250ms;
+      pointer-events: none;
+      z-index: 999;
+    }
+    #cap-toast.show { opacity: 0.9; }
 
     /* --- JSON --- */
     .json {
@@ -804,6 +870,14 @@
               </select>
               <span style="font:200 9px/1 var(--font-mono);color:var(--muted);align-self:center">padding</span>
               <input type="number" id="cap-pad" value="4" min="0" max="50" style="width:50px;background:transparent;border:none;box-shadow:inset 0 0 0 0.5px var(--border);border-radius:var(--radius);color:var(--text);font:200 10px/1 var(--font-mono);padding:4px 6px">
+              <span class="cv-sep"></span>
+              <select id="cap-copy" class="cv-select" title="Right-click copy field">
+                <option value="selector">Copy: selector</option>
+                <option value="tag">Copy: tag</option>
+                <option value="text">Copy: text</option>
+                <option value="id">Copy: id</option>
+                <option value="full">Copy: full JSON</option>
+              </select>
             </div>
             <div id="cap-result" style="display:none;margin-bottom:13px">
               <div style="display:flex;align-items:center;gap:8px">
@@ -812,11 +886,14 @@
               </div>
               <div id="cap-img-wrap" style="margin-top:8px;max-height:400px;overflow:auto;background:var(--canvas-bg);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
                 <img id="cap-img">
+                <div id="cap-marks-layer"></div>
               </div>
             </div>
             <div class="json" id="cap-data" style="max-height:200px"></div>
           </div>
         </div>
+
+        <div id="cap-toast"></div>
 
         <div class="pane" id="p-profile">
           <div class="card"><h3>TOOL PROFILES</h3>
@@ -1061,6 +1138,7 @@
         'dl-data','dl-reload','dl-patterns','dl-info',
         'cap-full','cap-marks','cap-element','cap-sel','cap-format','cap-pad',
         'cap-result','cap-img','cap-link','cap-data','cap-expand','cap-img-wrap',
+        'cap-marks-layer','cap-copy','cap-toast',
         'pr-status','pr-search-tools','pr-load','pr-load-btn','pr-unload-btn','pr-data',
         'stream-el',
         'st-results','st-summary','st-run','st-clear','st-copy','st-copy-logs','st-report',
@@ -2148,8 +2226,23 @@
           D['cap-link'].textContent = '📷 Screenshot' + (marks ? ' (with marks' + elInfo + ')' : '') + (data.filePath ? ' — ' + data.filePath : '');
           D['cap-result'].style.display = '';
           D['cap-data'].textContent = JSON.stringify(data, null, 2);
+          // Render interactive markers when image loads
+          if (data.elements && data.vpWidth) {
+            D['cap-img'].dataset.vpW = data.vpWidth;
+            D['cap-img'].dataset.vpH = data.vpHeight;
+            D['cap-img'].onload = function() {
+              renderCaptureMarkers(data.elements, data.vpWidth, data.vpHeight);
+              D['cap-img'].onload = null;
+            };
+            if (D['cap-img'].complete) {
+              renderCaptureMarkers(data.elements, data.vpWidth, data.vpHeight);
+            }
+          } else {
+            clearCaptureMarkers();
+          }
         } else {
           D['cap-data'].textContent = JSON.stringify(data || { error: 'no dataUrl' }, null, 2);
+          clearCaptureMarkers();
         }
       } catch(e) {
         D['cap-data'].textContent = '(error: ' + e.message + ')';
@@ -2176,11 +2269,117 @@
           D['cap-link'].textContent = '📷 Element screenshot' + rectInfo + (data.filePath ? ' — ' + data.filePath : '');
           D['cap-result'].style.display = '';
           D['cap-data'].textContent = JSON.stringify(data, null, 2);
+          clearCaptureMarkers();
         } else {
           D['cap-data'].textContent = JSON.stringify(data || { error: 'no dataUrl' }, null, 2);
+          clearCaptureMarkers();
         }
       } catch(e) {
         D['cap-data'].textContent = '(error: ' + e.message + ')';
+      }
+    }
+
+    // ── Capture Markers ─────────────────────────────────────────────────
+    var _capElements = null;
+
+    function clearCaptureMarkers() {
+      _capElements = null;
+      D['cap-marks-layer'].innerHTML = '';
+    }
+
+    function showCapToast(msg) {
+      D['cap-toast'].textContent = msg;
+      D['cap-toast'].classList.add('show');
+      clearTimeout(D['cap-toast']._t);
+      D['cap-toast']._t = setTimeout(function() { D['cap-toast'].classList.remove('show'); }, 1800);
+    }
+
+    function renderCaptureMarkers(elements, vpW, vpH) {
+      clearCaptureMarkers();
+      if (!elements || !elements.length || !vpW || !vpH) return;
+      _capElements = elements;
+      var img = D['cap-img'];
+      var layer = D['cap-marks-layer'];
+      var scaleX = img.clientWidth / vpW;
+      var scaleY = img.clientHeight / vpH;
+
+      for (var i = 0; i < elements.length; i++) {
+        var el = elements[i];
+        // Convert page center coordinates to top-left for the overlay
+        var left = (el.x - el.w / 2) * scaleX;
+        var top  = (el.y - el.h / 2) * scaleY;
+        var w    = el.w * scaleX;
+        var h    = el.h * scaleY;
+
+        var m = document.createElement('div');
+        m.className = 'cap-marker';
+        m.style.left   = Math.max(0, left) + 'px';
+        m.style.top    = Math.max(0, top) + 'px';
+        m.style.width  = Math.max(4, w) + 'px';
+        m.style.height = Math.max(4, h) + 'px';
+        m.dataset.idx  = i;
+
+        // Tooltip
+        var tip = document.createElement('div');
+        tip.className = 'cap-tip';
+        var tagLine = '<div class="cap-tag">' + esc(el.tag) + (el.id ? ' #' + esc(el.id) : '') + '</div>';
+        var infoLine = '<div>' + esc(el.text || el.selector || '') + '</div>';
+        var coordLine = '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
+          + Math.round(el.x) + ',' + Math.round(el.y) + ' ' + el.w + '×' + el.h + '</div>';
+        tip.innerHTML = tagLine + infoLine + coordLine;
+        m.appendChild(tip);
+
+        // Events
+        m.addEventListener('click', function(e) {
+          e.stopPropagation();
+          this.classList.toggle('pinned');
+          // Expand tooltip with full detail when pinned
+          var idx = parseInt(this.dataset.idx);
+          var ed = _capElements[idx];
+          if (this.classList.contains('pinned')) {
+            var tipEl = this.querySelector('.cap-tip');
+            if (tipEl && ed) {
+              var extra = '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;font-size:8px;color:var(--muted)">'
+                + '<div>selector: ' + esc(ed.selector) + '</div>'
+                + '<div>tag: ' + esc(ed.tag) + '</div>'
+                + '<div>text: ' + esc((ed.text || '').slice(0, 120)) + '</div>'
+                + '<div>pos: ' + ed.x + ',' + ed.y + ' ' + ed.w + '×' + ed.h + '</div>'
+                + '</div>';
+              tipEl.innerHTML = tagLine + infoLine + coordLine + extra;
+            }
+          }
+        });
+
+        m.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var idx = parseInt(this.dataset.idx);
+          var ed = _capElements ? _capElements[idx] : null;
+          if (!ed) return;
+          var copyField = D['cap-copy'].value;
+          var txt;
+          if (copyField === 'full') {
+            txt = JSON.stringify(ed, null, 2);
+          } else if (copyField === 'selector') {
+            txt = ed.selector || '';
+          } else if (copyField === 'tag') {
+            txt = ed.tag || '';
+          } else if (copyField === 'text') {
+            txt = ed.text || '';
+          } else if (copyField === 'id') {
+            txt = ed.id != null ? String(ed.id) : '';
+          } else {
+            txt = ed.selector || '';
+          }
+          // If pinned, include additional detail
+          if (this.classList.contains('pinned')) {
+            txt += '\n---\ntag: ' + (ed.tag || '') + '\ntext: ' + (ed.text || '') + '\npos: ' + ed.x + ',' + ed.y + ' ' + ed.w + '×' + ed.h + '\nselector: ' + (ed.selector || '');
+          }
+          try { navigator.clipboard.writeText(txt); } catch(_) {}
+          showCapToast('Copied ' + copyField);
+        });
+
+        layer.appendChild(m);
       }
     }
 
@@ -3161,6 +3360,16 @@
           this.textContent = '⛶';
           this.title = 'Collapse capture preview';
         }
+        // Re-render markers after layout settles
+        setTimeout(function() {
+          if (_capElements && _capElements.length) {
+            // Need original data — re-render from stored elements
+            var img = D['cap-img'];
+            if (img.complete) {
+              renderCaptureMarkers(_capElements, img.dataset.vpW || null, img.dataset.vpH || null);
+            }
+          }
+        }, 50);
       });
 
       // Profiles

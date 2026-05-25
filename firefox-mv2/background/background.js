@@ -272,7 +272,7 @@ async function handleServerMessage(msg) {
       try {
         const tab = await browser.tabs.get(tabId);
 
-        let elements = null;
+        let elements = null, vpWidth = null, vpHeight = null;
         if (opts?.marks) {
           try {
             const results = await browser.tabs.executeScript(tabId, {
@@ -294,10 +294,13 @@ async function handleServerMessage(msg) {
                     selector: el.id ? '#' + el.id : el.className ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : el.tagName.toLowerCase(),
                   });
                 }
-                return els;
+                return JSON.stringify({ elements: els, vpWidth: window.innerWidth, vpHeight: window.innerHeight });
               }})()`,
             });
-            elements = results?.[0] || [];
+            const r = JSON.parse(results?.[0] || '{}');
+            elements = r.elements || [];
+            vpWidth  = r.vpWidth  || null;
+            vpHeight = r.vpHeight || null;
           } catch (_) {}
         }
 
@@ -312,6 +315,8 @@ async function handleServerMessage(msg) {
           type: 'SCREENSHOT_RESULT', reqId,
           dataUrl: markedDataUrl || dataUrl,
           elements: elements || null,
+          vpWidth:  vpWidth,
+          vpHeight: vpHeight,
           capturedAt: Date.now(),
         });
       } catch (e) {
