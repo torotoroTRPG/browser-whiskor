@@ -24,3 +24,9 @@ tests/tmp/
 hs_err_pid*.log
 memo_日常.txt
 tests/report/
+
+# Build artifacts / session logs
+コピー.txt
+browser-whiskor-v3-complete.zip
+build/*.zip
+firefox-mv2/web-ext-artifacts/*.zip
