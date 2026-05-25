@@ -221,7 +221,9 @@ class TimeSeriesCorrelator {
     chains.sort((a, b) => b.confidence - a.confidence || a.deltaMs - b.deltaMs);
     return chains.slice(0, 3);
   }
+}
 
+function normalizeMessage(msg = {}) {
   const payload = msg.payload || {};
   const tabId = Number(msg.tabId);
   if (!Number.isFinite(tabId)) return null;
