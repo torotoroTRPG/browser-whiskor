@@ -86,7 +86,7 @@ AI Agent (Claude / Cursor / etc.)
 │   raw/accessibility│    │ injected/state-reporter.js           │
 │   raw/storage/     │    │ injected/plugin-system.js            │
 │   raw/console/     │    │ injected/adapters/ (9 frameworks)    │
-│   raw/perf/        │    │ injected/analyzers/ (9 analyzers)    │
+│   raw/perf/        │    │ injected/analyzers/ (13 analyzers)   │
 │   raw/css/         │    │ lib/bippy.iife.js                    │
 │   raw/dom/         │    └──────────────────────────────────────┘
 │   raw/react_*.json │
@@ -484,7 +484,7 @@ The agent can then say "click element 1" instead of dealing with raw coordinates
 
 ## Testing & Quality
 
-**304 automated tests** covering core logic, server routing, and stress scenarios.
+**308 automated tests** covering core logic, server routing, and stress scenarios.
 
 | Category | Count | Scope |
 |----------|-------|-------|

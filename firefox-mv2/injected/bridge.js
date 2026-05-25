@@ -23,6 +23,7 @@ window.addEventListener('message', (event) => {
     tabUrl:   location.href,
     type:     event.data.type,
     payload:  event.data.payload,
+    reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
     realtime: !!event.data.realtime,
     ts:       Date.now(),
   }).catch(() => {});

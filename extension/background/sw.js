@@ -490,11 +490,57 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.from !== 'collector' && message.type !== 'ACTION_COMPLETE') return;
 
   if (message.from === 'collector') {
+    // ── CSS Origin Level 1 bridge ───────────────────────────────────────────
+    // css-origin.js (MAIN world) requests DevTools resources.
+    // Route to the panel port for this tab; panel.js calls getResources() and
+    // replies via chrome.runtime.sendMessage back here, which we inject back.
+    if (message.type === 'CSS_ORIGIN_RESOURCE_REQUEST') {
+      const tabId = sender.tab?.id;
+      const port  = panelPorts.get(tabId);
+      if (!port) {
+        // No DevTools panel open — inject empty response so css-origin falls back
+        chrome.scripting.executeScript({
+          target: { tabId },
+          func: (reqId) => window.postMessage({
+            __BROWSER_WHISKOR__: true,
+            type: 'CSS_ORIGIN_RESOURCE_RESPONSE',
+            reqId,
+            resources: [],
+          }, '*'),
+          args: [message.reqId],
+          world: 'MAIN',
+        }).catch(() => {});
+      } else {
+        // Forward request to panel; panel will reply via runtime.sendMessage
+        port.postMessage({ type: 'CSS_ORIGIN_RESOURCE_REQUEST', reqId: message.reqId, tabId });
+      }
+      return; // Don't forward to WS server
+    }
+
     const enriched = { ...message, tabId: sender.tab?.id, frameId: sender.frameId };
     sendToServer(enriched);
     panelPorts.get(sender.tab?.id)?.postMessage(enriched);
   }
   // ACTION_COMPLETE is handled by the listener inside executeInPage
+});
+
+// ── CSS Origin Level 1: panel → content script reply ─────────────────────────
+// devtools.js sends the getResources() result back here.
+// We inject it into the MAIN world so css-origin.js's listener fires.
+chrome.runtime.onMessage.addListener((message, _sender) => {
+  if (message.type !== 'CSS_ORIGIN_RESOURCE_RESPONSE') return;
+  const { reqId, resources, tabId } = message;
+  chrome.scripting.executeScript({
+    target: { tabId },
+    func: (reqId, resources) => window.postMessage({
+      __BROWSER_WHISKOR__: true,
+      type: 'CSS_ORIGIN_RESOURCE_RESPONSE',
+      reqId,
+      resources,
+    }, '*'),
+    args: [reqId, resources],
+    world: 'MAIN',
+  }).catch(() => {});
 });
 
 // ── DevTools panel ports ───────────────────────────────────────────────────────

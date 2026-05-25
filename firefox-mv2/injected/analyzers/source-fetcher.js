@@ -68,7 +68,7 @@
     realtime:    false,
     priority:    7,
     emitType:    'SOURCE_CONTENT',
-    dependencies: [],
+    dependencies: ['css', 'css-origin'],
 
     install(api) {},
 

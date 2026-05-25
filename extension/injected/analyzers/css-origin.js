@@ -77,6 +77,141 @@
     return parts.join(' > ') || el.tagName.toLowerCase();
   }
 
+  // ── Level 1: Request DevTools getResources() via postMessage bridge ─────────
+  // DevTools context (devtools.js) holds the only handle to getResources().
+  // We send a request with a correlation ID, devtools.js calls getResources(),
+  // strips non-CSS entries, and posts the result back via SW → executeScript.
+  // Resolves once the response arrives or times out (500 ms → fallback).
+  let _level1Cache = null;     // Session-scoped cache: Map<href, { content, sourceMapURL }>
+  let _level1Pending = null;   // Promise<Map> while an in-flight request is active
+
+  function requestLevel1Resources() {
+    if (_level1Cache) return Promise.resolve(_level1Cache);
+    if (_level1Pending) return _level1Pending;
+
+    _level1Pending = new Promise((resolve) => {
+      const reqId = `css1-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onResponse);
+        _level1Pending = null;
+        resolve(new Map()); // graceful fallback to Level 2+
+      }, 500);
+
+      function onResponse(event) {
+        if (event.source !== window) return;
+        const d = event.data;
+        if (!d?.__BROWSER_WHISKOR__) return;
+        if (d.type !== 'CSS_ORIGIN_RESOURCE_RESPONSE') return;
+        if (d.reqId !== reqId) return;
+        clearTimeout(timeout);
+        window.removeEventListener('message', onResponse);
+        _level1Pending = null;
+        const map = new Map();
+        for (const item of (d.resources || [])) {
+          if (item.href && item.content != null) {
+            map.set(item.href, { content: item.content, sourceMapURL: item.sourceMapURL || null });
+          }
+        }
+        _level1Cache = map;
+        resolve(map);
+      }
+
+      window.addEventListener('message', onResponse);
+      // bridge.js forwards to SW → panel port → devtools.js
+      window.postMessage({
+        __BROWSER_WHISKOR__: true,
+        type: 'CSS_ORIGIN_RESOURCE_REQUEST',
+        reqId,
+      }, '*');
+    });
+    return _level1Pending;
+  }
+
+  // ── Tiny Base64-VLQ decoder for sourcemap resolution ─────────────────────
+  // Based on the Source Map Spec (https://sourcemaps.info/spec.html)
+  // Resolves a generated line/column → { source, originalLine, originalColumn }
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  function vlqDecode(str) {
+    const result = [];
+    let i = 0;
+    while (i < str.length) {
+      let value = 0, shift = 0, digit;
+      do {
+        digit = B64.indexOf(str[i++]);
+        if (digit < 0) break;
+        value |= (digit & 0x1f) << shift;
+        shift += 5;
+      } while (digit & 0x20);
+      // VLQ sign bit is LSB
+      result.push(value & 1 ? -(value >> 1) : value >> 1);
+    }
+    return result;
+  }
+
+  // Session-scoped sourcemap cache to avoid re-fetching
+  const _sourceMapCache = new Map(); // mapURL → parsed map | null
+
+  async function fetchSourceMap(sheetHref, sourceMapURL) {
+    if (!sourceMapURL) return null;
+    const resolvedURL = sourceMapURL.startsWith('data:')
+      ? sourceMapURL
+      : new URL(sourceMapURL, sheetHref).href;
+    if (_sourceMapCache.has(resolvedURL)) return _sourceMapCache.get(resolvedURL);
+
+    try {
+      let mapText;
+      if (resolvedURL.startsWith('data:application/json')) {
+        // Inline sourcemap: data:application/json;base64,...  or data:...;charset=utf-8,...
+        const [, rest] = resolvedURL.split(',');
+        mapText = resolvedURL.includes('base64')
+          ? atob(rest)
+          : decodeURIComponent(rest);
+      } else {
+        const r = await fetch(resolvedURL, { credentials: 'omit', cache: 'default' });
+        if (!r.ok) { _sourceMapCache.set(resolvedURL, null); return null; }
+        mapText = await r.text();
+      }
+      const map = JSON.parse(mapText);
+      _sourceMapCache.set(resolvedURL, map);
+      return map;
+    } catch (_) {
+      _sourceMapCache.set(resolvedURL, null);
+      return null;
+    }
+  }
+
+  // Given a parsed sourcemap and a 1-based generated line, return the first
+  // mapping on that line: { originalFile, originalLine, originalColumn }
+  function resolveSourceLine(map, generatedLine) {
+    if (!map?.mappings || !map?.sources) return null;
+    // Parse mappings lazily up to the target line (0-based internally)
+    const targetLine = generatedLine - 1;
+    const groups = map.mappings.split(';');
+    if (targetLine >= groups.length) return null;
+
+    let sourceIdx = 0, origLine = 0, origCol = 0;
+
+    for (let lineIdx = 0; lineIdx <= targetLine; lineIdx++) {
+      const segs = groups[lineIdx].split(',');
+      for (const seg of segs) {
+        if (!seg) continue;
+        const fields = vlqDecode(seg);
+        if (fields.length >= 4) {
+          sourceIdx += fields[1];
+          origLine  += fields[2];
+          origCol   += fields[3];
+        }
+      }
+    }
+
+    const sourceFile = (map.sourceRoot || '') + (map.sources[sourceIdx] || '');
+    return {
+      originalFile: sourceFile,
+      originalLine: origLine + 1,    // back to 1-based
+      originalColumn: origCol,
+    };
+  }
+
   // ── Fetch source text of a stylesheet (Level 3) ───────────────────────────
   async function tryFetchSheet(href) {
     if (!href || href.startsWith('blob:') || href.startsWith('data:')) return null;
@@ -107,6 +242,68 @@
     return null;
   }
 
+  // ── Recursive rule flattener for @layer, @scope, @media, @supports ─────────
+  // Returns flat array of { rule: CSSStyleRule, layerOrder: number, inScope: boolean }
+  //
+  // layerOrder semantics (per CSS Cascade 5 spec):
+  //   - unlayered styles win over all layered styles → layerOrder = Infinity
+  //   - among layered styles, LATER-declared layer wins → higher layerOrder number wins
+  //   - layerOrder 0 = first declared, 1 = second, etc.
+  //
+  // We pass a `layerRegistry` Map(layerName→order) built from @layer statements
+  // at the start of each sheet, then assign orders as we encounter @layer blocks.
+  let _layerCounter = 0;
+
+  function buildLayerRegistry(ruleList) {
+    // Pre-scan @layer statements to establish declaration order
+    const registry = new Map(); // name → order (higher = later = wins)
+    let order = 0;
+    for (let i = 0; i < ruleList.length; i++) {
+      const rule = ruleList[i];
+      if (typeof CSSLayerStatementRule !== 'undefined' && rule instanceof CSSLayerStatementRule) {
+        for (const name of (rule.nameList || [])) {
+          if (!registry.has(name)) registry.set(name, order++);
+        }
+      } else if (typeof CSSLayerBlockRule !== 'undefined' && rule instanceof CSSLayerBlockRule) {
+        const name = rule.name || `__anon_${order}`;
+        if (!registry.has(name)) registry.set(name, order++);
+      }
+    }
+    return registry;
+  }
+
+  function flattenRules(ruleList, layerOrder, inScope, layerRegistry) {
+    if (!layerRegistry) layerRegistry = buildLayerRegistry(ruleList);
+    const result = [];
+    for (let i = 0; i < ruleList.length; i++) {
+      const rule = ruleList[i];
+      if (typeof CSSLayerBlockRule !== 'undefined' && rule instanceof CSSLayerBlockRule) {
+        const name = rule.name || `__anon_${i}`;
+        // Use the pre-registered order (or assign a new one if anonymous)
+        const lo = layerRegistry.has(name) ? layerRegistry.get(name) : ++_layerCounter;
+        const nested = buildLayerRegistry(rule.cssRules);
+        result.push(...flattenRules(rule.cssRules, lo, inScope, nested));
+        continue;
+      }
+      if (typeof CSSLayerStatementRule !== 'undefined' && rule instanceof CSSLayerStatementRule) {
+        continue; // order-declaration only, no rules
+      }
+      if (typeof CSSScopeRule !== 'undefined' && rule instanceof CSSScopeRule) {
+        result.push(...flattenRules(rule.cssRules, layerOrder, true, layerRegistry));
+        continue;
+      }
+      // @media, @supports, @container, @document — recurse same layer
+      if (rule.cssRules) {
+        result.push(...flattenRules(rule.cssRules, layerOrder, inScope, layerRegistry));
+        continue;
+      }
+      if (rule instanceof CSSStyleRule) {
+        result.push({ rule, layerOrder, inScope });
+      }
+    }
+    return result;
+  }
+
   // ── Main: analyse one element, one or more properties ─────────────────────
   async function analyzeElement(el, properties, maxProps, acquisitionLevel) {
     const cs = window.getComputedStyle(el);
@@ -116,6 +313,13 @@
 
     const result = {};
     const sheetsCache = new Map(); // href → { text, level }
+
+    // Level 1: pre-fetch DevTools resources (gives exact source text + sourcemap)
+    // Falls back gracefully to Map() on timeout (non-DevTools contexts)
+    let level1Map = new Map();
+    if (acquisitionLevel >= 1) {
+      level1Map = await requestLevel1Resources();
+    }
 
     // Build ordered sheet list: last sheet = highest precedence at equal specificity
     const sheets = Array.from(document.styleSheets);
@@ -137,6 +341,7 @@
 
       let bestCandidate = null;
       let bestSpecificity = -1;
+      let bestLayerOrder  = -1;  // -1 = no match yet; Infinity = unlayered
       let bestSheetIdx = -1;
       let bestRuleIdx = -1;
       let tieCount = 0;
@@ -168,9 +373,11 @@
 
         if (!rules) continue;
 
-        for (let ri = 0; ri < rules.length; ri++) {
-          const rule = rules[ri];
-          if (!(rule instanceof CSSStyleRule)) continue;
+        _layerCounter = 0; // reset per sheet
+        const flatRules = flattenRules(rules, Infinity, false); // Infinity = unlayered
+
+        for (let ri = 0; ri < flatRules.length; ri++) {
+          const { rule, layerOrder } = flatRules[ri];
           // Check if rule applies to element
           try {
             if (!el.matches(rule.selectorText)) continue;
@@ -181,14 +388,21 @@
           if (!declaredValue) continue;
 
           const spec = computeSpecificity(rule.selectorText);
-          if (spec > bestSpecificity || (spec === bestSpecificity && si > bestSheetIdx)) {
-            if (spec === bestSpecificity && si === bestSheetIdx && ri > bestRuleIdx) {
-              tieCount++;
-            } else if (spec === bestSpecificity) {
+          // Cascade order: higher layerOrder wins (Infinity = unlayered = highest priority)
+          // Unlayered always beats layered at same specificity.
+          // Among layered rules, later-declared layer (higher index) wins.
+          if (
+            layerOrder > bestLayerOrder ||
+            (layerOrder === bestLayerOrder && spec > bestSpecificity) ||
+            (layerOrder === bestLayerOrder && spec === bestSpecificity && si > bestSheetIdx) ||
+            (layerOrder === bestLayerOrder && spec === bestSpecificity && si === bestSheetIdx && ri > bestRuleIdx)
+          ) {
+            if (layerOrder === bestLayerOrder && spec === bestSpecificity) {
               tieCount++;
             } else {
               tieCount = 0;
             }
+            bestLayerOrder  = layerOrder;
             bestSpecificity = spec;
             bestSheetIdx = si;
             bestRuleIdx = ri;
@@ -211,10 +425,21 @@
       const sheet = sheets[bestSheetIdx];
       const href = sheet.href || null;
       let sourceLine = null;
+      let sourceMapURL = null;
       let confidence = 0.93; // Level 2 default
 
-      // Try to get source line from fetched text
-      if (href && acquisitionLevel >= 3) {
+      // Level 1: DevTools resource has exact content + sourcemap reference
+      if (href && level1Map.has(href)) {
+        const l1 = level1Map.get(href);
+        if (l1.content) {
+          sourceLine = findRuleLineInSource(l1.content, bestCandidate.selectorText);
+          sourceMapURL = l1.sourceMapURL;
+          confidence = 0.99; // Level 1 — authoritative
+        }
+      }
+
+      // Try to get source line from fetched text (Level 3) if Level 1 missed
+      if (!sourceLine && href && acquisitionLevel >= 3) {
         if (!sheetsCache.has(href)) {
           const text = await tryFetchSheet(href);
           sheetsCache.set(href, { text, level: text ? 3 : 2 });
@@ -231,20 +456,63 @@
       result[prop] = {
         computedValue,
         source: 'rule',
-        rule: {
-          selectorText: bestCandidate.selectorText,
-          ruleText: bestCandidate.cssText,
-          specificity: bestSpecificity,
-          sheetHref: href,
-          sheetIndex: bestSheetIdx,
-          ruleIndex: bestRuleIdx,
-          sourceLine,
-          originalFile: null,
-          originalLine: null,
-        },
-        acquisition_level: sourceLine ? 3 : 2,
+        rule: (() => {
+          // Attempt sourcemap resolution for originalFile/originalLine
+          // (async not possible here — resolved below via post-processing)
+          return {
+            selectorText: bestCandidate.selectorText,
+            ruleText: bestCandidate.cssText,
+            specificity: bestSpecificity,
+            sheetHref: href,
+            sheetIndex: bestSheetIdx,
+            ruleIndex: bestRuleIdx,
+            sourceLine,
+            sourceMapURL,
+            originalFile: null,
+            originalLine: null,
+            _pendingSourceMap: !!(sourceMapURL && sourceLine), // resolved after loop
+          };
+        })(),
+        acquisition_level: level1Map.has(href || '') ? 1 : (sourceLine ? 3 : 2),
         confidence,
       };
+    }
+
+    // ── Post-loop: resolve sourceMap → originalFile / originalLine ───────────
+    // Properties marked _pendingSourceMap need async sourcemap fetch + VLQ decode
+    const pendingProps = Object.entries(result)
+      .filter(([, v]) => v.source === 'rule' && v.rule?._pendingSourceMap);
+
+    if (pendingProps.length > 0) {
+      // Group by sheetHref so we fetch each sourcemap once
+      const mapFetches = new Map(); // sheetHref → Promise<parsedMap>
+      for (const [, v] of pendingProps) {
+        const key = v.rule.sheetHref + '|' + v.rule.sourceMapURL;
+        if (!mapFetches.has(key)) {
+          mapFetches.set(key, fetchSourceMap(v.rule.sheetHref, v.rule.sourceMapURL));
+        }
+      }
+      // Await all maps in parallel
+      await Promise.all(mapFetches.values());
+
+      for (const [, v] of pendingProps) {
+        const key = v.rule.sheetHref + '|' + v.rule.sourceMapURL;
+        const parsedMap = await mapFetches.get(key);
+        if (parsedMap && v.rule.sourceLine) {
+          const resolved = resolveSourceLine(parsedMap, v.rule.sourceLine);
+          if (resolved) {
+            v.rule.originalFile   = resolved.originalFile;
+            v.rule.originalLine   = resolved.originalLine;
+            v.acquisition_level   = 1; // sourcemap = authoritative
+            v.confidence          = Math.min(v.confidence + 0.05, 1.0);
+          }
+        }
+        delete v.rule._pendingSourceMap; // clean up internal flag
+      }
+    }
+    // Clean up _pendingSourceMap on all entries (in case none were pending)
+    for (const v of Object.values(result)) {
+      if (v.rule) delete v.rule._pendingSourceMap;
     }
 
     // Map-level confidence = minimum across all property confidences
@@ -282,20 +550,8 @@
       const cfg = window.__SI_CONFIG__?.plugins?.intelligence?.cssOrigin || {};
       const maxProps    = cfg.maxPropertiesPerElement || 20;
       const maxEls      = cfg.maxElements            || 50;
-      let acqLevel    = cfg.acquisitionLevel       || 4;
+      const acqLevel    = cfg.acquisitionLevel       ?? 4;
       const properties  = ctx.properties             || null;
-
-      // Level 1: DevTools bridge — use cached full CSS from devtools panel if available
-      const devtoolsCache = window.__SI_DEVTOOLS_CSS_CACHE__;
-      if (acqLevel <= 1 && Array.isArray(devtoolsCache) && devtoolsCache.length > 0) {
-        // Build a sheets cache from DevTools data (bypasses CORS restrictions)
-        for (const entry of devtoolsCache) {
-          if (entry.href && entry.rules) {
-            window.__SI_DEVTOOLS_SHEET_TEXT__ = window.__SI_DEVTOOLS_SHEET_TEXT__ || {};
-            window.__SI_DEVTOOLS_SHEET_TEXT__[entry.href] = entry.rules.join('\n');
-          }
-        }
-      }
 
       const selectors = Array.isArray(ctx.targetSelector)
         ? ctx.targetSelector.slice(0, maxEls)

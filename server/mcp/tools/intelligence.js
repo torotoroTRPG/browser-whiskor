@@ -97,14 +97,23 @@ module.exports = function registerIntelligenceTools(registry) {
           (e.element?.selector && selector.includes(e.element.selector))
         );
         if (entry && entry.properties) {
-          styles = Object.entries(entry.properties).map(([prop, data]) => ({
-            property: prop,
-            value:    data.computedValue,
-            source:   data.source,
-            rule:     data.rule || null,
-            acquisition_level: data.acquisition_level,
-            confidence: data.confidence,
-          }));
+          styles = Object.entries(entry.properties).map(([prop, data]) => {
+            const rule = data.rule || null;
+            const sourceOrigin = rule?.originalFile
+              ? { file: rule.originalFile, line: rule.originalLine }
+              : rule?.sheetHref
+                ? { file: rule.sheetHref, line: rule.sourceLine }
+                : null;
+            return {
+              property: prop,
+              value:    data.computedValue,
+              source:   data.source,
+              rule,
+              sourceOrigin,
+              acquisition_level: data.acquisition_level,
+              confidence: data.confidence,
+            };
+          });
         }
       }
 

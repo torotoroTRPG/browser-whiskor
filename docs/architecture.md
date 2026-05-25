@@ -149,10 +149,11 @@
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │  Analyzers (collect page-level data) — 11 total                       │ │
-│  │  text-coords.js, network.js, css.js, ui-catalog.js, perf.js,           │ │
-│  │  dom-mutations.js, shadow-dom.js, dom-snapshot.js,                     │ │
-│  │  accessibility.js, console-logger.js, storage-reader                   │ │
+│  │  Analyzers (collect page-level data) — 13 total                       │ │
+│  │  text-coords.js, network.js, css.js, css-origin.js,                   │ │
+│  │  source-fetcher.js, ui-catalog.js, perf.js, dom-mutations.js,          │ │
+│  │  shadow-dom.js, dom-snapshot.js, accessibility.js,                     │ │
+│  │  console-logger.js, storage-reader                                     │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  lib/bippy.iife.js — React Fiber traversal (third-party, bundled)           │
@@ -280,6 +281,50 @@
   Agent calls get_delta(tabId) → returns latest aggregated delta
   Agent calls lookup_pattern(ref) → retrieves full pattern definition
 
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DATA FLOW: CSS Origin Analysis (4-Level Fallback)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  css-origin.js resolves CSS property origins through four progressive levels,
+  each with higher confidence but stricter access requirements:
+
+  Level 1 — DevTools getResources() bridge (acqLevel >= 1, confidence 0.99)
+    css-origin.js (MAIN)
+      └─ postMessage({ CSS_ORIGIN_RESOURCE_REQUEST, reqId })
+           └─ bridge.js (ISOLATED) → chrome.runtime.sendMessage
+                └─ sw.js → panel port
+                     └─ panel.js → chrome.devtools.inspectedWindow.getResources()
+                          ├─ type=stylesheet filter
+                          ├─ getContent(content, encoding)
+                          ├─ sourceMappingURL extraction
+                          └─ chrome.runtime.sendMessage (reverse path)
+                               └─ sw.js → scripting.executeScript (MAIN injection)
+                                    └─ css-origin.js: postMessage listener matches reqId
+                                         └─ sourceLine + sourceMapURL → VLQ decode
+                                              → originalFile / originalLine
+
+    Sourcemap resolution (post-loop):
+      fetchSourceMap(href, sourceMapURL) → JSON parse → vlqDecode() → resolveSourceLine()
+      Result: { originalFile, originalLine, originalColumn } + confidence boost +0.05
+
+  Level 2 — cssRules access (acqLevel >= 2, confidence 0.93)
+    document.styleSheets → rules → CSSStyleRule matching
+    @layer cascade support: buildLayerRegistry() + flattenRules()
+      - CSSLayerStatementRule/CSSLayerBlockRule recursively flattened
+      - Unlayered rules = Infinity priority
+      - Layered rules ordered by declaration (later wins)
+    specificity computed via packed 32-bit: (a<<24)|(b<<16)|(c<<8)
+    Cascade order: layerOrder > specificity > sheetIndex > ruleIndex
+
+  Level 3 — HTTP fetch fallback (acqLevel >= 3, confidence 0.93)
+    tryFetchSheet(href): fetch(href, { credentials: 'omit' })
+      → findRuleLineInSource(text, selector) for source line estimation
+    Works when CORS headers permit cross-origin access
+
+  Level 4 — Preloaded sources (acqLevel >= 4, confidence 0.95)
+    SourceFinder (source-fetcher.js) provides pre-fetched content
+    dependencies: ['css', 'css-origin'] → runs after both CSS analyzers
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   DATA FLOW: Screenshots (Set-of-Marks)
@@ -456,6 +501,8 @@
     state-fingerprint.js  — FNV32 hash, ND filter, composite hash
     state-semantic.js     — Label generation, tag extraction, keyState, search
     state-navigator.js    — BFS path finding, action replay, hash verification
+    intelligence.js       — 4 intelligence MCP tools (explain_element, why_did_this_change, get_source_file, detect_site_updates)
+    source-store.js       — Source file cache + cross-session hash registry
 
   extension/ (Chrome MV3)
     manifest.json         — Extension manifest v3
@@ -472,8 +519,8 @@
       version-helper.js   — Runtime version detection
       adapters/           — Framework-specific state extractors (react split into
       react-hooks.js + react-state-managers.js + react.js, 9 adapters total)
-      analyzers/          — Page data collectors (11 analyzers incl.
-      shadow-dom.js, dom-snapshot.js)
+      analyzers/          — Page data collectors (13 analyzers incl.
+      css-origin.js, source-fetcher.js, shadow-dom.js, dom-snapshot.js)
     lib/bippy.iife.js     — React Fiber traversal library
 
   firefox-mv2/            — Firefox Manifest V2 build (mirrors extension/)

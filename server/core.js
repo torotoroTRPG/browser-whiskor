@@ -170,11 +170,6 @@ class WhiskorCore extends EventEmitter {
         
       // Data collection → cache + dashboard
       case 'FRAMEWORK_DETECTION':
-      case 'REACT_SNAPSHOT':
-      case 'VUE_SNAPSHOT':
-      case 'VUE2_SNAPSHOT':
-      case 'ANGULAR_SNAPSHOT':
-      case 'SVELTE_SNAPSHOT':
       case 'DOM_GENERIC_SNAPSHOT':
       case 'SHADOW_DOM_SNAPSHOT':
       case 'DOM_SNAPSHOT':
@@ -189,6 +184,21 @@ class WhiskorCore extends EventEmitter {
       case 'PAGE_NAVIGATED':
         await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
+        break;
+
+      // Framework snapshots → cache + dashboard + correlator (Rule 2/3 accuracy)
+      case 'REACT_SNAPSHOT':
+      case 'VUE_SNAPSHOT':
+      case 'VUE2_SNAPSHOT':
+      case 'VUE3_SNAPSHOT':
+      case 'ANGULAR_SNAPSHOT':
+      case 'SVELTE_SNAPSHOT':
+        await this.cache.handleMessage(msg);
+        this.broadcastToDashboard(msg);
+        if (this.correlator) {
+          this.correlator.addMessage(msg);
+          // No causal chains emitted from snapshots — they are state context
+        }
         break;
 
       // Network events → cache + dashboard + correlator
@@ -325,10 +335,10 @@ class WhiskorCore extends EventEmitter {
             trigger: trigger || null,
           });
         }
-        // Feed correlator for causal-chain building
+        // Feed to correlator — framework transitions improve causal-chain Rule 2/3
         if (this.correlator) {
           const newChains = this.correlator.addMessage(msg);
-          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
+          if (newChains?.length) await this._persistCausalChains(newChains);
         }
         this.broadcastToDashboard(msg);
         break;
@@ -336,10 +346,6 @@ class WhiskorCore extends EventEmitter {
 
       case 'STATE_HASH_REPORT':
         this.stateNavigator.handleHashReport(msg);
-        if (this.correlator) {
-          const newChains = this.correlator.addMessage(msg);
-          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
-        }
         this.broadcastToDashboard(msg);
         break;
 
@@ -347,10 +353,6 @@ class WhiskorCore extends EventEmitter {
         const { siteVersion, from, to, action: act, trigger } = msg.payload || {};
         if (siteVersion && from) {
           this.stateMachine.addEdge(siteVersion, { from, to, action: act, trigger });
-        }
-        if (this.correlator) {
-          const newChains = this.correlator.addMessage(msg);
-          if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
         }
         break;
       }

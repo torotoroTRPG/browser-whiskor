@@ -1,5 +1,8 @@
 # Update Report — browser-whiskor v3.6.0
 
+> This report is outdated. For the latest changes, see [CHANGELOG.md](changelog.md).
+> Current version: 3.11.0 (2026-05-24)
+
 **Date:** 2026-05-22
 **Previous version:** 3.5.0
 **New version:** 3.6.0

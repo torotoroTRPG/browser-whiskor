@@ -51,8 +51,42 @@ function handleMessage(msg) {
     case 'PERF_LCP':        onLcp(msg.payload); break;
     case 'SOURCE_CATALOG':  onSources(msg.payload); break;
     case 'SESSION_UPDATE':  onSession(msg); break;
+    case 'CSS_ORIGIN_RESOURCE_REQUEST': onCssOriginResourceRequest(msg); return;
   }
   addToStream(msg);
+}
+
+// ── CSS Origin Level 1: getResources() handler (Firefox MV2) ─────────────
+function onCssOriginResourceRequest(msg) {
+  const { reqId, tabId } = msg;
+  if (!_b.devtools?.inspectedWindow?.getResources) {
+    _b.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: [] });
+    return;
+  }
+  _b.devtools.inspectedWindow.getResources((resources) => {
+    const cssItems = (resources || []).filter(r => r.type === 'stylesheet');
+    if (cssItems.length === 0) {
+      _b.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: [] });
+      return;
+    }
+    let pending = cssItems.length;
+    const result = [];
+    cssItems.forEach((r) => {
+      r.getContent((content, encoding) => {
+        if (encoding !== 'base64') {
+          const smMatch = (content || '').match(/\/\*#\s*sourceMappingURL=([^\s*]+)\s*\*\//);
+          result.push({
+            href: r.url,
+            content: content || null,
+            sourceMapURL: smMatch ? smMatch[1] : null,
+          });
+        }
+        if (--pending === 0) {
+          _b.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: result });
+        }
+      });
+    });
+  });
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────

@@ -2,6 +2,29 @@
 
 All notable changes to browser-whiskor.
 
+## [3.11.0] — 2026-05-24
+
+### Added
+- **CSS Origin @layer Cascade 5 spec compliance** — `css-origin.js`: `buildLayerRegistry()` tracks `@layer` declaration order, `flattenRules()` recursively flattens `@layer`/`@scope`/`@media`/`@supports`/`@container`, unlayered rules treated as `Infinity` priority (always beats layered at equal specificity)
+- **Sourcemap VLQ decoder** — `css-origin.js`: Pure JS `vlqDecode()`, `fetchSourceMap()` (data: URI + HTTP), `resolveSourceLine()` maps generated line → `{originalFile, originalLine, originalColumn}`. Session-scoped cache for maps.
+- **Level 1 CSS Origin bridge** — `css-origin.js` sends `postMessage(CSS_ORIGIN_RESOURCE_REQUEST)` → `bridge.js` (reqId forwarding) → `sw.js` (routing) → `panel.js` (`chrome.devtools.inspectedWindow.getResources()` + `getContent()`) → reverse path via `scripting.executeScript` injection into MAIN world. 500ms timeout fallback.
+- **Framework snapshots to correlator** — `server/core.js`: `REACT_SNAPSHOT`, `VUE_SNAPSHOT`, `VUE2_SNAPSHOT`, `VUE3_SNAPSHOT`, `ANGULAR_SNAPSHOT`, `SVELTE_SNAPSHOT` now feed `correlator.addMessage()` for improved Rule 2/3 causal chain accuracy (without chain persistence).
+
+### Changed
+- **css-origin.js acquisitionLevel default** — `|| 4` → `?? 4` (nullish coalescing) so `acquisitionLevel: 0` correctly disables Level 1 instead of falling back to 4.
+- **source-fetcher.js dependencies** — `[]` → `['css', 'css-origin']` so SourceFinder runs after both CSS analyzers.
+- **devtools.js simplified** — Removed 69-line polling loop (`collectLevel1Css`, `startL1Polling`, `__SI_DEVTOOLS_CSS_CACHE__`). Level 1 bridge moved to `panel.js` where `getResources()` is available.
+- **core.js message routing refined** — Generic DOM snapshots (cache + dashboard only) separated from framework snapshots (cache + dashboard + correlator). `STATE_HASH_REPORT` and `TRANSITION_HISTORY` correlator calls removed (they added no causal value). `_persistCausalChains` argument fixed.
+
+### Fixed
+- **bridge.js reqId lost** — `CSS_ORIGIN_RESOURCE_REQUEST` correlation ID (`reqId`) now forwarded in `postMessage`→`runtime.sendMessage` conversion.
+- **Old Level 1 polling removed** — `devtools.js` no longer uses `chrome.devtools.inspectedWindow.eval()` for CSS extraction. Replaced by on-demand `getResources()` + `getContent()` bridge.
+
+### Firefox MV2
+- All above in `firefox-mv2/`: css-origin.js, source-fetcher.js, panel.js, background.js, bridge.js, devtools.js synced.
+
+---
+
 ## [3.10.0] — 2026-05-22
 
 ### Added

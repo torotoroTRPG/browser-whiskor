@@ -50,8 +50,47 @@ function handleMessage(msg) {
     case 'PERF_LCP':        onLcp(msg.payload); break;
     case 'SOURCE_CATALOG':  onSources(msg.payload); break;
     case 'SESSION_UPDATE':  onSession(msg); break;
+    // ── CSS Origin Level 1 bridge ──────────────────────────────────────────
+    case 'CSS_ORIGIN_RESOURCE_REQUEST': onCssOriginResourceRequest(msg); return; // skip addToStream
   }
   addToStream(msg);
+}
+
+// ── CSS Origin Level 1: getResources() handler ────────────────────────────
+// SW sends this when css-origin.js (MAIN world) requests DevTools resources.
+// Only DevTools page scripts have access to chrome.devtools.inspectedWindow.
+function onCssOriginResourceRequest(msg) {
+  const { reqId, tabId } = msg;
+  if (!chrome.devtools?.inspectedWindow?.getResources) {
+    // Fallback: no getResources API
+    chrome.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: [] });
+    return;
+  }
+  chrome.devtools.inspectedWindow.getResources((resources) => {
+    const cssItems = (resources || []).filter(r => r.type === 'stylesheet');
+    if (cssItems.length === 0) {
+      chrome.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: [] });
+      return;
+    }
+    let pending = cssItems.length;
+    const result = [];
+    cssItems.forEach((r) => {
+      r.getContent((content, encoding) => {
+        if (encoding !== 'base64') {
+          // Extract /*# sourceMappingURL=... */ comment
+          const smMatch = (content || '').match(/\/\*#\s*sourceMappingURL=([^\s*]+)\s*\*\//);
+          result.push({
+            href: r.url,
+            content: content || null,
+            sourceMapURL: smMatch ? smMatch[1] : null,
+          });
+        }
+        if (--pending === 0) {
+          chrome.runtime.sendMessage({ type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId, tabId, resources: result });
+        }
+      });
+    });
+  });
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────

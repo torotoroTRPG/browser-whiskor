@@ -330,10 +330,30 @@ connectWs();
 
 browser.runtime.onMessage.addListener((message, sender) => {
   if (message.from === 'collector') {
+    // ── CSS Origin Level 1 bridge ─────────────────────────────────────────
+    if (message.type === 'CSS_ORIGIN_RESOURCE_REQUEST') {
+      const tabId = sender.tab?.id;
+      const port  = panelPorts.get(tabId);
+      if (!port) {
+        const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId: ${JSON.stringify(message.reqId)}, resources: [] }, '*');`;
+        browser.tabs.executeScript(tabId, { code }).catch(() => {});
+      } else {
+        port.postMessage({ type: 'CSS_ORIGIN_RESOURCE_REQUEST', reqId: message.reqId, tabId });
+      }
+      return;
+    }
     const enriched = { ...message, tabId: sender.tab?.id };
     sendToServer(enriched);
     panelPorts.get(sender.tab?.id)?.postMessage(enriched);
   }
+});
+
+// ── CSS Origin Level 1: panel → content script reply ─────────────────────
+browser.runtime.onMessage.addListener((message) => {
+  if (message.type !== 'CSS_ORIGIN_RESOURCE_RESPONSE') return;
+  const { reqId, resources, tabId } = message;
+  const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'CSS_ORIGIN_RESOURCE_RESPONSE', reqId: ${JSON.stringify(reqId)}, resources: ${JSON.stringify(resources)} }, '*');`;
+  browser.tabs.executeScript(tabId, { code }).catch(() => {});
 });
 
 browser.runtime.onConnect.addListener((port) => {

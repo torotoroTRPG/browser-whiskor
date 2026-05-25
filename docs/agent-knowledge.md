@@ -243,6 +243,8 @@ server/
   state-navigator.js    — BFS path finding, action replay, hash verification
   delta-engine.js       — Smart delta aggregation, motion clustering, scroll detection
   pattern-registry.js   — UI pattern hashing, dedup with compact ref IDs
+  intelligence.js       — 4 intelligence MCP tools (explain_element, why_did_this_change, get_source_file, detect_site_updates)
+  source-store.js       — Source file cache + cross-session hash registry
 ```
 
 ### Extension-side (Chrome MV3)
@@ -278,6 +280,8 @@ extension/
       dom-mutations.js  — DOM change tracking v2 (content recording, bigram batching)
       shadow-dom.js     — Shadow DOM perception (60 roots, 600 nodes/root, delta)
       dom-snapshot.js   — Structural snapshot (3000-node budget, iframe recursion)
+      css-origin.js     — CSS origin tracking (4-level fallback, @layer cascade, sourcemap VLQ decode)
+      source-fetcher.js — Source file acquisition + hash-based change detection
       accessibility.js  — ARIA tree via tree-walker
       console-logger.js — console.* method override
       storage-reader.js — localStorage, sessionStorage, cookies
