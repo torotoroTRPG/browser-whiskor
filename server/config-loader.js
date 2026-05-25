@@ -83,14 +83,8 @@ function loadConfig() {
   let config = {};
   try {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    // Strip _comment keys before parsing (they're just documentation).
-    // Two passes: remove leading-comma form (when _comment is not first key)
-    // and trailing-comma form (when it is first key).
-    config = JSON.parse(
-      raw
-        .replace(/,\s*"_comment[^"]*"\s*:\s*"[^"]*"/g, '')  // not-first key
-        .replace(/"_comment[^"]*"\s*:\s*"[^"]*"\s*,?/g, '') // first key (may leave trailing comma)
-    );
+    config = JSON.parse(raw);
+    stripComments(config);
   } catch (e) {
     console.error('[config] Failed to load config.json:', e.message);
     console.error('[config] Using built-in defaults.');
@@ -99,6 +93,20 @@ function loadConfig() {
 
   applyEnvOverrides(config);
   return config;
+}
+
+function stripComments(obj) {
+  if (Array.isArray(obj)) {
+    obj.forEach(stripComments);
+  } else if (obj && typeof obj === 'object') {
+    for (const key of Object.keys(obj)) {
+      if (key.startsWith('_comment')) {
+        delete obj[key];
+      } else {
+        stripComments(obj[key]);
+      }
+    }
+  }
 }
 
 function getDefaults() {

@@ -136,7 +136,7 @@
                 let vnode = instance?.vnode || instance?.subTree;
                 let attempts = 0;
                 while (vnode && attempts++ < 10) {
-                  const handler = vnode.props?.onClick || vnode.props?.onPointerup;
+                  const handler = vnode.props?.onClick || vnode.props?.onPointerUp;
                   if (typeof handler === 'function') {
                     handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
                     handled = true;

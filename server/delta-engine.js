@@ -267,7 +267,7 @@ function addFrame(tabId, frame) {
 
   // タイマーセット（時間切れでもフラッシュ）
   if (!buf.timer) {
-    buf.timer = setTimeout(() => flushBuffer(tabId), AGGREGATE_INTERVAL);
+    buf.timer = setTimeout(() => flushBuffer(tabId), AGGREGATE_INTERVAL).unref();
   }
 
   return null;

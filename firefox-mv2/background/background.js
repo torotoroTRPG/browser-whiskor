@@ -10,6 +10,8 @@ const QUEUE_MAX    = 500;
 
 let ws = null, wsReady = false;
 const queue = [], panelPorts = new Map();
+const pendingPageActions = new Map();
+const PAGE_ACTION_TIMEOUT = 15000;
 let pingTimer = null;
 
 // ── Element crop helper ───────────────────────────────────────────────────────
@@ -308,22 +310,45 @@ function executeInPage(tabId, action) {
   return new Promise((resolve, reject) => {
     const lid = Math.random().toString(36).slice(2);
     const timer = setTimeout(() => {
-      browser.runtime.onMessage.removeListener(listener);
+      cleanupPageAction(tabId, lid);
       reject(new Error(`Action timeout: ${action.type}`));
-    }, 12000);
+    }, PAGE_ACTION_TIMEOUT);
     function listener(msg) {
       if (msg.type === 'ACTION_COMPLETE' && msg.listenerId === lid) {
         clearTimeout(timer);
-        browser.runtime.onMessage.removeListener(listener);
+        cleanupPageAction(tabId, lid);
         msg.ok ? resolve(msg.result) : reject(new Error(msg.error));
       }
     }
+    if (!pendingPageActions.has(tabId)) pendingPageActions.set(tabId, []);
+    pendingPageActions.get(tabId).push({ listenerId: lid, timeout: timer, reject });
     browser.runtime.onMessage.addListener(listener);
     const code = `window.postMessage({ __BROWSER_WHISKOR__: true, type: 'EXECUTE_ACTION_IN_PAGE', payload: ${JSON.stringify(action)}, listenerId: '${lid}' }, '*');`;
     browser.tabs.executeScript(tabId, { code }).catch((e) => {
-      clearTimeout(timer); browser.runtime.onMessage.removeListener(listener); reject(e);
+      clearTimeout(timer); cleanupPageAction(tabId, lid); reject(e);
     });
   });
+}
+
+function cleanupPageAction(tabId, listenerId) {
+  const actions = pendingPageActions.get(tabId);
+  if (!actions) return;
+  const idx = actions.findIndex(a => a.listenerId === listenerId);
+  if (idx !== -1) {
+    clearTimeout(actions[idx].timeout);
+    actions.splice(idx, 1);
+  }
+  if (actions.length === 0) pendingPageActions.delete(tabId);
+}
+
+function cleanupTabActions(tabId) {
+  const actions = pendingPageActions.get(tabId);
+  if (!actions) return;
+  for (const a of actions) {
+    clearTimeout(a.timeout);
+    a.reject(new Error('Tab closed before action completed'));
+  }
+  pendingPageActions.delete(tabId);
 }
 
 connectWs();
@@ -374,7 +399,10 @@ function broadcastToPanels(msg) {
   for (const p of panelPorts.values()) { try { p.postMessage(msg); } catch (_) {} }
 }
 
-browser.tabs.onRemoved.addListener((tabId) => sendToServer({ type: 'TAB_CLOSED', tabId }));
+browser.tabs.onRemoved.addListener((tabId) => {
+  cleanupTabActions(tabId);
+  sendToServer({ type: 'TAB_CLOSED', tabId });
+});
 browser.webNavigation.onCommitted.addListener(({ tabId, url, frameId }) => {
   if (frameId !== 0) return;
   sendToServer({ type: 'PAGE_NAVIGATED', tabId, payload: { url }, from: 'sw' });

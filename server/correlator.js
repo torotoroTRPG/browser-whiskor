@@ -335,7 +335,7 @@ function selectorMatchesChain(selector, chain) {
 }
 
 function buildChainId(tabId, response, domEvent) {
-  const req = String(response.requestId || response.url || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '').slice(-24);
+  const req = String(response.requestId || response.url || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '').slice(-64);
   return `chain-${tabId}-${req}-${domEvent.timestamp}`;
 }
 

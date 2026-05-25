@@ -338,7 +338,7 @@ class WhiskorCore extends EventEmitter {
         // Feed to correlator — framework transitions improve causal-chain Rule 2/3
         if (this.correlator) {
           const newChains = this.correlator.addMessage(msg);
-          if (newChains?.length) await this._persistCausalChains(newChains);
+          if (newChains?.length) this._persistCausalChains(msg.tabId, newChains);
         }
         this.broadcastToDashboard(msg);
         break;
@@ -436,8 +436,8 @@ class WhiskorCore extends EventEmitter {
       const tabId = parseInt(fileM[1]);
       const dir = this.cache.getSessionDir(tabId);
       if (!dir) return { status: 404, body: { error: 'Session not found' } };
-      // File reading is handled by the real server
-      return { status: 200, file: `${dir}/${fileM[2]}` };
+      const filePart = fileM[2].replace(/\.\.\//g, '').replace(/\.\.\\/g, '');
+      return { status: 200, file: `${dir}/${filePart}` };
     }
 
     if (method === 'POST' && p === '/api/collect') {

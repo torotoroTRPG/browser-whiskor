@@ -18,6 +18,8 @@ const QUEUE_MAX    = 500;
 let ws      = null;
 let wsReady = false;
 const queue = [];
+const pendingPageActions = new Map(); // tabId -> [{listenerId, timeout, reject}]
+const PAGE_ACTION_TIMEOUT = 15000;
 
 // ── Set-of-Marks: Draw numbered markers on screenshot ────────────────────────
 async function drawMarksOnImage(dataUrl, elements) {
@@ -453,18 +455,21 @@ function executeInPage(tabId, action) {
   return new Promise((resolve, reject) => {
     const listenerId = crypto.randomUUID();
     const timeout = setTimeout(() => {
-      chrome.runtime.onMessage.removeListener(listener);
+      cleanupPageAction(tabId, listenerId);
       reject(new Error(`Page action timeout: ${action.type}`));
-    }, 12000);
+    }, PAGE_ACTION_TIMEOUT);
 
     function listener(message) {
       if (message.type === 'ACTION_COMPLETE' && message.listenerId === listenerId) {
         clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(listener);
+        cleanupPageAction(tabId, listenerId);
         if (message.ok) resolve(message.result);
         else reject(new Error(message.error || 'Action failed'));
       }
     }
+
+    if (!pendingPageActions.has(tabId)) pendingPageActions.set(tabId, []);
+    pendingPageActions.get(tabId).push({ listenerId, timeout, reject });
     chrome.runtime.onMessage.addListener(listener);
 
     chrome.scripting.executeScript({
@@ -476,10 +481,31 @@ function executeInPage(tabId, action) {
       world: 'MAIN',
     }).catch((e) => {
       clearTimeout(timeout);
-      chrome.runtime.onMessage.removeListener(listener);
+      cleanupPageAction(tabId, listenerId);
       reject(e);
     });
   });
+}
+
+function cleanupPageAction(tabId, listenerId) {
+  const actions = pendingPageActions.get(tabId);
+  if (!actions) return;
+  const idx = actions.findIndex(a => a.listenerId === listenerId);
+  if (idx !== -1) {
+    clearTimeout(actions[idx].timeout);
+    actions.splice(idx, 1);
+  }
+  if (actions.length === 0) pendingPageActions.delete(tabId);
+}
+
+function cleanupTabActions(tabId) {
+  const actions = pendingPageActions.get(tabId);
+  if (!actions) return;
+  for (const a of actions) {
+    clearTimeout(a.timeout);
+    a.reject(new Error('Tab closed before action completed'));
+  }
+  pendingPageActions.delete(tabId);
 }
 
 connectWs();
@@ -578,6 +604,7 @@ function broadcastToPanels(msg) {
 // ── Tab lifecycle ─────────────────────────────────────────────────────────────
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  cleanupTabActions(tabId);
   sendToServer({ type: 'TAB_CLOSED', tabId });
 });
 

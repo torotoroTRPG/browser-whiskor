@@ -153,7 +153,7 @@
                   while (vnode && attempts++ < 10) {
                     const props = vnode.props;
                     if (props) {
-                      const handler = props.onClick || props.onPointerup || props.onMouseup;
+                      const handler = props.onClick || props.onPointerUp || props.onMouseUp;
                       if (typeof handler === 'function') {
                         handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
                         handled = true;
@@ -259,7 +259,7 @@
     },
 
     press_key(action) {
-      const focused = document.activeElement || document.body;
+      const focused = document.activeElement || document.body || document.documentElement || document;
       const parts = action.key.split('+');
       const key   = parts.pop();
       const ctrl  = parts.includes('Control') || parts.includes('Ctrl');
