@@ -72,9 +72,10 @@ jobs:
           VERSION="${{ needs.check-version.outputs.version }}"
           FILENAME="${{ matrix.target.filename }}-${VERSION}.zip"
           if [ "${{ matrix.target.name }}" = "full" ]; then
-            echo "Creating $FILENAME (full bundle: server + extensions + config)"
+            echo "Creating $FILENAME (full bundle: server + extensions + config + docs)"
             zip -r "${FILENAME}" \
               server/ extension/ firefox-mv2/ \
+              docs/ \
               config.json package.json package-lock.json \
               -x "*.gitkeep" -x "*.DS_Store"
           else
