@@ -143,9 +143,23 @@ if (SECURITY.allowExecuteJs) {
 console.warn('[SECURITY] State fingerprint uses FNV-1a 32-bit (base-36, 7 chars). Collisions possible on large graphs — handled via incremental suffix.');
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
+let _firstHttpCall = true;
 const httpServer = http.createServer((req, res) => {
   const url    = new URL(req.url, `http://${HOST}:${HTTP_PORT}`);
   const method = req.method;
+
+  // Print UTF-8 warning only on first actual API call (not health-check pings)
+  if (_firstHttpCall && !url.pathname.startsWith('/health')) {
+    _firstHttpCall = false;
+    console.warn('');
+    console.warn('================================================================================');
+    console.warn('  ⚠  TERMINAL ENCODING WARNING (one-time only)');
+    console.warn('  If you call the HTTP API from PowerShell, your terminal MUST use UTF-8.');
+    console.warn('  Run this ONCE per shell session:  chcp 65001');
+    console.warn('  Otherwise non-ASCII text will appear as garbled mojibake.');
+    console.warn('================================================================================');
+    console.warn('');
+  }
 
   const origin = req.headers['origin'] || '';
   const serverOrigin = `http://${HOST}:${HTTP_PORT}`;
@@ -342,12 +356,7 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
   log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
-  log('warn', '================================================================================');
-  log('warn', 'IMPORTANT: If you call the HTTP API from PowerShell, your terminal MUST use UTF-8.');
-  log('warn', '  Run this ONCE per shell session:  chcp 65001');
-  log('warn', '  Or add to your PowerShell profile:  [Console]::OutputEncoding = [Text.Encoding]::UTF8');
-  log('warn', '  Otherwise non-ASCII text (Japanese, Chinese, Korean, accented chars) will be garbled.');
-  log('warn', '================================================================================');
+
 
   // Cache integrity check (non-blocking)
   const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');

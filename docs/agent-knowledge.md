@@ -331,6 +331,26 @@ cache/
 
 ---
 
+## ⚠ Terminal Encoding: UTF-8 Required (First-Time Warning)
+
+If you call the HTTP API (`localhost:7892/api/action`, etc.) from **PowerShell on Windows**, your terminal **MUST** use UTF-8. Non-ASCII text (Japanese, Chinese, Korean, accented characters) will appear as mojibake (garbled) otherwise.
+
+Fix (once per shell session):
+
+```powershell
+chcp 65001
+```
+
+Or add to your PowerShell profile (`$PROFILE`) for persistence:
+
+```powershell
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+The server sets `charset=utf-8` on all JSON/HTML responses. The problem is purely on the client (terminal) side.
+
+---
+
 ## Quick Reference: Agent Workflow
 
 ### Perception workflow
