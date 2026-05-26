@@ -164,7 +164,7 @@ const httpServer = http.createServer((req, res) => {
   if (method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   const sendJson = (data, status = 200) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(data, null, 2));
   };
 
@@ -179,7 +179,7 @@ const httpServer = http.createServer((req, res) => {
   // Dashboard HTML (GET, no body needed)
   if (method === 'GET' && (p === '/' || p === '/dashboard')) {
     const hp = path.join(__dirname, 'dashboard.html');
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '<h1>browser-whiskor v3</h1>');
   }
 
@@ -313,7 +313,7 @@ const httpServer = http.createServer((req, res) => {
         const full = result.file;
         if (!fs.existsSync(full)) return sendJson({ error: 'File not found' }, 404);
         try {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           return res.end(fs.readFileSync(full, 'utf8'));
         } catch { return sendJson({ error: 'Read error' }, 500); }
       }
@@ -327,7 +327,7 @@ const httpServer = http.createServer((req, res) => {
       const full = result.file;
       if (!fs.existsSync(full)) return sendJson({ error: 'File not found' }, 404);
       try {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         return res.end(fs.readFileSync(full, 'utf8'));
       } catch { return sendJson({ error: 'Read error' }, 500); }
     }
@@ -342,6 +342,12 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
   log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
+  log('warn', '================================================================================');
+  log('warn', 'IMPORTANT: If you call the HTTP API from PowerShell, your terminal MUST use UTF-8.');
+  log('warn', '  Run this ONCE per shell session:  chcp 65001');
+  log('warn', '  Or add to your PowerShell profile:  [Console]::OutputEncoding = [Text.Encoding]::UTF8');
+  log('warn', '  Otherwise non-ASCII text (Japanese, Chinese, Korean, accented chars) will be garbled.');
+  log('warn', '================================================================================');
 
   // Cache integrity check (non-blocking)
   const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
