@@ -52,9 +52,156 @@
 
   const handlers = {
 
-    click(action) {
+    async click(action) {
       const el = resolveTarget(action);
       if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
+
+      const analyzer = window.__SI_CLICKABILITY__;
+      if (analyzer) {
+        let report = analyzer.analyzeClickability(el);
+        if (!report.exists) return { ok: false, error: 'Element not found', clickability: analyzer.cleanReport(report) };
+        if (report.disabled) return { ok: false, error: 'Element is disabled', clickability: analyzer.cleanReport(report) };
+
+        if (report.obstructed && report.canAutoFix) {
+          report = await analyzer.autoUnblockPipeline(report);
+        }
+        if (report.obstructed && !report.canAutoFix) {
+          return { ok: false, error: 'Element is obstructed', clickability: analyzer.cleanReport(report) };
+        }
+
+        if (!report.inViewport) {
+          scrollIntoView(el);
+          const vp = analyzer._internal.checkViewport(el);
+          report.inViewport = vp.inViewport;
+          report.rect = vp.rect;
+        } else {
+          scrollIntoView(el);
+        }
+
+        report.recommendedStrategy = analyzer._internal.selectStrategy(report);
+        report.strategyUsed = report.recommendedStrategy;
+
+        if (report.strategyUsed === 'none') {
+          return { ok: false, error: 'No valid click strategy available', clickability: analyzer.cleanReport(report) };
+        }
+
+        const fp = analyzer.capturePreClickFingerprint(el);
+
+        if (report.strategyUsed === 'direct') {
+          try { el.click(); } catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
+        } else if (report.strategyUsed === 'programmatic') {
+          // Programmatic click: invoke React Fiber onClick or Vue instance handler directly.
+          // This bypasses pointer-events:none and works even when the element is obscured.
+          // NOTE: browser native defaults (form submit, link nav) are NOT triggered.
+          let handled = false;
+
+          // ── React Fiber path ──────────────────────────────────────────────
+          try {
+            const fiberKey = Object.keys(el).find(k =>
+              k.startsWith('__reactFiber$') || k.startsWith('__reactInternals$')
+            );
+            if (fiberKey) {
+              let fiber = el[fiberKey];
+              // Walk up to find the nearest fiber with an onClick prop
+              let cur = fiber;
+              while (cur) {
+                const props = cur.memoizedProps;
+                if (props) {
+                  const handler = props.onClick || props.onPointerUp || props.onMouseUp;
+                  if (typeof handler === 'function') {
+                    // Synthesise a minimal SyntheticEvent-compatible object
+                    const rect = el.getBoundingClientRect();
+                    const synthEvent = {
+                      type: 'click',
+                      target: el,
+                      currentTarget: el,
+                      bubbles: true,
+                      cancelable: true,
+                      defaultPrevented: false,
+                      preventDefault() { this.defaultPrevented = true; },
+                      stopPropagation() {},
+                      stopImmediatePropagation() {},
+                      nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
+                      clientX: rect.left + rect.width  / 2,
+                      clientY: rect.top  + rect.height / 2,
+                      pageX:   rect.left + rect.width  / 2 + window.scrollX,
+                      pageY:   rect.top  + rect.height / 2 + window.scrollY,
+                      button: 0,
+                      buttons: 1,
+                      persist() {},
+                    };
+                    handler(synthEvent);
+                    handled = true;
+                    break;
+                  }
+                }
+                cur = cur.return;
+              }
+            }
+          } catch (_) { /* React not present or error traversing fiber */ }
+
+          // ── Vue 3 path ────────────────────────────────────────────────────
+          if (!handled) {
+            try {
+              const vueKey = Object.keys(el).find(k => k.startsWith('__vueParentComponent'));
+              if (vueKey) {
+                const instance = el[vueKey];
+                if (instance) {
+                  // Walk up vnode tree looking for onClick
+                  let vnode = instance.vnode || instance.subTree;
+                  let attempts = 0;
+                  while (vnode && attempts++ < 10) {
+                    const props = vnode.props;
+                    if (props) {
+                      const handler = props.onClick || props.onPointerUp || props.onMouseUp;
+                      if (typeof handler === 'function') {
+                        handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        handled = true;
+                        break;
+                      }
+                    }
+                    vnode = vnode.component?.vnode || vnode.parent;
+                  }
+                }
+              }
+            } catch (_) { /* Vue not present or error */ }
+          }
+
+          // ── Fallback: direct el.click() ───────────────────────────────────
+          if (!handled) {
+            try { el.click(); handled = true; }
+            catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
+          }
+        } else {
+          const btn = action.button === 'right' ? 2 : action.button === 'middle' ? 1 : 0;
+          const evOpts = { bubbles: true, cancelable: true, view: window, button: btn };
+          const dispatch = (type) => el.dispatchEvent(new MouseEvent(type, evOpts));
+          if (action.double) {
+            dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
+            dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
+            dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
+            dispatch('dblclick');
+          } else {
+            dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
+            dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
+          }
+        }
+
+        // Framework re-renders の解決を待つ
+        await new Promise(r => setTimeout(r, 100));
+        const diagnosis = analyzer.diagnoseClickResult(el, fp);
+        report.diagnosis = diagnosis;
+
+        return {
+          ok: true,
+          tagName: el.tagName,
+          text: el.textContent?.trim().slice(0, 50),
+          clickability: analyzer.cleanReport(report),
+          diagnosis
+        };
+      }
+
+      // Fallback: Analyzer is disabled
       scrollIntoView(el);
       const btn = action.button === 'right' ? 2 : action.button === 'middle' ? 1 : 0;
       const evOpts = { bubbles: true, cancelable: true, view: window, button: btn };
@@ -112,7 +259,7 @@
     },
 
     press_key(action) {
-      const focused = document.activeElement || document.body;
+      const focused = document.activeElement || document.body || document.documentElement || document;
       const parts = action.key.split('+');
       const key   = parts.pop();
       const ctrl  = parts.includes('Control') || parts.includes('Ctrl');
@@ -153,13 +300,57 @@
       return { ok: true, at: { x: x + window.scrollX, y: y + window.scrollY }, delta: { deltaX, deltaY } };
     },
 
-    right_click(action) {
+    async right_click(action) {
       const el = resolveTarget(action);
       if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text, x: action.x, y: action.y })}` };
+
+      const analyzer = window.__SI_CLICKABILITY__;
+      if (analyzer) {
+        let report = analyzer.analyzeClickability(el);
+        if (!report.exists) return { ok: false, error: 'Element not found', clickability: analyzer.cleanReport(report) };
+        if (report.disabled) return { ok: false, error: 'Element is disabled', clickability: analyzer.cleanReport(report) };
+
+        if (report.obstructed && report.canAutoFix) {
+          report = await analyzer.autoUnblockPipeline(report);
+        }
+        if (report.obstructed && !report.canAutoFix) {
+          return { ok: false, error: 'Element is obstructed', clickability: analyzer.cleanReport(report) };
+        }
+
+        scrollIntoView(el);
+        report.strategyUsed = 'native'; // Context menu は常に native
+        const fp = analyzer.capturePreClickFingerprint(el);
+
+        const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
+        el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
+
+        await new Promise(r => setTimeout(r, 100));
+        const diagnosis = analyzer.diagnoseClickResult(el, fp);
+        report.diagnosis = diagnosis;
+
+        return {
+          ok: true,
+          tagName: el.tagName,
+          text: el.textContent?.trim().slice(0, 50),
+          clickability: analyzer.cleanReport(report),
+          diagnosis
+        };
+      }
+
+      // Fallback
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
       return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50) };
+    },
+
+    analyze_click(action) {
+      const el = resolveTarget(action);
+      if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
+      const analyzer = window.__SI_CLICKABILITY__;
+      if (!analyzer) return { ok: false, error: 'Clickability analyzer not loaded' };
+      const report = analyzer.analyzeClickability(el);
+      return { ok: true, clickability: analyzer.cleanReport(report) };
     },
 
     drag(action) {

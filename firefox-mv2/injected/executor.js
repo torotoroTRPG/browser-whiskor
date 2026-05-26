@@ -90,7 +90,9 @@
         if (report.strategyUsed === 'direct') {
           try { el.click(); } catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
         } else if (report.strategyUsed === 'programmatic') {
-          // Programmatic click: React Fiber / Vue instance direct handler invocation.
+          // Programmatic click: invoke React Fiber onClick or Vue instance handler directly.
+          // This bypasses pointer-events:none and works even when the element is obscured.
+          // NOTE: browser native defaults (form submit, link nav) are NOT triggered.
           let handled = false;
 
           // ── React Fiber path ──────────────────────────────────────────────
@@ -99,23 +101,34 @@
               k.startsWith('__reactFiber$') || k.startsWith('__reactInternals$')
             );
             if (fiberKey) {
-              let cur = el[fiberKey];
+              let fiber = el[fiberKey];
+              // Walk up to find the nearest fiber with an onClick prop
+              let cur = fiber;
               while (cur) {
                 const props = cur.memoizedProps;
                 if (props) {
                   const handler = props.onClick || props.onPointerUp || props.onMouseUp;
                   if (typeof handler === 'function') {
+                    // Synthesise a minimal SyntheticEvent-compatible object
                     const rect = el.getBoundingClientRect();
                     const synthEvent = {
-                      type: 'click', target: el, currentTarget: el,
-                      bubbles: true, cancelable: true, defaultPrevented: false,
+                      type: 'click',
+                      target: el,
+                      currentTarget: el,
+                      bubbles: true,
+                      cancelable: true,
+                      defaultPrevented: false,
                       preventDefault() { this.defaultPrevented = true; },
-                      stopPropagation() {}, stopImmediatePropagation() {},
+                      stopPropagation() {},
+                      stopImmediatePropagation() {},
                       nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true }),
-                      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2,
-                      pageX: rect.left + rect.width / 2 + window.scrollX,
-                      pageY: rect.top + rect.height / 2 + window.scrollY,
-                      button: 0, buttons: 1, persist() {},
+                      clientX: rect.left + rect.width  / 2,
+                      clientY: rect.top  + rect.height / 2,
+                      pageX:   rect.left + rect.width  / 2 + window.scrollX,
+                      pageY:   rect.top  + rect.height / 2 + window.scrollY,
+                      button: 0,
+                      buttons: 1,
+                      persist() {},
                     };
                     handler(synthEvent);
                     handled = true;
@@ -125,7 +138,7 @@
                 cur = cur.return;
               }
             }
-          } catch (_) {}
+          } catch (_) { /* React not present or error traversing fiber */ }
 
           // ── Vue 3 path ────────────────────────────────────────────────────
           if (!handled) {
@@ -133,22 +146,28 @@
               const vueKey = Object.keys(el).find(k => k.startsWith('__vueParentComponent'));
               if (vueKey) {
                 const instance = el[vueKey];
-                let vnode = instance?.vnode || instance?.subTree;
-                let attempts = 0;
-                while (vnode && attempts++ < 10) {
-                  const handler = vnode.props?.onClick || vnode.props?.onPointerUp;
-                  if (typeof handler === 'function') {
-                    handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                    handled = true;
-                    break;
+                if (instance) {
+                  // Walk up vnode tree looking for onClick
+                  let vnode = instance.vnode || instance.subTree;
+                  let attempts = 0;
+                  while (vnode && attempts++ < 10) {
+                    const props = vnode.props;
+                    if (props) {
+                      const handler = props.onClick || props.onPointerUp || props.onMouseUp;
+                      if (typeof handler === 'function') {
+                        handler(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        handled = true;
+                        break;
+                      }
+                    }
+                    vnode = vnode.component?.vnode || vnode.parent;
                   }
-                  vnode = vnode.component?.vnode || vnode.parent;
                 }
               }
-            } catch (_) {}
+            } catch (_) { /* Vue not present or error */ }
           }
 
-          // ── Fallback ──────────────────────────────────────────────────────
+          // ── Fallback: direct el.click() ───────────────────────────────────
           if (!handled) {
             try { el.click(); handled = true; }
             catch (e) { return { ok: false, error: e.message, clickability: analyzer.cleanReport(report) }; }
@@ -240,7 +259,7 @@
     },
 
     press_key(action) {
-      const focused = document.activeElement || document.body;
+      const focused = document.activeElement || document.body || document.documentElement || document;
       const parts = action.key.split('+');
       const key   = parts.pop();
       const ctrl  = parts.includes('Control') || parts.includes('Ctrl');
