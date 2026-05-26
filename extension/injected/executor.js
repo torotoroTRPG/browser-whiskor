@@ -568,14 +568,15 @@
       }
     }
 
-    // Send result back to SW via bridge
-    chrome.runtime.sendMessage({
+    // Send result back to SW via bridge (ISOLATED world)
+    window.postMessage({
+      __BROWSER_WHISKOR__: true,
       type: 'ACTION_COMPLETE',
       listenerId,
       ok: result.ok !== false,
       result: result.ok !== false ? result : undefined,
       error: result.ok === false ? result.error : undefined,
-    }).catch(() => {});
+    }, '*');
   });
 
 })();

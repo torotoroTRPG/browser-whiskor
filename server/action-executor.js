@@ -24,6 +24,9 @@ function setBroadcast(fn) { _broadcast = fn; }
  * @param {number} timeoutMs
  */
 function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  if (!action || !action.type) {
+    return Promise.reject(new Error(`Invalid action: must have a "type" property`));
+  }
   return new Promise((resolve, reject) => {
     const actionId = randomUUID();
     const timer = setTimeout(() => {

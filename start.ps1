@@ -1,5 +1,7 @@
 #!/usr/bin/env pwsh
 # browser-whiskor — Server start script (Windows PowerShell)
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 param(
   [switch]$mock,
   [switch]$verbose,

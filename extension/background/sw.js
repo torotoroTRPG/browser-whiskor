@@ -348,6 +348,10 @@ async function handleServerMessage(msg) {
 
     case 'EXECUTE_ACTION': {
       const { actionId, tabId, action } = msg;
+      if (!action || !action.type) {
+        sendToServer({ type: 'ACTION_RESULT', actionId, ok: false, error: 'Action must have a "type" property' });
+        break;
+      }
       try {
         let result;
 

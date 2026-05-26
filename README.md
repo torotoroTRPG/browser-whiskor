@@ -404,6 +404,14 @@ GET  http://localhost:7892/api/graphs         → State graph listing
 GET  http://localhost:7892/                   → Dashboard
 ```
 
+> **PowerShell / Windows note:** When using the HTTP API from PowerShell, be aware that `curl` is an alias for `Invoke-WebRequest` and backslash escaping in double-quoted strings works differently than bash. Use single quotes for the JSON body, or use `Invoke-RestMethod` instead:
+> ```powershell
+> # ✓ Works
+> Invoke-RestMethod -Uri http://localhost:7892/api/action -Method Post -ContentType application/json -Body '{"tabId":1234,"action":{"type":"navigate","url":"https://example.com"}}'
+> # ✗ May fail — \" inside "..." is not an escape in PowerShell
+> curl -d "{\"tabId\":1234,...}"
+> ```
+
 ## Dependencies
 
 Only **`ws`** (WebSocket). No other npm packages. The extension side is zero-dependency vanilla JS.

@@ -171,7 +171,7 @@ const httpServer = http.createServer((req, res) => {
   const readBody = () => new Promise(resolve => {
     let d = '';
     req.on('data', c => d += c);
-    req.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } });
+    req.on('end', () => { try { resolve(JSON.parse(d)); } catch { log('warn', `[http] Failed to parse request body: ${d.slice(0, 200)}`); resolve({}); } });
   });
 
   const p = url.pathname;

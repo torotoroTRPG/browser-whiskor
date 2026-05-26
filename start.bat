@@ -1,5 +1,6 @@
 @echo off
-REM Site Inspector v2 — サーバー起動スクリプト (Windows)
+chcp 65001 >nul
+REM browser-whiskor — Server start script (Windows)
 cd /d "%~dp0"
 
 if not exist node_modules (
