@@ -569,13 +569,17 @@
     }
 
     // Send result back to SW via bridge (ISOLATED world)
+    // NOTE: bridge.js forwards event.data.payload through chrome.runtime.sendMessage,
+    // so we must nest listenerId/ok/result/error inside payload.
     window.postMessage({
       __BROWSER_WHISKOR__: true,
       type: 'ACTION_COMPLETE',
-      listenerId,
-      ok: result.ok !== false,
-      result: result.ok !== false ? result : undefined,
-      error: result.ok === false ? result.error : undefined,
+      payload: {
+        listenerId,
+        ok: result.ok !== false,
+        result: result.ok !== false ? result : undefined,
+        error: result.ok === false ? result.error : undefined,
+      },
     }, '*');
   });
 
