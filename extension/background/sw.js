@@ -242,6 +242,73 @@ function sendToServer(data) {
   if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connectWs();
 }
 
+// ── Element collection for capture markers ────────────────────────────────────
+function collectElements() {
+  function _hasRealEffect(el) {
+    var t = el.tagName.toLowerCase();
+    var href = el.getAttribute('href');
+    var type = (el.getAttribute('type') || '').toLowerCase();
+    var role = el.getAttribute('role');
+    if (t === 'a' && href && href !== '#' && !href.startsWith('javascript:')) return true;
+    if ((t === 'button' || t === 'input') && (type === 'submit' || type === 'reset' || type === 'image' || type === 'file')) return true;
+    if (el.hasAttribute('onclick') || el.hasAttribute('onsubmit') || el.hasAttribute('onchange') || el.hasAttribute('oninput') || el.hasAttribute('onkeydown')) return true;
+    if (role === 'button' || role === 'link' || role === 'tab' || role === 'menuitem' || role === 'option' || role === 'switch' || role === 'checkbox' || role === 'radio' || role === 'combobox') return true;
+    if (el.hasAttribute('aria-haspopup')) return true;
+    if (t === 'input' && (!type || type === 'text' || type === 'search' || type === 'email' || type === 'url' || type === 'tel' || type === 'number' || type === 'password')) return true;
+    if (t === 'textarea' || t === 'select') return true;
+    if (el.hasAttribute('data-action') || el.hasAttribute('data-command') || el.hasAttribute('data-href') || el.hasAttribute('data-toggle')) return true;
+    if (el.hasAttribute('aria-pressed') || el.hasAttribute('aria-checked') || el.hasAttribute('aria-selected')) return true;
+    if (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') return true;
+    if (el.hasAttribute('aria-label')) return true;
+    return t === 'button' || t === 'a';
+  }
+
+  var els = [];
+  var nodes = document.querySelectorAll(
+    'button, a, [role=button], [role=link], input, select, textarea, [aria-label], [onclick], [tabindex]:not([tabindex="-1"])'
+  );
+  var idx = 0;
+  var seen = new Set();
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    var rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) continue;
+    var tag = el.tagName.toLowerCase();
+    var text = (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || '').trim().slice(0, 80);
+    if (!text && tag !== 'input' && tag !== 'select' && tag !== 'textarea') continue;
+    idx++;
+    if (!_hasRealEffect(el)) continue;
+    var hrefAttr = el.getAttribute('href');
+    var selector = '';
+    if (el.id) {
+      selector = '#' + el.id;
+    } else if (el.className && typeof el.className === 'string') {
+      var cls = el.className.trim().split(/\s+/).filter(function(c) { return c; }).slice(0, 2).join('.');
+      selector = tag + (cls ? '.' + cls : '');
+    } else {
+      selector = tag;
+    }
+    var key = tag + ':' + Math.round(rect.left) + ':' + Math.round(rect.top);
+    if (seen.has(key)) { idx--; continue; }
+    seen.add(key);
+    var kind = 'action';
+    if (tag === 'a' && hrefAttr && hrefAttr !== '#' && !hrefAttr.startsWith('javascript:')) kind = 'nav';
+    else if (el.hasAttribute('aria-pressed') || el.hasAttribute('aria-checked') || el.hasAttribute('aria-selected')) kind = 'toggle';
+    els.push({
+      id: idx,
+      tag: tag,
+      text: text,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+      w: Math.round(rect.width),
+      h: Math.round(rect.height),
+      selector: selector,
+      kind: kind
+    });
+  }
+  return { elements: els, vpWidth: window.innerWidth, vpHeight: window.innerHeight };
+}
+
 // ── Server → Extension commands ───────────────────────────────────────────────
 
 async function handleServerMessage(msg) {
@@ -325,6 +392,16 @@ async function handleServerMessage(msg) {
             result = { ok: true, width: action.width, height: action.height };
             break;
 
+          case 'get_xml': {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => new XMLSerializer().serializeToString(document),
+              world: 'MAIN',
+            });
+            result = { xml: results?.[0]?.result || '' };
+            break;
+          }
+
           default:
             // Delegate to injected executor.js
             result = await executeInPage(tabId, action);
@@ -345,39 +422,27 @@ async function handleServerMessage(msg) {
 
         let elements = null, vpWidth = null, vpHeight = null;
         if (opts?.marks && windowId) {
-          try {
-            const results = await chrome.scripting.executeScript({
-              target: { tabId },
-              func: () => {
-                const els = [];
-                const nodes = document.querySelectorAll('button, a, [role=button], [role=link], input, select, textarea, [aria-label]');
-                let idx = 0;
-                for (const el of nodes) {
-                  const rect = el.getBoundingClientRect();
-                  if (rect.width === 0 || rect.height === 0) continue;
-                  const text = (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || '').trim().slice(0, 80);
-                  if (!text && el.tagName.toLowerCase() !== 'input' && el.tagName.toLowerCase() !== 'select') continue;
-                  idx++;
-                  els.push({
-                    id: idx,
-                    tag: el.tagName.toLowerCase(),
-                    text,
-                    x: Math.round(rect.left + rect.width / 2),
-                    y: Math.round(rect.top + rect.height / 2),
-                    w: Math.round(rect.width),
-                    h: Math.round(rect.height),
-                    selector: el.id ? `#${el.id}` : el.className ? `${el.tagName.toLowerCase()}.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}` : el.tagName.toLowerCase(),
-                  });
-                }
-                return { elements: els, vpWidth: window.innerWidth, vpHeight: window.innerHeight };
-              },
-              world: 'MAIN',
-            });
-            const r = results?.[0]?.result || {};
-            elements = r.elements || [];
-            vpWidth  = r.vpWidth  || null;
-            vpHeight = r.vpHeight || null;
-          } catch (_) {}
+          let lastErr = null;
+          for (const world of ['MAIN', 'ISOLATED']) {
+            try {
+              const results = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: collectElements,
+                world: world,
+              });
+              const r = results?.[0]?.result || {};
+              elements = r.elements || [];
+              vpWidth  = r.vpWidth  || null;
+              vpHeight = r.vpHeight || null;
+              lastErr = null;
+              break;
+            } catch (e) {
+              lastErr = e;
+            }
+          }
+          if (lastErr) {
+            console.warn('[capture] collectElements failed in both MAIN and ISOLATED world:', lastErr.message);
+          }
         }
 
         const dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, { format: 'png' });

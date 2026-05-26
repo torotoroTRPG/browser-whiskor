@@ -91,7 +91,73 @@
                                │  callbacks → index.js
                                ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  LAYER 2 : Server Core  ( server/index.js )                                  │
+│  LAYER 2 : Intelligence Layer ( server/ + extension/ )                       │
+│                                                                              │
+│    Five subsystems transform raw collected data into deterministic           │
+│    conclusions before they reach the LLM agent. Each produces structured     │
+│    output with an explicit confidence value and degrades gracefully          │
+│    through a fallback chain.                                                 │
+│                                                                              │
+│    ┌──────────────────────────────────────────────────────────────────────┐  │
+│    │  Subsystem              Location         Answers                      │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  CSS Origin Tracker     extension/       Which stylesheet rule       │  │
+│    │                         css-origin.js    applies & source file/line  │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Source Layer           extension/       Actual text of CSS/JS files │  │
+│    │                        source-fetcher   + change detection           │  │
+│    │                        + server/                                     │  │
+│    │                        source-store.js                               │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Framework↔DOM         extension/       Which component owns a DOM   │  │
+│    │  Mapper               framework-dom-    node + props/state           │  │
+│    │                        map.js                                        │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Clickability          extension/       Element clickability pre-    │  │
+│    │  Analyzer             clickability.js   check + obstruction analysis │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Time-series           server/          Network→DOM causal chains   │  │
+│    │  Correlator           correlator.js     with confidence scoring      │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Source Map            server/          Compiled→original source     │  │
+│    │  Resolver             source-map-       file/line (VLQ decode)       │  │
+│    │                        resolver.js                                   │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Stream Delta          server/          UI change aggregation,       │  │
+│    │  Engine               delta-engine.js   pattern registry             │  │
+│    │                        + pattern-registry.js                         │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Session Replay        server/          Action recording + replay    │  │
+│    │                        session-replay.js                             │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  Conclusion Cache      server/          explain_element result       │  │
+│    │                        conclusion-      cache with SHA-256           │  │
+│    │                        cache.js         invalidation key             │  │
+│    ├──────────────────────────────────────────────────────────────────────┤  │
+│    │  State Visualizer      server/          Text-based state graph       │  │
+│    │                        state-           rendering for agent          │  │
+│    │                        visualizer.js                                 │  │
+│    └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│    Data flow — explain_element:                                              │
+│      Agent→MCP→server→trigger collection→extension runs css-origin.js +     │
+│      framework-dom-map.js→cache→correlator chains→assemble response         │
+│                                                                              │
+│    Data flow — capture_element:                                              │
+│      Agent→MCP→screenshot-manager.js→CAPTURE_ELEMENT→extension→crop→return  │
+│                                                                              │
+│    Data flow — session replay:                                               │
+│      session-replay.js reads actions.jsonl→pre-state hash verify→execute     │
+│      action→post-state hash verify→report divergence                         │
+│                                                                              │
+│    Confidence values are defined per-subsystem. 1.0 = direct API query.      │
+│    Confidence floor for correlation: 0.50. Further detail in the DATA FLOW   │
+│    sections below.                                                           │
+└──────────────────────────────┬───────────────────────────────────────────────┘
+                               │  server-core data flow
+                               ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  LAYER 3 : Server Core  ( server/index.js )                                  │
 │                                                                              │
 │    HTTP API server (port 7892) — serves cached data to DevTools panel.      │
 │    WebSocket server (port 7891) — bridges extension ↔ server.               │
@@ -108,7 +174,7 @@
        │ HTTP :7892                            │ WebSocket :7891
        ▼                                       ▼
 ┌─────────────────────┐           ┌────────────────────────────────────────────┐
-│  LAYER 3a : Cache   │           │  LAYER 3b : State Graph Store              │
+│  LAYER 4a : Cache   │           │  LAYER 4b : State Graph Store              │
 │                     │           │                                            │
 │  cache/             │◄──────────┤  server/state-store.js                     │
 │  {tabId}/           │  JSON     │    L1: In-memory graph (Map)               │
@@ -128,7 +194,7 @@
                                                  │
                                                  ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  LAYER 4 : Extension (Chrome MV3)                                            │
+│  LAYER 5 : Extension (Chrome MV3)                                            │
 │                                                                              │
 │  extension/background/sw.js                                                  │
 │    WebSocket client → server                                                 │
@@ -509,8 +575,19 @@
     state-fingerprint.js  — FNV32 hash, ND filter, composite hash
     state-semantic.js     — Label generation, tag extraction, keyState, search
     state-navigator.js    — BFS path finding, action replay, hash verification
-    intelligence.js       — 4 intelligence MCP tools (explain_element, why_did_this_change, get_source_file, detect_site_updates)
+    intelligence.js       — 5 intelligence MCP tools (explain_element, why_did_this_change, analyze_click, get_source_file, detect_site_updates)
+    core.js               — Message router, on-demand collection triggers, explore/screenshot coordination
+    screenshot-manager.js — Screenshot/element-capture request management, pending-request tracking, disk save
+    correlator.js         — Time-series Correlator: ring buffer, 3 correlation rules, CausalChain output
     source-store.js       — Source file cache + cross-session hash registry
+    source-map-resolver.js— VLQ-based source map resolution, LRU-cached parsed segments
+    conclusion-cache.js   — explain_element result cache with SHA-256 invalidation key
+    session-replay.js     — Action recording (actions.jsonl) + replay engine with divergence detection
+    state-visualizer.js   — Text-based state graph renderer (BFS layout, ASCII connectors)
+    delta-engine.js       — UI change aggregation (frame buffer, motion clustering, pattern registry)
+    pattern-registry.js   — UI pattern deduplication (first appearance→full def, repeat→ref ID)
+    config-loader.js      — Config validation, schema check, env override
+    config-change-log.js  — Agent config change tracking, auto-revert for dangerous changes
 
   extension/ (Chrome MV3)
     manifest.json         — Extension manifest v3

@@ -1,22 +1,21 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                              ║
-║                         browser-whiskor v4                                   ║
-║                    Extended Architecture Proposals                           ║
+║                         browser-whiskor v3                                   ║
+║                    Extended Architecture — Implemented & Proposed            ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 
-  This document describes proposed extensions to the browser-whiskor v4
-  Intelligence Layer.  Each proposal is self-contained: it specifies scope,
-  interface contracts, data schemas, and integration points.  Proposals are
-  ordered by implementation dependency, not priority.
+  This document catalogs extensions to the Intelligence Layer beyond the five
+  core subsystems.  Each extension is self-contained: it specifies scope,
+  interface contracts, data schemas, and integration points.
 
-  Status: each section is marked  [PROPOSAL]  to distinguish it from the
-  ratified v4 architecture.  No proposal in this document is yet implemented.
+  Status:  [IMPLEMENTED]  = already shipped in v3.
+           [PROPOSAL]     = not yet implemented (only D remains).
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL A : DOM_MUTATION Event Type                          [PROPOSAL]
+  EXTENSION A : DOM_MUTATION Event Type                          [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Addresses the coverage gap in the Time-series Correlator's DOM mutation
@@ -91,7 +90,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL B : CSS @layer Cascade Resolution                    [PROPOSAL]
+  EXTENSION B : CSS @layer Cascade Resolution                    [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Addresses the known limitation in the CSS Origin Tracker: @layer order
@@ -158,7 +157,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL C : State Graph Visualizer                           [PROPOSAL]
+  EXTENSION C : State Graph Visualizer                           [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Produces a compact, text-encoded representation of the state graph for a
@@ -249,7 +248,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL D : Adaptive Collection Scheduling                   [PROPOSAL]
+  EXTENSION D : Adaptive Collection Scheduling                   [PROPOSAL — sole remaining]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Analyzers currently run on a fixed schedule or on manual trigger.  Adaptive
@@ -310,7 +309,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL E : Source Map Resolver                              [PROPOSAL]
+  EXTENSION E : Source Map Resolver                              [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Resolves compiled file/line references from CSS and JS assets to their
@@ -400,7 +399,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL F : Session Replay                                   [PROPOSAL]
+  EXTENSION F : Session Replay                                   [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Records a time-ordered sequence of agent actions and page state snapshots
@@ -490,7 +489,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PROPOSAL G : Conclusion Cache                                 [PROPOSAL]
+  EXTENSION G : Conclusion Cache                                 [IMPLEMENTED]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Avoids redundant re-computation of Intelligence Layer conclusions when
@@ -542,43 +541,12 @@
   DEPENDENCY GRAPH
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Implementation dependencies between proposals:
+  Extension A–G implementation status (v3):
 
-    Proposal A (DOM_MUTATION event)
-      └─ required by: Proposal B can use it but does not require it
-
-    Proposal B (@layer resolution)
-      └─ standalone; no dependencies on other proposals
-
-    Proposal C (State Graph Visualizer)
-      └─ standalone; uses existing state-store.js and state-navigator.js
-
-    Proposal D (Adaptive Collection)
-      └─ standalone; modifies scheduler in collector.js only
-
-    Proposal E (Source Map Resolver)
-      └─ enhances CSS Origin Tracker (Level 3 → Level 1 upgrade)
-      └─ enhances Framework↔DOM Mapper (React _debugSource resolution)
-      └─ no dependency on A, B, C, D
-
-    Proposal F (Session Replay)
-      └─ depends on: existing action-executor.js and state-navigator.js
-      └─ no dependency on A–E
-
-    Proposal G (Conclusion Cache)
-      └─ depends on: explain_element tool  (v4 Intelligence Layer)
-      └─ no dependency on A–F
-      └─ highest value after Proposal E  (source map resolver increases
-         the proportion of calls that return 1.00-confidence results,
-         making cache hits more valuable)
-
-
-  Recommended implementation order based on architectural leverage:
-
-    Phase 1:  A (DOM_MUTATION)          — improves Correlator precision
-    Phase 2:  E (Source Map Resolver)   — promotes CSS confidence to 1.00
-              B (@layer resolution)     — closes CSS correctness gap
-    Phase 3:  C (State Visualizer)      — agent-facing map output
-    Phase 4:  G (Conclusion Cache)      — reduces redundant collection
-    Phase 5:  D (Adaptive Scheduling)   — reduces steady-state overhead
-    Phase 6:  F (Session Replay)        — debugging and training utility
+    A (DOM_MUTATION Event)        → IMPLEMENTED — server/core.js handles, correlator processes
+    B (@layer Cascade)            → IMPLEMENTED — css-origin.js full @layer flatten + registry
+    C (State Graph Visualizer)    → IMPLEMENTED — server/state-visualizer.js
+    D (Adaptive Collection)       → PROPOSAL (only remaining)
+    E (Source Map Resolver)       → IMPLEMENTED — server/source-map-resolver.js
+    F (Session Replay)            → IMPLEMENTED — server/session-replay.js
+    G (Conclusion Cache)          → IMPLEMENTED — server/conclusion-cache.js

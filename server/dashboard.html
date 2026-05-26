@@ -556,6 +556,19 @@
       letter-spacing: 0.06em;
       margin-bottom: 2px;
     }
+    /* --- Marker display modes --- */
+    #cap-marks-layer.cap-som-transparent .cap-marker .cap-badge {
+      opacity: 0;
+      transition: opacity 150ms;
+    }
+    #cap-marks-layer.cap-som-transparent .cap-marker:hover .cap-badge,
+    #cap-marks-layer.cap-som-transparent .cap-marker.pinned .cap-badge {
+      opacity: 0.9;
+    }
+    #cap-marks-layer.cap-som-basic .cap-marker .cap-badge {
+      opacity: 0.9;
+    }
+
     #cap-toast {
       position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
       background: var(--text); color: var(--bg);
@@ -875,10 +888,17 @@
                 <option value="id">Copy: id</option>
                 <option value="full">Copy: full JSON</option>
               </select>
+              <span class="cv-sep"></span>
+              <select id="cap-som" class="cv-select" title="Marker display mode">
+                <option value="transparent">Markers: transparent</option>
+                <option value="som-basic">Markers: SOM basic</option>
+              </select>
+              <button class="btn" id="cap-xml" style="font-size:9px;padding:2px 8px">GET XML</button>
             </div>
             <div id="cap-result" style="display:none;margin-bottom:13px">
               <div style="display:flex;align-items:center;gap:8px">
                 <a id="cap-link" href="#" target="_blank" style="font:200 9px/1 var(--font-mono);color:var(--accent);flex:1"></a>
+                <span id="cap-mark-status" style="font:200 9px/1 var(--font-mono);color:var(--muted);margin-left:auto"></span>
                 <button class="btn" id="cap-expand" title="Expand capture preview" style="font-size:11px;padding:2px 6px">⛶</button>
               </div>
               <div id="cap-img-wrap" style="margin-top:8px;max-height:400px;overflow:auto;background:var(--canvas-bg);border-radius:var(--radius);box-shadow:inset 0 0 0 0.5px var(--border)">
@@ -893,6 +913,7 @@
         </div>
 
         <div id="cap-toast"></div>
+        <div id="cap-tip-portal" style="display:none;position:fixed;z-index:999999;pointer-events:auto;background:var(--surface);color:var(--text);font:200 10px/1.3 var(--font-mono);padding:6px 10px;border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,0.5);border:0.5px solid var(--border);max-width:420px;white-space:normal"></div>
 
         <div class="pane" id="p-profile">
           <div class="card"><h3>TOOL PROFILES</h3>
@@ -1137,7 +1158,8 @@
         'dl-data','dl-reload','dl-patterns','dl-info',
         'cap-full','cap-marks','cap-element','cap-sel','cap-format','cap-pad',
         'cap-result','cap-img','cap-link','cap-data','cap-expand','cap-img-wrap',
-        'cap-marks-layer','cap-copy','cap-toast','cap-scroll',
+        'cap-marks-layer','cap-copy','cap-toast','cap-scroll','cap-mark-status','cap-som',
+        'cap-tip-portal','cap-xml',
         'pr-status','pr-search-tools','pr-load','pr-load-btn','pr-unload-btn','pr-data',
         'stream-el',
         'st-results','st-summary','st-run','st-clear','st-copy','st-copy-logs','st-report',
@@ -2221,8 +2243,10 @@
         if (data && data.dataUrl) {
           D['cap-img'].src = data.dataUrl;
           D['cap-link'].href = data.dataUrl;
-          var elInfo = data.elements ? ' +' + data.elements.length + ' marks' : '';
-          D['cap-link'].textContent = '📷 Screenshot' + (marks ? ' (with marks' + elInfo + ')' : '') + (data.filePath ? ' — ' + data.filePath : '');
+          var elInfo = data.elements ? ' +' + data.elements.length + ' elements' : '';
+          var mode = D['cap-som'] ? D['cap-som'].value : 'transparent';
+          var modeLabel = mode === 'transparent' ? '' : ' [' + mode + ']';
+          D['cap-link'].textContent = '📷 Screenshot' + modeLabel + elInfo + (data.filePath ? ' — ' + data.filePath : '');
           D['cap-result'].style.display = '';
           D['cap-data'].textContent = JSON.stringify(data, null, 2);
           // Render interactive markers when image loads
@@ -2284,6 +2308,8 @@
     function clearCaptureMarkers() {
       _capElements = null;
       D['cap-marks-layer'].innerHTML = '';
+      if (D['cap-mark-status']) D['cap-mark-status'].textContent = '';
+      if (D['cap-tip-portal']) { D['cap-tip-portal'].style.display = 'none'; D['cap-tip-portal'].classList.remove('pinned'); D['cap-tip-portal'].innerHTML = ''; }
     }
 
     function copyText(txt) {
@@ -2306,17 +2332,32 @@
       D['cap-toast']._t = setTimeout(function() { D['cap-toast'].classList.remove('show'); }, 1800);
     }
 
+    var _renderGen = 0;
+
     function renderCaptureMarkers(elements, vpW, vpH) {
       clearCaptureMarkers();
-      if (!elements || !elements.length || !vpW || !vpH) return;
+      var gen = ++_renderGen;
+      var status = D['cap-mark-status'];
+      if (!elements || !elements.length || !vpW || !vpH) {
+        status.textContent = elements && !elements.length ? '0 interactive elements' : '';
+        return;
+      }
       _capElements = elements;
       var img = D['cap-img'];
       var layer = D['cap-marks-layer'];
+      var retryCount = 0;
+      var maxRetries = 20;
 
       var doRender = function() {
+        if (gen !== _renderGen) return;
         var scaleX = img.clientWidth / vpW;
         var scaleY = img.clientHeight / vpH;
-        if (scaleX < 0.01 || scaleY < 0.01) { setTimeout(doRender, 50); return; }
+        if ((scaleX < 0.01 || scaleY < 0.01) && retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(doRender, 100);
+          return;
+        }
+        if (retryCount >= maxRetries) { status.textContent = 'render failed'; return; }
 
         for (var i = 0; i < elements.length; i++) {
           (function(idx) {
@@ -2334,48 +2375,106 @@
             m.style.height = Math.max(4, h) + 'px';
             m.dataset.idx  = idx;
 
-            // Badge: red circle with number (matching old drawMarksOnImage)
             var badge = document.createElement('div');
+            badge.className = 'cap-badge';
+            if (el.kind === 'toggle') badge.classList.add('cap-badge-toggle');
             var cx = el.w * scaleX / 2;
             var cy = el.h * scaleY / 2;
             var r = Math.max(12, Math.min(28, Math.round(Math.min(el.w * scaleX, el.h * scaleY) * 0.45)));
             var fs = Math.max(10, Math.round(r * 0.9));
             badge.textContent = el.id || '';
+            var bgColor = el.kind === 'toggle' ? '#ffffff' : '#e53e3e';
+            var textColor = el.kind === 'toggle' ? '#1a1a1a' : '#fff';
+            var borderColor = el.kind === 'toggle' ? '#cccccc' : '#fff';
             badge.style.cssText = 'position:absolute;left:' + (cx - r) + 'px;top:' + (cy - r + 1) + 'px;'
               + 'width:' + (r * 2) + 'px;height:' + (r * 2) + 'px;border-radius:50%;'
-              + 'background:#e53e3e;color:#fff;border:2px solid #fff;'
+              + 'background:' + bgColor + ';color:' + textColor + ';border:2px solid ' + borderColor + ';'
               + 'font:bold ' + fs + 'px/1 sans-serif;'
               + 'display:flex;align-items:center;justify-content:center;'
               + 'box-shadow:0 2px 6px rgba(0,0,0,0.4);pointer-events:none;z-index:5;';
             m.appendChild(badge);
 
-            // Tooltip
+            // Tooltip (inline fallback)
             var tip = document.createElement('div');
             tip.className = 'cap-tip';
-            tip.innerHTML = '<div class="cap-tag">' + esc(el.tag) + (el.id ? ' #' + esc(el.id) : '') + '</div>'
-              + '<div>' + esc(el.text || el.selector || '') + '</div>'
-              + '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
-              + Math.round(el.x) + ',' + Math.round(el.y) + ' ' + el.w + '×' + el.h + '</div>';
             m.appendChild(tip);
+
+            // Portal tooltip (rendered outside overflow container)
+            var portal = D['cap-tip-portal'];
+            function showPortal(html, pinned) {
+              portal.innerHTML = html;
+              portal.style.display = 'block';
+              var r = m.getBoundingClientRect();
+              var left = r.left + r.width / 2;
+              portal.style.left = Math.max(4, Math.min(window.innerWidth - 280, left - 140)) + 'px';
+              portal.style.top = (r.top - 12) + 'px';
+              portal.style.transform = 'translateY(-100%)';
+              if (pinned) portal.classList.add('pinned');
+              else portal.classList.remove('pinned');
+            }
+            function hidePortal() {
+              portal.style.display = 'none';
+              portal.classList.remove('pinned');
+              portal.innerHTML = '';
+            }
+
+            function makeTipHtml(d, simple) {
+              var kindTag = d.kind && d.kind !== 'action' ? '<span style="color:var(--ok);font-size:8px;margin-left:4px">[' + esc(d.kind) + ']</span>' : '';
+              if (simple) {
+                return '<div style="font:200 10px/1.3 var(--font-mono);color:var(--accent)">' + esc(d.tag) + (d.id ? ' #' + esc(d.id) : '') + kindTag + '</div>'
+                  + '<div style="font:200 10px/1.3 var(--font-mono);margin-top:2px">' + esc(d.text || d.selector || '') + '</div>'
+                  + '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
+                  + Math.round(d.x) + ',' + Math.round(d.y) + ' ' + d.w + '×' + d.h + '</div>';
+              }
+              return '<div style="font:200 11px/1.3 var(--font-mono);color:var(--accent)">' + esc(d.tag) + (d.id ? ' #' + esc(d.id) : '') + kindTag + '</div>'
+                + '<div style="font:200 10px/1.3 var(--font-mono);margin-top:2px">' + esc(d.text || d.selector || '') + '</div>'
+                + '<div style="color:var(--muted);font-size:8px;margin-top:4px">'
+                + 'selector: ' + esc(d.selector) + '<br>'
+                + 'tag: ' + esc(d.tag) + ' | kind: ' + esc(d.kind || 'action') + '<br>'
+                + 'pos: ' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + '</div>'
+                + '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;display:flex;gap:4px">'
+                + '<button class="btn" data-cap-click="click" style="font-size:9px;padding:2px 8px">LEFT CLICK</button>'
+                + '<button class="btn" data-cap-click="rightclick" style="font-size:9px;padding:2px 8px">RIGHT CLICK</button>'
+                + '<button class="btn" data-cap-click="hover" style="font-size:9px;padding:2px 8px">HOVER</button>'
+                + '</div>';
+            }
+
+            m.addEventListener('mouseenter', function(e) {
+              var i = parseInt(this.dataset.idx);
+              var d = _capElements ? _capElements[i] : null;
+              if (d && !this.classList.contains('pinned')) showPortal.call(this, makeTipHtml(d, true), false);
+            });
+            m.addEventListener('mouseleave', function(e) {
+              if (!this.classList.contains('pinned')) hidePortal.call(this);
+            });
 
             // Click: pin/unpin
             m.addEventListener('click', function(e) {
+              if (e.target.getAttribute('data-cap-click')) return;
               e.stopPropagation();
+              var wasPinned = this.classList.contains('pinned');
               this.classList.toggle('pinned');
               var i = parseInt(this.dataset.idx);
               var d = _capElements ? _capElements[i] : null;
-              if (this.classList.contains('pinned') && d) {
-                var t = this.querySelector('.cap-tip');
-                if (t) t.innerHTML = '<div class="cap-tag">' + esc(d.tag) + (d.id ? ' #' + esc(d.id) : '') + '</div>'
-                  + '<div>' + esc(d.text || d.selector || '') + '</div>'
-                  + '<div style="color:var(--muted);font-size:8px;margin-top:2px">'
-                  + Math.round(d.x) + ',' + Math.round(d.y) + ' ' + d.w + '×' + d.h + '</div>'
-                  + '<div style="border-top:0.5px solid var(--border);margin-top:4px;padding-top:4px;font-size:8px;color:var(--muted)">'
-                  + '<div>selector: ' + esc(d.selector) + '</div>'
-                  + '<div>tag: ' + esc(d.tag) + '</div>'
-                  + '<div>text: ' + esc((d.text || '').slice(0, 120)) + '</div>'
-                  + '<div>pos: ' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + '</div></div>';
+              if (d && !wasPinned) showPortal.call(this, makeTipHtml(d, false), true);
+              else hidePortal.call(this);
+            });
+
+            // Click action buttons inside portal
+            m.addEventListener('click', function(e) {
+              var act = e.target.getAttribute('data-cap-click');
+              if (!act) return;
+              e.stopPropagation();
+              var i = parseInt(this.dataset.idx);
+              var d = _capElements ? _capElements[i] : null;
+              if (!d) return;
+              var sel = d.selector;
+              if (act === 'hover') {
+                sendAction({ type: 'hover', selector: sel }, 'hover: ' + sel);
+              } else {
+                sendAction({ type: 'click', selector: sel, button: act === 'rightclick' ? 'right' : 'left' }, (act === 'rightclick' ? 'right-click' : 'click') + ': ' + sel);
               }
+              showCapToast(act + ' sent to: ' + sel);
             });
 
             // Right-click: copy
@@ -2393,7 +2492,7 @@
                 : cf === 'id' ? (d.id != null ? String(d.id) : '')
                 : (d.selector || '');
               if (this.classList.contains('pinned'))
-                txt += '\n---\ntag:' + (d.tag||'') + ' text:' + (d.text||'') + ' pos:' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + ' sel:' + (d.selector||'');
+                txt += '\n---\nkind:' + (d.kind||'action') + ' tag:' + (d.tag||'') + ' text:' + (d.text||'') + ' pos:' + d.x + ',' + d.y + ' ' + d.w + '×' + d.h + ' sel:' + (d.selector||'');
               if (copyText(txt)) showCapToast('Copied ' + cf);
                 else showCapToast('Copy failed');
             });
@@ -2401,6 +2500,7 @@
             layer.appendChild(m);
           })(i);
         }
+        status.textContent = elements.length + ' markers';
       };
       doRender();
     }
@@ -3364,10 +3464,36 @@
       D['dl-reload'].addEventListener('click', loadDelta);
       D['dl-patterns'].addEventListener('click', loadPatterns);
 
-      // Capture
-      D['cap-full'].addEventListener('click', function() { capFull(false); });
-      D['cap-marks'].addEventListener('click', function() { capFull(true); });
+      // Capture — both always collect element data; visibility controlled by SOM mode
+      D['cap-full'].addEventListener('click', function() { D['cap-som'].value = 'transparent'; applySomMode('transparent'); capFull(true); });
+      D['cap-marks'].addEventListener('click', function() { D['cap-som'].value = 'som-basic'; applySomMode('som-basic'); capFull(true); });
       D['cap-element'].addEventListener('click', capElement);
+      D['cap-xml'].addEventListener('click', async function() {
+        try {
+          var r = await fetch(S.api + '/api/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tabId: S.tabId, action: { type: 'get_xml' } })
+          });
+          var data = r.ok ? await r.json() : null;
+          D['cap-data'].textContent = data && data.result ? data.result : JSON.stringify(data || { error: 'no response' }, null, 2);
+        } catch(e) {
+          D['cap-data'].textContent = '(error: ' + e.message + ')';
+        }
+      });
+      // SOM mode switching
+      function applySomMode(mode) {
+        var layer = D['cap-marks-layer'];
+        layer.className = layer.className
+          .split(/\s+/).filter(function(c) { return c.indexOf('cap-som-') !== 0; }).join(' ')
+          .trim();
+        if (mode) layer.classList.add('cap-som-' + mode);
+      }
+      D['cap-som'].addEventListener('change', function() {
+        applySomMode(this.value);
+      });
+      applySomMode(D['cap-som'].value);
+
       D['cap-expand'].addEventListener('click', function() {
         var wrap = D['cap-img-wrap'];
         var expanded = wrap.dataset.expanded === '1';
@@ -3382,13 +3508,13 @@
           this.textContent = '⛶';
           this.title = 'Collapse capture preview';
         }
-        // Re-render markers after layout settles
         setTimeout(function() {
           if (_capElements && _capElements.length) {
-            // Need original data — re-render from stored elements
             var img = D['cap-img'];
             if (img.complete) {
-              renderCaptureMarkers(_capElements, img.dataset.vpW || null, img.dataset.vpH || null);
+              var vpW = parseInt(img.dataset.vpW) || null;
+              var vpH = parseInt(img.dataset.vpH) || null;
+              renderCaptureMarkers(_capElements, vpW, vpH);
             }
           }
         }, 50);
