@@ -356,6 +356,12 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Listening on http://${HOST}:${HTTP_PORT}`);
   log('info', `[http] Dashboard: http://${HOST}:${HTTP_PORT}/`);
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
+  console.warn('');
+  console.warn('================================================================================');
+  console.warn('  TERMINAL ENCODING: If using PowerShell, run "chcp 65001" once per session.');
+  console.warn('  Otherwise non-ASCII text (Japanese, Chinese, Korean, accented) will be garbled.');
+  console.warn('================================================================================');
+  console.warn('');
 
 
   // Cache integrity check (non-blocking)
