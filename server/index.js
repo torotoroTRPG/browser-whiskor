@@ -388,7 +388,17 @@ mcp.setCallbacks(
   (tabId, active, strategy) => core.triggerExplorer(tabId, active, strategy),
 );
 mcp.setConfig(_cfg);
-mcp.setSessionId(`mcp-${Date.now()}`);
+{
+  const toolManager = require('./tool-manager');
+  const rawEnvSid = process.env.WHISKOR_MCP_SESSION_ID;
+  const envSid = rawEnvSid ? toolManager.sanitizeSessionId(rawEnvSid) : null;
+  if (rawEnvSid && !envSid) {
+    log('warn', `[mcp] Ignoring WHISKOR_MCP_SESSION_ID="${rawEnvSid}" (must match /^[A-Za-z0-9_.:-]{1,64}$/)`);
+  }
+  const sid = envSid || `mcp-${Date.now()}`;
+  if (envSid) log('info', `[mcp] Using fixed session id from env: ${sid}`);
+  mcp.setSessionId(sid);
+}
 mcp.initToolManager();
 
 // Action helper for MCP tools

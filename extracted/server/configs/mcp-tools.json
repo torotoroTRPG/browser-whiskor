@@ -1,0 +1,146 @@
+{
+  "_comment": "MCPツール公開設定。カテゴリ単位・個別ツール単位でon/offを制御可能。",
+  "_comment_env": "環境変数 WHISKOR_MCP_<TOOL_NAME>=false で個別無効化可能（例: WHISKOR_MCP_EXECUTE_JS=false）",
+
+  "categories": {
+    "read": {
+      "enabled": true,
+      "description": "データ読み取り系ツール（セッション、DOM、ネットワーク、ストレージ等）",
+      "_comment": "false にするとread系ツールすべてが非表示になる"
+    },
+    "write": {
+      "enabled": true,
+      "description": "ページ操作系ツール（click, type, navigate, scroll等）",
+      "_comment": "false にするとwrite系ツールすべてが非表示になる"
+    },
+    "capture": {
+      "enabled": true,
+      "description": "キャプチャ系ツール（screenshot, refresh_data）",
+      "_comment": "false にするとcapture系ツールすべてが非表示になる"
+    },
+    "control": {
+      "enabled": true,
+      "description": "制御系ツール（set_config, trigger_collect, trigger_explorer, state navigation）",
+      "_comment": "false にするとcontrol系ツールすべてが非表示になる"
+    },
+    "intelligence": {
+      "enabled": true,
+      "description": "インテリジェンス系ツール（explain_element, detect_site_updates 他）",
+      "_comment": "false にするとintelligence系ツールすべてが非表示になる"
+    },
+    "replay": {
+      "enabled": true,
+      "description": "リプレイ系ツール（replay_session）",
+      "_comment": "false にするとリプレイ系ツールすべてが非表示になる"
+    }
+  },
+
+  "tools": {
+    "get_sessions":       { "enabled": true,  "category": "read" },
+    "get_index":          { "enabled": true,  "category": "read" },
+    "get_text_coords":    { "enabled": true,  "category": "read" },
+    "get_viewport":       { "enabled": true,  "category": "read" },
+    "get_framework_state": { "enabled": true, "category": "read" },
+    "get_network":        { "enabled": true,  "category": "read" },
+    "get_ui_catalog":     { "enabled": true,  "category": "read" },
+    "get_accessibility":  { "enabled": true,  "category": "read" },
+    "get_storage":        { "enabled": true,  "category": "read" },
+    "get_console_logs":   { "enabled": true,  "category": "read" },
+    "get_perf_metrics":   { "enabled": true,  "category": "read" },
+    "get_css_analysis":   { "enabled": true,  "category": "read" },
+    "get_dom_snapshot":   { "enabled": true,  "category": "read" },
+    "get_state_map":      { "enabled": true,  "category": "read" },
+    "list_states":        { "enabled": true,  "category": "read" },
+    "search_states":      { "enabled": true,  "category": "read" },
+    "get_state_detail":   { "enabled": true,  "category": "read" },
+    "pin_state":          { "enabled": true,  "category": "read" },
+
+    "navigate_to":        { "enabled": true,  "category": "write" },
+    "click":              { "enabled": true,  "category": "write" },
+    "right_click":        { "enabled": true,  "category": "write" },
+    "type_text":          { "enabled": true,  "category": "write" },
+    "press_key":          { "enabled": true,  "category": "write" },
+    "hover":              { "enabled": true,  "category": "write" },
+    "scroll_page":        { "enabled": true,  "category": "write" },
+    "select_option":      { "enabled": true,  "category": "write" },
+    "check_box":          { "enabled": true,  "category": "write" },
+    "drag":               { "enabled": true,  "category": "write" },
+    "mouse_scroll":       { "enabled": true,  "category": "write" },
+    "execute_js":         { "enabled": true,  "category": "write" },
+    "wait_for_element":   { "enabled": true,  "category": "write" },
+    "go_back":            { "enabled": true,  "category": "write" },
+    "go_forward":         { "enabled": true,  "category": "write" },
+    "reload_page":        { "enabled": true,  "category": "write" },
+
+    "capture_screenshot": { "enabled": true,  "category": "capture" },
+    "refresh_data":       { "enabled": true,  "category": "capture" },
+
+    "set_config":         { "enabled": true,  "category": "control" },
+    "get_config_changes": { "enabled": true,  "category": "control" },
+    "trigger_collect":    { "enabled": true,  "category": "control" },
+    "trigger_explorer":   { "enabled": true,  "category": "control" },
+    "navigate_to_state":  { "enabled": true,  "category": "control" },
+    "get_navigation_path": { "enabled": true, "category": "control" },
+
+    "analyze_click":      { "enabled": true,  "category": "core" },
+    "explain_element":    { "enabled": true,  "category": "intelligence" },
+    "why_did_this_change": { "enabled": true, "category": "intelligence" },
+    "get_source_file":    { "enabled": true,  "category": "intelligence" },
+    "detect_site_updates": { "enabled": true, "category": "intelligence" },
+    "get_state_map_visual": { "enabled": true, "category": "intelligence" },
+    "replay_session":      { "enabled": true, "category": "replay" }
+  },
+
+  "presets": {
+    "read_only": {
+      "description": "読み取り専用。write系とcontrol系の操作系ツールをすべて無効化",
+      "categories": {
+        "read": true,
+        "write": false,
+        "capture": false,
+        "control": false,
+        "intelligence": true,
+        "replay": false
+      }
+    },
+    "read_and_capture": {
+      "description": "読み取り + スクリーンショット。操作系は無効化",
+      "categories": {
+        "read": true,
+        "write": false,
+        "capture": true,
+        "control": false,
+        "intelligence": true,
+        "replay": false
+      }
+    },
+    "full_access": {
+      "description": "すべてのツールを有効化（デフォルト）",
+      "categories": {
+        "read": true,
+        "write": true,
+        "capture": true,
+        "control": true,
+        "intelligence": true,
+        "replay": true
+      }
+    },
+    "no_execute_js": {
+      "description": "execute_jsのみ無効化。セキュリティ重視",
+      "tools": {
+        "execute_js": false
+      }
+    },
+    "no_state_navigation": {
+      "description": "state navigation系ツールを無効化",
+      "tools": {
+        "navigate_to_state": false,
+        "get_navigation_path": false,
+        "list_states": false,
+        "search_states": false,
+        "get_state_detail": false,
+        "pin_state": false
+      }
+    }
+  }
+}

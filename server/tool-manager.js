@@ -16,6 +16,31 @@ const PROFILES_FILE = path.join(__dirname, 'configs', 'tool-profiles.json');
 const MAX_IDLE_TURNS_DEFAULT = 8;
 const WARNING_TURN_THRESHOLD = 5;
 
+// ── Meta tools (profile discovery / management) ──────────────────────────────
+// These tools are always visible regardless of the active profiles so that an
+// agent connecting for the first time can self-discover and bootstrap the rest
+// of the toolset (search → load → status → unload). They are intentionally kept
+// out of the `core` profile in tool-profiles.json so that the profile config
+// reflects only domain tools while meta tools are owned by the manager itself.
+const ALWAYS_VISIBLE_TOOLS = Object.freeze([
+  'search_tools',
+  'load_profile',
+  'unload_profile',
+  'profile_status',
+]);
+
+// Allowed characters for an externally supplied session id (env var).
+// Keeps logs, file paths and broadcast keys safe.
+const SESSION_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/**
+ * Validate a session id string. Returns the id if acceptable, otherwise null.
+ */
+function sanitizeSessionId(id) {
+  if (typeof id !== 'string') return null;
+  return SESSION_ID_RE.test(id) ? id : null;
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 // sessionId -> { activeProfiles: Set, turnCount: number, lastUsed: Map<profile, turn> }
 const sessions = new Map();
@@ -75,6 +100,9 @@ function getVisibleTools(sessionId, allTools, config) {
     const tools = getAllToolsForProfile(profileName, profiles, config);
     for (const t of tools) visible.add(t);
   }
+
+  // Meta tools are always visible (profile discovery / lifecycle management).
+  for (const t of ALWAYS_VISIBLE_TOOLS) visible.add(t);
 
   // Filter allTools to only visible ones
   return allTools.filter(t => visible.has(t.definition.name));
@@ -226,6 +254,7 @@ function getProfileStatus(sessionId) {
   const session = ensureSession(sessionId);
   const profiles = loadProfiles();
   const status = {};
+  const available = [];
 
   for (const name of session.activeProfiles) {
     status[name] = {
@@ -235,7 +264,24 @@ function getProfileStatus(sessionId) {
     };
   }
 
-  return { turnCount: session.turnCount, profiles: status };
+  // List inactive profiles so the agent can discover them without an extra call.
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (session.activeProfiles.has(name)) continue;
+    available.push({
+      name,
+      description: profile.description || '',
+      requiresConfig: profile.requiresConfig || null,
+      autoUnload: profile.autoUnload !== false,
+      toolCount: Array.isArray(profile.tools) ? profile.tools.length : 0,
+    });
+  }
+
+  return {
+    turnCount: session.turnCount,
+    profiles: status,
+    available,
+    alwaysVisible: [...ALWAYS_VISIBLE_TOOLS],
+  };
 }
 
 /**
@@ -262,4 +308,6 @@ module.exports = {
   getProfileStatus,
   cleanupSession,
   resetAll,
+  sanitizeSessionId,
+  ALWAYS_VISIBLE_TOOLS,
 };

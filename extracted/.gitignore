@@ -1,0 +1,26 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+archive_project.ps1
+Export-GitHistory.ps1
+GIT-HISTORY.md
+browser-whiskor-v3/
+直前のログ.txt
+参考(内)/
+参考(外)/
+
+# Generated / temporary
+.idea/
+cache/
+playwright-report/
+test-results/
+session-*.md
+server-stderr.log
+server-stdout.log
+tests/tmp/
+hs_err_pid*.log
+memo_日常.txt
+tests/report/

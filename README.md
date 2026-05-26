@@ -228,6 +228,15 @@ Tools not listed in any profile (intelligence, capture_element_screenshot, acces
 4. **Warnings**: If a profile stays active too long, you'll get a warning suggesting unload→reload.
 5. **Manual control**: Use `load_profile`, `unload_profile`, `search_tools`, and `profile_status` for explicit management.
 
+> **Meta tools are always visible.** `search_tools`, `load_profile`, `unload_profile`, and `profile_status` are exposed in every `tools/list` response regardless of the active profiles, so an agent can discover and bootstrap the rest of the toolset from a cold start. They are owned by `server/tool-manager.js` (`ALWAYS_VISIBLE_TOOLS`) and intentionally **not** listed in any profile in `server/configs/tool-profiles.json`. `profile_status` additionally returns an `available` array listing every inactive profile, its `requiresConfig` gate and tool count, so the agent can plan loads without an extra `search_tools` round-trip.
+
+### Environment variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `WHISKOR_MCP_SESSION_ID` | Pin the MCP session id (for tests / deterministic workflows). Must match `/^[A-Za-z0-9_.:-]{1,64}$/`; invalid values are ignored with a warning. | `mcp-<epoch-ms>` |
+| `WHISKOR_CACHE_DIR` | Override the session cache root used by the integrity check on startup. | `<repo>/cache/sessions` |
+
 ### Perception (READ)
 
 | Tool | Description |

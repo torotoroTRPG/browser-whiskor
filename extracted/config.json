@@ -1,0 +1,342 @@
+{
+  "_comment_en": "browser-whiskor configuration file. Values can be overridden via .env (WHISKOR_<SECTION>_<KEY>=<value>).",
+  "_comment_ja": "browser-whiskor 設定ファイル。値は .env で上書き可能 (WHISKOR_<SECTION>_<KEY>=<value>)。",
+
+  "server": {
+    "wsPort":   7891,
+    "httpPort": 7892,
+    "host":     "127.0.0.1",
+    "_comment_en": "Setting host to 0.0.0.0 exposes the server to the entire LAN",
+    "_comment_ja": "host を 0.0.0.0 にすると LAN 全体に公開されます"
+  },
+
+  "security": {
+    "allowExecuteJs":      false,
+    "allowActions":        true,
+    "allowScreenshots":    true,
+    "allowExplorer":       true,
+    "executeJsTimeoutMs":  15000,
+    "actionTimeoutMs":     15000,
+    "allowedMcpOrigins":   ["*"],
+    "_comment_execute_en": "Set allowExecuteJs=false to disable arbitrary JS execution from agents. For local use, set to true or use WHISKOR_SECURITY_ALLOWEXECUTEJS=true env var.",
+    "_comment_execute_ja": "エージェントからの任意JS実行を無効にするにはfalse。ローカルで有効にする場合はtrue、または環境変数WHISKOR_SECURITY_ALLOWEXECUTEJS=trueを設定"
+  },
+
+  "collection": {
+    "staleThresholdMs":        30000,
+    "pollingIntervalMs":       0,
+    "_comment_polling_en": "0 = automatic polling disabled. Specify ms to collect from all tabs at that interval",
+    "_comment_polling_ja": "0 = 自動ポーリング無効。ms数を指定するとその間隔で全タブ収集",
+    "maxConsoleLogs":          2000,
+    "maxNetworkRequests":      500,
+    "networkBodyMaxBytes":     4096,
+    "maxReactStateHistory":    100,
+    "_comment_history_en": "Maximum number of React/UI state changes to store (0 = unlimited)",
+    "_comment_history_ja": "React/UI状態変化の最大保存数 (0 = 無制限)"
+  },
+
+  "updateFrequencies": [
+    {
+      "id": "viewport",
+      "label": "Viewport (scroll/resize tracking)",
+      "description": "ユーザーのスクロール位置とウィンドウサイズ変更の追跡間隔。リアルタイムに近い値。",
+      "type": "debounce",
+      "defaultMs": 100,
+      "valueMs": 100,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "textCoords",
+      "label": "Text Coordinates",
+      "description": "ページ上のテキスト座標の再収集間隔。MutationObserverのデバウンス時間。",
+      "type": "debounce",
+      "defaultMs": 200,
+      "valueMs": 200,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "domMutations",
+      "label": "DOM Mutations",
+      "description": "DOM変更のバッチ送信間隔。変更をまとめてストリーミングする。",
+      "type": "debounce",
+      "defaultMs": 100,
+      "valueMs": 100,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "network",
+      "label": "Network (fetch/XHR interception)",
+      "description": "ネットワークリクエストのキャプチャ。基本はリアルタイム（イベント駆動）。",
+      "type": "event-driven",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "consoleLogs",
+      "label": "Console Logs",
+      "description": "console.log/warn/errorのキャプチャ。基本はリアルタイム（イベント駆動）。",
+      "type": "event-driven",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "realtime"
+    },
+    {
+      "id": "reactSnapshot",
+      "label": "React Fiber Snapshot",
+      "description": "Reactコンポーネントツリーの収集間隔。bippyによるFiberトラバーサル。",
+      "type": "debounce",
+      "defaultMs": 500,
+      "valueMs": 500,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "uiCatalog",
+      "label": "UI Catalog (buttons, links, inputs)",
+      "description": "インタラクティブ要素のカタログ化間隔。",
+      "type": "debounce",
+      "defaultMs": 500,
+      "valueMs": 500,
+      "enabled": true,
+      "category": "frequent"
+    },
+    {
+      "id": "cssAnalysis",
+      "label": "CSS Analysis",
+      "description": "CSSカスタムプロパティとフレームワーク信号の解析間隔。",
+      "type": "debounce",
+      "defaultMs": 1000,
+      "valueMs": 1000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "accessibility",
+      "label": "Accessibility Tree",
+      "description": "ARIAツリーとランドマークの収集間隔。",
+      "type": "debounce",
+      "defaultMs": 1000,
+      "valueMs": 1000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "storage",
+      "label": "Storage (localStorage, sessionStorage, cookies)",
+      "description": "ストレージのスナップショット収集間隔。",
+      "type": "debounce",
+      "defaultMs": 2000,
+      "valueMs": 2000,
+      "enabled": true,
+      "category": "moderate"
+    },
+    {
+      "id": "perfMetrics",
+      "label": "Performance Metrics",
+      "description": "パフォーマンスメトリクスの収集間隔。",
+      "type": "debounce",
+      "defaultMs": 5000,
+      "valueMs": 5000,
+      "enabled": true,
+      "category": "infrequent"
+    },
+    {
+      "id": "frameworkDetection",
+      "label": "Framework Detection",
+      "description": "フレームワーク検出。window.load時に一度だけ実行。",
+      "type": "once-on-load",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "once"
+    },
+    {
+      "id": "sourceCatalog",
+      "label": "Source Catalog (resource timing)",
+      "description": "リソースタイミングAPIによるスクリプト/スタイル読み込みカタログ。",
+      "type": "once-on-load",
+      "defaultMs": 0,
+      "valueMs": 0,
+      "enabled": true,
+      "category": "once"
+    },
+    {
+      "id": "spaRecollect",
+      "label": "SPA Re-collect (delayed)",
+      "description": "SPAハイドレーション後の再収集遅延時間。DOMContentLoaded/load後に追加で収集。",
+      "type": "delay",
+      "defaultMs": 3000,
+      "valueMs": 3000,
+      "enabled": true,
+      "category": "special"
+    },
+    {
+      "id": "dashboardRefresh",
+      "label": "Dashboard Session Refresh",
+      "description": "ダッシュボードのセッションリスト自動更新間隔。",
+      "type": "interval",
+      "defaultMs": 5000,
+      "valueMs": 5000,
+      "enabled": true,
+      "category": "dashboard"
+    },
+    {
+      "id": "staleThreshold",
+      "label": "Stale Data Threshold",
+      "description": "データが「古い」と判定されるまでの時間。これを超えるとisStale=true。",
+      "type": "threshold",
+      "defaultMs": 30000,
+      "valueMs": 30000,
+      "enabled": true,
+      "category": "threshold"
+    }
+  ],
+
+  "plugins": {
+    "react-fiber":     true,
+    "vue3":            true,
+    "vue2":            true,
+    "angular":         true,
+    "svelte":          true,
+    "preact":          true,
+    "alpine":          true,
+    "solid":           true,
+    "dom-generic":     true,
+    "text-coords":     true,
+    "network-hook":    true,
+    "css-analyzer":    true,
+    "ui-catalog":      true,
+    "perf-analyzer":   true,
+    "dom-mutations":   true,
+    "accessibility":   true,
+    "console-logger":  true,
+    "storage-reader":  true,
+    "css-origin":      true,
+    "source-fetcher":  true,
+    "framework-dom-map": true
+  },
+
+  "intelligence": {
+    "clickability": {
+      "enabled": true,
+      "autoUnblock": true,
+      "autoUnblockStrategies": ["closeButton", "escape", "backdrop"]
+    },
+    "cssOrigin": {
+      "enabled": true,
+      "maxPropertiesPerElement": 20,
+      "maxElements": 50,
+      "acquisitionLevel": 4
+    },
+    "sourceFetcher": {
+      "enabled": true,
+      "storeJs": false,
+      "maxCssSizeBytes": 524288,
+      "updateDetection": true
+    },
+    "correlator": {
+      "enabled": true,
+      "bufferCapacityPerTab": 200,
+      "retentionMs": 5000,
+      "confidenceFloor": 0.50,
+      "maxChainsPerSession": 500
+    },
+    "frameworkDomMap": {
+      "enabled": true
+    }
+  },
+
+  "react": {
+    "maxDepth":              80,
+    "maxProps":              30,
+    "maxHooks":              25,
+    "trackStateTransitions": true,
+    "captureRedux":          true,
+    "captureZustand":        true,
+    "captureReactQuery":     true,
+    "captureJotai":          true,
+    "captureRecoil":         true,
+    "captureMobX":           true,
+    "captureRouter":         true,
+    "debounceMs":            200
+  },
+
+  "textCoords": {
+    "level":            "word",
+    "includeHidden":    false,
+    "includeOffscreen": false,
+    "maxWords":         5000
+  },
+
+  "executeJs": {
+    "captureConsoleDuringExec": true,
+    "_comment_en": "When true, captures console.log/warn/error during execute_js execution and includes them in the result",
+    "_comment_ja": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
+  },
+
+  "agentControl": {
+    "allowAgentConfig":     false,
+    "autoRevertConfig":     false,
+    "screenshotMarks":      false,
+    "_comment_agentConfig_en": "allowAgentConfig=true: agent can modify settings via set_config",
+    "_comment_agentConfig_ja": "allowAgentConfig=true: agentがset_configで設定変更可能",
+    "_comment_autoRevert_en":  "autoRevertConfig=true: automatically revert non-recommended changes on next startup",
+    "_comment_autoRevert_ja":  "autoRevertConfig=true: 非推奨変更を次回起動時に自動復元",
+    "_comment_marks_en":       "screenshotMarks=true: overlay element number markers on screenshots",
+    "_comment_marks_ja":       "screenshotMarks=true: スクリーンショットに要素番号マーカーを重畳"
+  },
+
+  "permissions": {
+    "agentWritablePaths": [
+      "updateFrequencies[].valueMs",
+      "updateFrequencies[].enabled",
+      "textCoords.level",
+      "textCoords.includeHidden",
+      "textCoords.includeOffscreen",
+      "textCoords.maxWords",
+      "react.debounceMs",
+      "react.maxDepth",
+      "react.maxProps",
+      "react.maxHooks",
+      "collection.maxConsoleLogs",
+      "collection.maxNetworkRequests",
+      "collection.networkBodyMaxBytes"
+    ],
+    "agentReadOnlyPaths": [
+      "server",
+      "security",
+      "agentControl",
+      "permissions"
+    ],
+    "warnOnUnauthorized": true,
+    "_comment_writable_en":  "agentWritablePaths: paths the agent is allowed to modify. [] means all elements in the array",
+    "_comment_writable_ja":  "agentWritablePaths: agentが変更可能なパス。[]は配列内の全要素を意味する",
+    "_comment_readOnly_en":  "agentReadOnlyPaths: paths the agent must never modify. Attempts are rejected with a warning",
+    "_comment_readOnly_ja":  "agentReadOnlyPaths: agentが絶対に変更できないパス。ここにある変更試行は拒否+警告"
+  },
+
+  "stateGraph": {
+    "maxNodesInMemory":     500,
+    "maxMemoryMB":          50,
+    "maxDiskMB":            200,
+    "maxSiteVersions":      10,
+    "compression":          "gzip",
+    "useDiffStorage":       true,
+    "diffThresholdBytes":   4096,
+    "labelMaxLength":       80,
+    "autoTagging":          true,
+    "protectedTags":        ["authenticated"],
+    "excludeKeys":          ["createdAt", "updatedAt", "timestamp", "lastSeen", "capturedAt", "requestId", "nonce", "csrf", "expiresAt", "lastModified", "_id"],
+    "defaultNavigateTimeoutMs": 30000,
+    "defaultStepTimeoutMs":     5000,
+    "maxNavigateSteps":         10,
+    "verifyEachStep":           true,
+    "minConfidenceForPath":     0.3
+  }
+}

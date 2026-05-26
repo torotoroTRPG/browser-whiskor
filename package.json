@@ -16,6 +16,7 @@
     "test:e2e": "npx playwright test tests/e2e/"
   },
   "dependencies": {
+    "playwright": "^1.60.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -10,6 +10,7 @@
       "refresh_data", "capture_screenshot",
       "click", "type_text", "navigate_to"
     ],
+    "_metaTools": "search_tools/load_profile/unload_profile/profile_status are always visible (handled by tool-manager.js, see ALWAYS_VISIBLE_TOOLS).",
     "autoUnload": false
   },
 
