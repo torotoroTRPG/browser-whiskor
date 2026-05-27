@@ -15,6 +15,7 @@ browser-whiskor-v3/
 # Generated / temporary
 .idea/
 cache/
+.model-cache/
 playwright-report/
 test-results/
 session-*.md

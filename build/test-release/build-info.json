@@ -1,0 +1,17 @@
+{
+  "version": "0.3.0-0",
+  "branch": "test-audit-fixes",
+  "commit": "caf8a09",
+  "date": "2026-05-27T04:47:00.000Z",
+  "changes": [
+    "Fix full-width control characters in read-helpers.js",
+    "Unify inViewport filter to use filterByViewport helper in read-data.js",
+    "Fix duplicate detection timing in tool-manager.js"
+  ],
+  "files": [
+    "server/mcp/tools/read-helpers.js",
+    "server/mcp/tools/read-data.js",
+    "server/tool-manager.js",
+    "config.json"
+  ]
+}

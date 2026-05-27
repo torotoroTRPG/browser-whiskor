@@ -133,7 +133,9 @@ node server/index.js
 ```
 
 > **Note on Machine Learning Models:** 
-> `npm install` will automatically run a `postinstall` script (`npm run download-model`) to pre-fetch the ONNX model (approx 50MB) for Semantic Search. This is downloaded from the public Hugging Face Hub. **No Hugging Face account or login is required.** The model is cached in `.model-cache/`.
+> On first startup, the server will automatically download the ONNX model (~50MB) for Semantic Search from Hugging Face Hub. This is a one-time download and takes 30-60 seconds depending on your connection. **No Hugging Face account or login is required.** The model is cached in `.model-cache/`.
+> 
+> If the automatic download fails, you can manually run: `npm run download-model`
 
 ### Chrome/Edge (MV3)
 1. `chrome://extensions` → Developer mode ON

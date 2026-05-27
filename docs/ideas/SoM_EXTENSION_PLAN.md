@@ -1,4 +1,4 @@
-# SoM (Set-of-Marks / Screen of Mind) 拡張計画
+``# SoM (Set-of-Marks / Screen of Mind) 拡張計画
 
 作成日: 2026-05-25
 更新日: 2026-05-25

@@ -4,7 +4,8 @@
  */
 'use strict';
 
-const { withFreshness, filterByViewport } = require('./read-helpers');
+const { withFreshness, filterByViewport, fuzzyScore, classifyIntent } = require('./read-helpers');
+const { resolveBackend, setBackend } = require('./backend-selector');
 
 module.exports = function registerDataTools(registry) {
   const tools = [];
@@ -49,76 +50,181 @@ module.exports = function registerDataTools(registry) {
   });
 
   // 7. get_ui_catalog
-  tools.push({
-     definition: {
-       name: 'get_ui_catalog',
-       description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into.',
-       inputSchema: {
-         type: 'object',
-         properties: {
-           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
-           search:    { type: 'string', description: 'Filter elements by text/label/placeholder/name (case-insensitive)' },
-           type:      { type: 'string', description: 'Filter by element type (button, link, input, image)' },
-           disabled:  { type: 'boolean', description: 'Filter for disabled elements only' },
-           required:  { type: 'boolean', description: 'Filter for required form inputs only' },
-           selector:  { type: 'string', description: 'Filter by CSS selector substring (e.g. ".btn-primary", "#submit")' },
-           inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
-         },
-         required: ['tabId'],
+   tools.push({
+      definition: {
+        name: 'get_ui_catalog',
+        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+            search:    { type: 'string', description: 'Filter elements by text/label/placeholder/name (case-insensitive)' },
+            type:      { type: 'string', description: 'Filter by element type (button, link, input, image)' },
+            disabled:  { type: 'boolean', description: 'Filter for disabled elements only' },
+            required:  { type: 'boolean', description: 'Filter for required form inputs only' },
+            selector:  { type: 'string', description: 'Filter by CSS selector substring (e.g. ".btn-primary", "#submit")' },
+            inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
+            focusScope: { type: 'string', description: 'CSS selector identifying the subtree to search within (e.g. \'[role="dialog"]\'). Elements outside this scope are summarized separately in outOfScopeMatches.' },
+            includeSuggestions: { type: 'boolean', description: 'If true, include _suggestions when search finds no exact matches.' },
+          },
+          required: ['tabId'],
+        },
+      },
+      handler: async (args, cb) => {
+         const cache = cb.cache;
+         const raw = cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+         if (!raw) return { error: 'UI catalog not available. Trigger refresh_data.' };
+
+         // Get session for system messages
+         const session = cb._toolManager?.getSessionState?.(args._sessionId);
+         const systemMessage = session?._pendingMinScoreResetNotice
+           ? {
+               source: 'WHISKOR_SYSTEM',
+               type: 'MINSCORE_OVERRIDE_REVERTED',
+               message: `minScore override reverted: ${session._pendingMinScoreResetNotice.from} → ${session._pendingMinScoreResetNotice.to}`,
+               ...session._pendingMinScoreResetNotice,
+             }
+           : undefined;
+         if (session) session._pendingMinScoreResetNotice = null;
+
+         // Get backend for semantic search
+         const backend = await resolveBackend(cb._config);
+         setBackend(backend);
+
+         // Get viewport for inViewport filtering
+         let vp = null;
+         if (args.inViewport) {
+           const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+           vp = liveVp || raw.viewport || null;
+         }
+
+         // focusScope filtering: filter by selector path prefix/contains match
+         function filterByFocusScope(elements) {
+           if (!args.focusScope || !elements) return { inScope: elements, outOfScope: [] };
+           const inScope = [];
+           const outOfScope = [];
+           for (const el of elements) {
+             const loc = (el.selector || el.location || '').toLowerCase();
+             if (loc.includes(args.focusScope.toLowerCase())) {
+               inScope.push(el);
+             } else {
+               outOfScope.push(el);
+             }
+           }
+           return { inScope, outOfScope };
+         }
+
+         // Generate suggestions for no-match cases
+         async function generateSuggestions(query, allElements, threshold = 0.35) {
+           if (!query || !allElements) return [];
+           const suggestions = [];
+           const texts = allElements.map(el => el.text || el.label || el.placeholder || el.name).filter(Boolean);
+
+           // Use MiniLM batch scoring if available
+           if (backend.batchFuzzyScore) {
+             const scores = await backend.batchFuzzyScore(query, texts);
+             for (let i = 0; i < allElements.length; i++) {
+               const text = allElements[i].text || allElements[i].label || allElements[i].placeholder || allElements[i].name;
+               if (text && scores[i] >= threshold) {
+                 const intent = await backend.classifyIntent(text, threshold);
+                 suggestions.push({
+                   text,
+                   score: scores[i],
+                   elementType: allElements[i].elementType || allElements[i].type || 'element',
+                   ...(intent ? { intent: intent.intent } : {}),
+                 });
+               }
+             }
+           } else {
+             // Fallback to dictionary-based scoring
+             for (const el of allElements) {
+               const text = el.text || el.label || el.placeholder || el.name;
+               if (text) {
+                 const score = fuzzyScore(query, text);
+                 if (score >= threshold) {
+                   const intent = classifyIntent(text, threshold);
+                   suggestions.push({
+                     text,
+                     score,
+                     elementType: el.elementType || el.type || 'element',
+                     ...(intent ? { intent: intent.intent } : {}),
+                   });
+                 }
+               }
+             }
+           }
+           return suggestions
+             .sort((a, b) => b.score - a.score)
+             .slice(0, 5);
+         }
+
+         const filterElement = (el) => {
+           // Text/label search
+           if (args.search) {
+             const s = args.search.toLowerCase();
+             if (!(el.text || el.label || el.placeholder || el.name || '').toLowerCase().includes(s)) {
+               return false;
+             }
+           }
+           // CSS selector filter
+           if (args.selector && el.selector) {
+             if (!el.selector.toLowerCase().includes(args.selector.toLowerCase())) {
+               return false;
+             }
+           }
+           // Disabled state filter
+           if (args.disabled === true && !el.disabled) {
+             return false;
+           }
+           // Required state filter
+           if (args.required === true && !el.required) {
+             return false;
+           }
+          // Viewport filter
+          if (vp && el.x !== undefined && el.y !== undefined) {
+            if (!filterByViewport([el], vp).length) return false;
+          }
+          return true;
+        };
+
+         // Apply focusScope filtering
+         let allButtons = raw.buttons || [];
+         let allLinks = raw.links || [];
+         let allInputs = raw.inputs || [];
+         let allImages = raw.images || [];
+
+         if (args.focusScope) {
+           const bSplit = filterByFocusScope(allButtons);
+           const lSplit = filterByFocusScope(allLinks);
+           const iSplit = filterByFocusScope(allInputs);
+           const imgSplit = filterByFocusScope(allImages);
+           allButtons = bSplit.inScope;
+           allLinks = lSplit.inScope;
+           allInputs = iSplit.inScope;
+           allImages = imgSplit.inScope;
+         }
+
+         const result = {
+           ...raw,
+           ...(backend.isMiniLM ? { matchBackend: 'minilm' } : {}),
+           buttons: allButtons.filter(filterElement),
+           links:   allLinks.filter(filterElement),
+           inputs:  allInputs.filter(filterElement),
+           images:  allImages.filter(filterElement),
+           ...(args.focusScope ? { scopeApplied: true, scopeSelector: args.focusScope } : {}),
+         };
+
+         // Add suggestions if no results and includeSuggestions is true
+         if (args.includeSuggestions && result.buttons.length === 0 && result.links.length === 0 &&
+             result.inputs.length === 0 && result.images.length === 0 && args.search) {
+           const allElements = [...(raw.buttons || []), ...(raw.links || []), ...(raw.inputs || []), ...(raw.images || [])];
+           result._suggestions = await generateSuggestions(args.search, allElements);
+         }
+
+         if (systemMessage) result._systemMessage = systemMessage;
+         return withFreshness(args.tabId, 'ui-catalog', result, cache);
        },
-     },
-     handler: async (args, cb) => {
-       const cache = cb.cache;
-       const raw = cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
-       if (!raw) return { error: 'UI catalog not available. Trigger refresh_data.' };
-
-       // Get viewport for inViewport filtering
-       let vp = null;
-       if (args.inViewport) {
-         const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
-         vp = liveVp || raw.viewport || null;
-       }
-
-       const filterElement = (el) => {
-         // Text/label search
-         if (args.search) {
-           const s = args.search.toLowerCase();
-           if (!(el.text || el.label || el.placeholder || el.name || '').toLowerCase().includes(s)) {
-             return false;
-           }
-         }
-         // CSS selector filter
-         if (args.selector && el.selector) {
-           if (!el.selector.toLowerCase().includes(args.selector.toLowerCase())) {
-             return false;
-           }
-         }
-         // Disabled state filter
-         if (args.disabled === true && !el.disabled) {
-           return false;
-         }
-         // Required state filter
-         if (args.required === true && !el.required) {
-           return false;
-         }
-        // Viewport filter
-        if (vp && el.x !== undefined && el.y !== undefined) {
-          if (!filterByViewport([el], vp).length) return false;
-        }
-        return true;
-      };
-
-       const result = {
-         ...raw,
-         buttons: (raw.buttons || []).filter(filterElement),
-         links:   (raw.links || []).filter(filterElement),
-         inputs:  (raw.inputs || []).filter(filterElement),
-         images:  (raw.images || []).filter(filterElement),
-       };
-
-       return withFreshness(args.tabId, 'ui-catalog', result, cache);
-     },
-   });
+    });
 
   // 8. get_accessibility
   tools.push({

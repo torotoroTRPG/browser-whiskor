@@ -66,8 +66,20 @@ function ensureSession(sessionId) {
       lastUsed: new Map([['core', 0]]),
       warnings: new Map(),
       toolHistory: [],
+      // ── minScoreOverride state ──────────────────
+      minScoreOverride: null,
+      minScoreSetAtTurn: null,
+      lastSearchToolTurn: null,
+      _pendingMinScoreResetNotice: null,
     });
   }
+  return sessions.get(sessionId);
+}
+
+/**
+ * Get session state (for use by tools).
+ */
+function getSessionState(sessionId) {
   return sessions.get(sessionId);
 }
 
@@ -264,28 +276,48 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
   }
 
   // 3. Issue warnings for long-active profiles
-  for (const profileName of session.activeProfiles) {
-    if (profileName === 'core') continue;
-    const profile = profiles[profileName];
-    if (!profile || !profile.autoUnload) continue;
+   for (const profileName of session.activeProfiles) {
+     if (profileName === 'core') continue;
+     const profile = profiles[profileName];
+     if (!profile || !profile.autoUnload) continue;
 
-    const activeTurns = session.turnCount - (session.lastUsed.get(profileName) || 0);
-    const warningKey = `${profileName}_warn`;
+     const activeTurns = session.turnCount - (session.lastUsed.get(profileName) || 0);
+     const warningKey = `${profileName}_warn`;
 
-    if (activeTurns >= WARNING_TURN_THRESHOLD && !session.warnings.has(warningKey)) {
-      session.warnings.set(warningKey, true);
-      results.warnings.push({
-        profile: profileName,
-        level: activeTurns > WARNING_TURN_THRESHOLD + 3 ? 'strong' : 'info',
-        message: activeTurns > WARNING_TURN_THRESHOLD + 3
-          ? `Profile '${profileName}' active for ${activeTurns} turns. Consider unloading and reloading if still needed.`
-          : `Profile '${profileName}' has been active for ${activeTurns} turns.`,
-      });
-    }
-  }
+     if (activeTurns >= WARNING_TURN_THRESHOLD && !session.warnings.has(warningKey)) {
+       session.warnings.set(warningKey, true);
+       results.warnings.push({
+         profile: profileName,
+         level: activeTurns > WARNING_TURN_THRESHOLD + 3 ? 'strong' : 'info',
+         message: activeTurns > WARNING_TURN_THRESHOLD + 3
+           ? `Profile '${profileName}' active for ${activeTurns} turns. Consider unloading and reloading if still needed.`
+           : `Profile '${profileName}' has been active for ${activeTurns} turns.`,
+       });
+     }
+   }
 
-  return results;
-}
+   // 4. Check minScoreOverride auto-reset
+   if (session.minScoreOverride !== null) {
+     const isSearchTool = lastToolCall && ['get_text_coords', 'get_ui_catalog', 'get_accessibility'].includes(lastToolCall.name);
+     if (isSearchTool) {
+       session.lastSearchToolTurn = session.turnCount;
+     } else if (session.lastSearchToolTurn !== null) {
+       const resetTurns = config?.intelligence?.searchClassifier?.agentOverrideAutoResetTurns ?? 3;
+       if (resetTurns > 0) {
+         const idle = session.turnCount - session.lastSearchToolTurn;
+         if (idle >= resetTurns) {
+           const prevValue = session.minScoreOverride;
+           const defaultScore = config?.intelligence?.searchClassifier?.defaultMinScore ?? 0.1;
+           session.minScoreOverride = null;
+           session.minScoreSetAtTurn = null;
+           session._pendingMinScoreResetNotice = { from: prevValue, to: defaultScore };
+         }
+       }
+     }
+   }
+
+   return results;
+ }
 
 /**
  * Search tools without loading them (lazy discovery).
@@ -354,15 +386,16 @@ function resetAll() {
 }
 
 module.exports = {
-  initSession,
-  getVisibleTools,
-  loadProfile,
-  unloadProfile,
-  processTurn,
-  searchTools,
-  getProfileStatus,
-  cleanupSession,
-  resetAll,
-  sanitizeSessionId,
-  ALWAYS_VISIBLE_TOOLS,
-};
+   initSession,
+   getVisibleTools,
+   loadProfile,
+   unloadProfile,
+   processTurn,
+   searchTools,
+   getProfileStatus,
+   getSessionState,
+   cleanupSession,
+   resetAll,
+   sanitizeSessionId,
+   ALWAYS_VISIBLE_TOOLS,
+ };

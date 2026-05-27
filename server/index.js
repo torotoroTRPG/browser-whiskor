@@ -430,6 +430,29 @@ configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
 
 // Load existing sessions from disk BEFORE starting MCP server
 (async () => {
+  // Pre-download embedding model on first startup
+  try {
+    const { env } = require('@xenova/transformers');
+    const cacheDir = path.resolve(__dirname, '..', '.model-cache');
+    env.cacheDir = cacheDir;
+    
+    // Check if model is already cached
+    const modelCached = fs.existsSync(path.join(cacheDir, 'models', 'Xenova', 'paraphrase-multilingual-MiniLM-L12-v2'));
+    
+    if (!modelCached) {
+      log('info', '[model] Downloading MiniLM embedding model (first startup, ~50MB)...');
+      log('info', '[model] This may take 30-60 seconds depending on your connection.');
+      const { pipeline } = require('@xenova/transformers');
+      await pipeline('feature-extraction', 'paraphrase-multilingual-MiniLM-L12-v2', { quantized: true });
+      log('info', '[model] Model downloaded successfully!');
+    } else {
+      log('info', '[model] MiniLM embedding model already cached.');
+    }
+  } catch (e) {
+    log('warn', `[model] Failed to download model: ${e.message}`);
+    log('warn', '[model] Semantic search will not be available. Run "npm run download-model" manually.');
+  }
+
   try {
     await cache.loadSessionsFromDisk();
     log('info', `[cache] Loaded ${cache.getSessionList().length} session(s) from disk`);

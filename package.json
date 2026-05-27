@@ -14,8 +14,7 @@
     "test:stress": "node --test tests/stress/",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/ tests/integration/ tests/stress/",
     "test:e2e": "npx playwright test tests/e2e/",
-    "download-model": "node scripts/download-model.js",
-    "postinstall": "npm run download-model"
+    "download-model": "node scripts/download-model.js"
   },
   "dependencies": {
     "playwright": "^1.60.0",
