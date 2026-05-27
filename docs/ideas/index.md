@@ -2,6 +2,7 @@
 
 > Scratchpad for features not yet prioritized.
 > Created: 2026-05-22
+> Last updated: 2026-05-27 (v0.3.3)
 
 ## Network Directory (いつか)
 
@@ -10,13 +11,28 @@
 - Useful for debugging, replay, and AI analysis
 - Integration with cache-integrity for consistency
 
-## Cache Auto-Repair (Done in v3)
+**Status:** 🔮 未実装 (将来)
+
+## Cache Auto-Repair & Disk Management
 
 - [x] `server/cache-integrity.js` — standalone checker
 - [x] Runs at server startup via `setImmediate`
 - [x] Validates `_index.json` structure
 - [x] Auto-repairs: removes orphaned references, rebuilds minimal index
 - [x] Reports: sessions count, healthy/repaired/corrupted
+- [x] **v0.3.3:** LRU-based disk size enforcement (`enforceDiskLimit`)
+- [x] **v0.3.3:** Automatic cleanup when exceeding `stateGraph.maxDiskMB`
+
+**Status:** ✅ 実装済み (v0.3.0 + v0.3.3 enhancements)
+
+## Semantic Search
+
+- [x] MiniLM ONNX model for multilingual semantic similarity
+- [x] Fuzzy text matching with token Jaccard + character bigram
+- [x] Background worker pool for async embedding
+- [x] Automatic model download (~50MB) via `postinstall`
+
+**Status:** ✅ 実装済み (v0.3.2)
 
 ## Misc
 

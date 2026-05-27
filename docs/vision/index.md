@@ -70,45 +70,48 @@ browser-whiskor v3 (現在)          browser-whiskor v4+ (未来)
 
 ## 機能一覧
 
-| # | 機能 | ディレクトリ | 優先度 | 現状の資料 |
-|---|------|-------------|--------|-----------|
-| 1 | **Slice XML Pipeline** — スクリーンショットをDOM構造に基づいてスライスし、XMLメタデータを付与 | [`slice-xml-pipeline/`](slice-xml-pipeline/) | 高 | `docs/ideas/SoM_EXTENSION_PLAN.md` |
-| 2 | **Transparent Overlay** — Dashboard上で要素の矩形を透明パネルとして可視化 | [`transparent-overlay/`](transparent-overlay/) | 高 | `docs/ideas/SoM_EXTENSION_PLAN.md` Phase 1 |
-| 3 | **Dynamic Focus** — AIの注視指示でポインタ中心に拡大＋重なるコード行を切り出し | [`dynamic-focus/`](dynamic-focus/) | 高 | — |
-| 4 | **Tab Lifecycle & Archive** — タブ管理(一覧/切替/追加/閉鎖) + アーカイブ(状態保存→復元) | [`tab-archive/`](tab-archive/) | 高 | — |
-| 5 | **Context Brain / Intelligence Layer** — Correlator, Source Map, Conclusion Cache等の実装済みサブシステム + Adaptive Scheduling(未実装) | [`context-brain/`](context-brain/) | 実装済 | `docs/ideas/ARCHITECTURE_INTELLIGENCE_LAYER.md` |
-| 6 | **SoM Variants** — 背景適応型6色SoM、モデル別統計、Agent向けチートシート | [`som-variants/`](som-variants/) | 中 | `docs/ideas/SoM_EXTENSION_PLAN.md` Phase 2–5 |
-| 7 | **Extended Proposals** — 大半は実装済み(A~G中Dのみ未実装) | [`extended-proposals/`](extended-proposals/) | 大半済 | `docs/ideas/ARCHITECTURE_EXTENDED_PROPOSALS.md` |
+| # | 機能 | ディレクトリ | 優先度 | 現状 |
+|---|------|-------------|--------|------|
+| 1 | **Slice XML Pipeline** — スクリーンショットをDOM構造に基づいてスライスし、XMLメタデータを付与 | [`slice-xml-pipeline/`](slice-xml-pipeline/) | 高 | 🔮 未実装 (v4+) |
+| 2 | **Transparent Overlay** — Dashboard上で要素の矩形を透明パネルとして可視化 | [`transparent-overlay/`](transparent-overlay/) | 高 | 🔮 未実装 (v4+) |
+| 3 | **Dynamic Focus** — AIの注視指示でポインタ中心に拡大＋重なるコード行を切り出し | [`dynamic-focus/`](dynamic-focus/) | 高 | 🔮 未実装 (v4+) |
+| 4 | **Tab Lifecycle & Archive** — タブ管理(一覧/切替/追加/閉鎖) + アーカイブ(状態保存→復元) | [`tab-archive/`](tab-archive/) | 高 | 🔮 未実装 (v4+) |
+| 5 | **Context Brain / Intelligence Layer** — Correlator, Source Map, Conclusion Cache等 | [`context-brain/`](context-brain/) | — | ✅ **実装済み (v0.3.x)** |
+| 6 | **SoM Variants** — 背景適応型6色SoM、モデル別統計、Agent向けチートシート | [`som-variants/`](som-variants/) | 中 | 🔮 未実装 (v4+) |
+| 7 | **Extended Proposals** — Proposals A–G (B, C, E, F, G実装済み; A部分実装; D未実装) | [`extended-proposals/`](extended-proposals/) | — | ✅ **大半実装済み (v0.3.x)** |
 
 ## 推奨実装順序
 
 ```
-凡例: ??? = 実装済み (v3)  |  ??? = 未実装 (将来)
+凡例: ✅ = 実装済み (v0.3.x)  |  🔮 = 未実装 (v4+)
 
 Phase 1 (高優先度 — 新規機能)
-  ├── Slice XML Pipeline       — MCPツール追加、SW実装完了
-  ├── Transparent Overlay      — Dashboard UX改善
-  ├── Dynamic Focus Core       — ポインタ注視＋拡大画像生成
-  ├── Tab Management           — list_tabs / switch_tab / open_tab / close_tab
-  └── Tab Archive              — archive_tab / restore_archive / search
+  ├── 🔮 Slice XML Pipeline       — MCPツール追加、SW実装完了
+  ├── 🔮 Transparent Overlay      — Dashboard UX改善
+  ├── 🔮 Dynamic Focus Core       — ポインタ注視＋拡大画像生成
+  ├── 🔮 Tab Management           — list_tabs / switch_tab / open_tab / close_tab
+  └── 🔮 Tab Archive              — archive_tab / restore_archive / search
 
 Phase 2 (中優先度)
-  ├── Dynamic Focus Code       — Overlap Analyzer + Source Line Collector
-  ├── 多色SoM適応彩色          — 背景に応じたマーカー色自動選択
-  └── Agent Cheat Sheet        — 座標＋要素情報の同時提供
+  ├── 🔮 Dynamic Focus Code       — Overlap Analyzer + Source Line Collector
+  ├── 🔮 多色SoM適応彩色          — 背景に応じたマーカー色自動選択
+  └── 🔮 Agent Cheat Sheet        — 座標＋要素情報の同時提供
 
 Phase 3 (低優先度)
-  ├── Adaptive Scheduling      — 定常オーバーヘッド削減
-  ├── Transient Context Search — コード断片の横断検索
-  └── 選択的キャプチャ最適化    — ぼかし・2値記録
+  ├── 🔮 Adaptive Scheduling      — 定常オーバーヘッド削減 (Proposal D)
+  ├── 🔮 Transient Context Search — コード断片の横断検索
+  └── 🔮 選択的キャプチャ最適化    — ぼかし・2値記録
 
-v3 実装済み (vision対象外):
-  ├── DOM_MUTATION Event       — server/core.js + correlator.js
-  ├── CSS @layer解決           — css-origin.js (buildLayerRegistry)
-  ├── Source Map Resolver      — server/source-map-resolver.js
-  ├── Correlator + Conclusion Cache — server/correlator.js, conclusion-cache.js
-  ├── State Visualizer         — server/state-visualizer.js
-  └── Session Replay           — server/session-replay.js
+✅ v0.3.x 実装済み (Intelligence Layer):
+  ├── ✅ DOM_MUTATION Event       — server/core.js + correlator.js (Proposal A 部分実装)
+  ├── ✅ CSS @layer解決           — css-origin.js (buildLayerRegistry) (Proposal B)
+  ├── ✅ Source Map Resolver      — server/source-map-resolver.js + css-origin.js VLQ (Proposal E)
+  ├── ✅ Correlator               — server/correlator.js (Rule 1-3, Framework→DOM)
+  ├── ✅ Conclusion Cache         — server/conclusion-cache.js (Proposal G)
+  ├── ✅ State Visualizer         — server/state-visualizer.js (Proposal C)
+  ├── ✅ Session Replay           — server/session-replay.js (Proposal F)
+  ├── ✅ Cache Disk Management    — server/cache-integrity.js (LRU eviction, v0.3.3)
+  └── ✅ Semantic Search          — MiniLM ONNX model (v0.3.2)
 ```
 
 ## 全体のファイル構成

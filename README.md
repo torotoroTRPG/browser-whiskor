@@ -430,7 +430,14 @@ GET  http://localhost:7892/                   → Dashboard
 
 ## Dependencies
 
-Only **`ws`** (WebSocket). No other npm packages. The extension side is zero-dependency vanilla JS.
+**Server dependencies:**
+- **`ws`** (^8.18.0) — WebSocket server
+- **`@xenova/transformers`** (^2.0.0) — ONNX-based semantic search (MiniLM model, added in v0.3.2)
+- **`playwright`** (^1.60.0) — E2E testing only (not required for runtime)
+
+**Extension side:** Zero-dependency vanilla JS.
+
+> **Note:** The semantic search feature uses a local ONNX model (~50MB) that is automatically downloaded during `npm install` via the `postinstall` script. No external API calls or authentication required. Model is cached in `.model-cache/`.
 
 ## Agent Config Control
 
