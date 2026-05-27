@@ -1,6 +1,6 @@
 # 多言語UIラベル意図分類 & スコープ付き検索
 
-> ステータス: PROPOSAL / 未実装
+> ステータス: IMPLEMENTED / 実装済み
 > 作成: 2026-05-27
 > 配置先: `docs/ideas/MULTILINGUAL_INTENT_AND_SCOPED_SEARCH.md`
 

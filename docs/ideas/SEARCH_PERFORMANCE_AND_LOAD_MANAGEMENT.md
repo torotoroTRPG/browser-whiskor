@@ -1,7 +1,7 @@
 # 検索パフォーマンスと負荷管理
 
 > 補足仕様。`MULTILINGUAL_INTENT_AND_SCOPED_SEARCH.md` と合わせて読む。
-> ステータス: PROPOSAL / 未実装
+> ステータス: IMPLEMENTED / 実装済み
 > 作成: 2026-05-27
 
 ---

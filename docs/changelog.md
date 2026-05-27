@@ -2,6 +2,19 @@
 
 All notable changes to browser-whiskor.
 
+> **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
+
+## [0.3.2] — 2026-05-27
+
+### Added
+- **Semantic Search (MiniLM ONNX)** — Upgraded text search to use a local `paraphrase-multilingual-MiniLM-L12-v2` model running in a background worker thread. Provides high-quality multilingual semantic similarity and fuzzy matching.
+- **Model Pre-fetching** — Added `npm run download-model` to `postinstall` to automatically download the MiniLM model (approx 50MB) from Hugging Face Hub (no login required) and cache it in `.model-cache/`.
+- **Search Services & Worker Pool** — Introduced new service layer (`embed-service.js`, `embed-worker-pool.js`, `embed-worker.js`, `load-monitor.js`) to handle asynchronous background embedding without blocking the MCP event loop.
+- **Documentation Updates** — Updated `docs/architecture.md` and `README.md` to reflect the new semantic search architecture and `services/` directory.
+
+## [0.3.1] — 2026-05-27
+- Fix versioning issues.
+
 ## [3.11.0] — 2026-05-24
 
 ### Added
