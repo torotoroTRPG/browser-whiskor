@@ -4,13 +4,17 @@
  */
 'use strict';
 
+const fs   = require('fs');
+const path = require('path');
+
 // ── Fuzzy text matching ──────────────────────────────────────────────────────
+// Unicode-aware: \p{L} = any letter, \p{N} = any number (supports CJK, Hangul, etc.)
 function tokenize(str) {
-  return (str || '').toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+  return (str || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').split(/\s+/).filter(Boolean);
 }
 
 function bigramSet(str) {
-  const s = str.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const s = str.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').trim();
   const set = new Set();
   for (let i = 0; i < s.length - 1; i++) set.add(s.substring(i, i + 2));
   return set;
@@ -36,6 +40,86 @@ function fuzzyScore(query, target) {
   const bigramSim = jaccard(qBi, tBi);
   const bw = q.length < 5 ? 0.6 : 0.3;
   return Math.round((tokenSim * (1 - bw) + bigramSim * bw) * 1000) / 1000;
+}
+
+// ── Intent classifier ────────────────────────────────────────────────────────
+let _anchors = null;
+
+function loadAnchors() {
+  if (_anchors) return _anchors;
+  try {
+    const p = path.join(__dirname, '../../configs/intent-anchors.json');
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    _anchors = {};
+    for (const [intent, words] of Object.entries(raw)) {
+      if (intent.startsWith('_')) continue;
+      _anchors[intent] = words.map(w => normalizeLabel(w));
+    }
+    return _anchors;
+  } catch (e) {
+    _anchors = {};
+    return _anchors;
+  }
+}
+
+function normalizeLabel(str) {
+  return (str || '').normalize('NFC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function intentFuzzyScore(q, t) {
+  if (t === q) return 1.0;
+  if (t.includes(q) || q.includes(t)) return 0.95;
+  const qBi = bigramSet(q);
+  const tBi = bigramSet(t);
+  const bSim = jaccard(qBi, tBi);
+  const maxLen = Math.max(q.length, t.length) || 1;
+  const eSim = 1 - levenshtein(q, t) / maxLen;
+  return Math.round((bSim * 0.6 + eSim * 0.4) * 1000) / 1000;
+}
+
+/**
+ * UIラベルテキストを意味的インテントに分類する。
+ * @param {string} label - 任意言語のUIラベル
+ * @param {number} threshold - スコアの下限（デフォルト 0.35）
+ * @returns {{ intent: string, confidence: number, topAnchor: string } | null}
+ */
+function classifyIntent(label, threshold = 0.35) {
+  const anchors = loadAnchors();
+  const normalized = normalizeLabel(label);
+  if (!normalized) return null;
+
+  let best = { intent: 'UNKNOWN', score: 0, anchor: '' };
+
+  for (const [intent, words] of Object.entries(anchors)) {
+    for (const anchor of words) {
+      const score = intentFuzzyScore(normalized, anchor);
+      if (score > best.score) {
+        best = { intent, score, anchor };
+      }
+      if (score >= 1.0) break;
+    }
+  }
+
+  if (best.score < threshold) return null;
+  return { intent: best.intent, confidence: best.score, topAnchor: best.anchor };
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -78,4 +162,4 @@ function withFreshness(tabId, pluginId, data, cache) {
   return { ...data, _freshness: info };
 }
 
-module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, withFreshness };
+module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, classifyIntent, withFreshness };
