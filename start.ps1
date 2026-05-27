@@ -78,7 +78,7 @@ if ($cacheDir) { $env:WHISKOR_CACHE_DIR = $cacheDir }
 # ── Banner ─────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║       browser-whiskor v3  —  Server         ║" -ForegroundColor Cyan
+Write-Host "║       browser-whiskor v0.3.0  —  Server   ║" -ForegroundColor Cyan
 Write-Host "╠══════════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "║  WebSocket   ws://localhost:$port1             ║" -ForegroundColor Cyan
 Write-Host "║  HTTP API    http://localhost:$port2/api       ║" -ForegroundColor Cyan

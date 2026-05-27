@@ -11,8 +11,8 @@
 const path = require('path');
 const { replay } = require('../../session-replay');
 
-module.exports = function registerReplayTools(registry) {
-  registry.push({
+module.exports = function registerReplayTools(toolsArray) {
+  toolsArray.push({
     definition: {
       name: 'replay_session',
       description: 'Re-executes the recorded sequence of agent actions from a previous session. For each action verifies the pre-action state hash, executes the action, waits 300 ms, then verifies the post-action state hash. Hash mismatches are reported as divergences. Useful for regression testing and debugging non-deterministic page behaviour.',

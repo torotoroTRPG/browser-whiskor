@@ -12,7 +12,7 @@ if not exist cache\sessions mkdir cache\sessions
 
 echo.
 echo ╔══════════════════════════════════════════════╗
-echo ║       Site Inspector v2  —  Server           ║
+echo ║       browser-whiskor v0.3.0  —  Server     ║
 echo ╠══════════════════════════════════════════════╣
 echo ║  WebSocket   ws://localhost:7891             ║
 echo ║  HTTP API    http://localhost:7892/api       ║

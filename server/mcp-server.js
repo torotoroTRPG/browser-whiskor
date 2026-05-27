@@ -1,5 +1,5 @@
 /**
- * server/mcp-server.js  –  browser-whiskor v3
+ * server/mcp-server.js  –  browser-whiskor v0.3.0
  *
  * MCP (Model Context Protocol) server — 新アーキテクチャ。
  *

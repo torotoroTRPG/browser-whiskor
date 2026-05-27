@@ -17,7 +17,7 @@ module.exports = function registerBasicTools(registry) {
       inputSchema: { type: 'object', properties: {}, required: [] },
     },
     handler: async (args, cb) => {
-      return { sessions: cb.cache.getSessionList() };
+      return cb.cache.getSessionList();
     },
   });
 
