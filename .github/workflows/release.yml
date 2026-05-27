@@ -74,9 +74,9 @@ jobs:
           if [ "${{ matrix.target.name }}" = "full" ]; then
             echo "Creating $FILENAME (full bundle: server + extensions + config + docs)"
             zip -r "${FILENAME}" \
-              server/ extension/ firefox-mv2/ \
+              server/ extension/ firefox-mv2/ scripts/ \
               docs/ \
-              config.json package.json package-lock.json \
+              README.md config.json package.json package-lock.json \
               -x "*.gitkeep" -x "*.DS_Store"
           else
             cd "${{ matrix.target.dir }}"
