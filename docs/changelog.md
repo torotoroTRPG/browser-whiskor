@@ -4,6 +4,37 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.3.3] — 2026-05-27
+
+### Performance
+
+- **VLQ Decoder Optimization** — Replaced `B64.indexOf()` with `B64_MAP.get()` for O(1) character lookups in source map parsing. Critical performance improvement for large production bundles: parsing time reduced from seconds to milliseconds. Applied to both browser-side (`css-origin.js`) and server-side (`source-map-resolver.js`) implementations.
+
+### Security
+
+- **MCP Origins Restriction** — Changed `allowedMcpOrigins` default from `["*"]` to `["localhost", "127.0.0.1"]`. Secure-by-default configuration prevents potential security risks in future HTTP-based integrations. Users must explicitly opt-in to allow external origins.
+
+### Added
+
+- **Disk Size Management** — Added LRU-based disk cache eviction to `cache-integrity.js`:
+  - `calculateDiskUsage()` — Recursive directory size measurement
+  - `getAllSessions()` — Enumerate sessions with metadata (path, updatedAt, size)
+  - `enforceDiskLimit()` — Automatic cleanup of oldest sessions when exceeding `stateGraph.maxDiskMB`
+  - Prevents unbounded disk growth in long-running deployments
+
+### Documentation
+
+- **Correlator Window Guidance** — Added comprehensive documentation to `correlator.js` explaining:
+  - Correlation windows (Network→DOM: 500ms, Framework→DOM: 100ms)
+  - Confidence scoring and decay curves
+  - Adjustment guidance for heavy SPAs and slow networks
+  - Priority rules (MutationObserver > TEXT_COORD_DELTA)
+- **v0.3.3 Improvements Guide** — Created `docs/v0.3.3-improvements.md` with detailed explanations, testing recommendations, and migration guide
+
+### Changed
+
+- **Config Comments** — Added bilingual (EN/JA) warning comments for `allowedMcpOrigins` security setting
+
 ## [0.3.2] — 2026-05-27
 
 ### Added
