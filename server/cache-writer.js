@@ -27,6 +27,46 @@ const STALE_THRESHOLD_MS = 30_000; // 30s
 // tabId → { dir, index, networkRequests[], consoleLogs[], updatedAt }
 const sessions = new Map();
 
+// ── Load existing sessions from disk on startup ───────────────────────────────────
+async function loadSessionsFromDisk() {
+  if (!fs.existsSync(CACHE_ROOT)) return;
+  
+  const siteDirs = fs.readdirSync(CACHE_ROOT, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => d.name);
+  
+  for (const siteDir of siteDirs) {
+    const sitePath = path.join(CACHE_ROOT, siteDir);
+    const sessionDirs = fs.readdirSync(sitePath, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    
+    for (const sessionDir of sessionDirs) {
+      const fullPath = path.join(sitePath, sessionDir);
+      const indexPath = path.join(fullPath, '_index.json');
+      
+      try {
+        const index = readJson(indexPath);
+        if (index && index.tabId) {
+          // Only load if not already in memory
+          if (!sessions.has(index.tabId)) {
+            sessions.set(index.tabId, {
+              dir: fullPath,
+              index,
+              networkRequests: [],
+              consoleLogs: [],
+              updatedAt: index.updatedAt || index.createdAt,
+              keep: false,
+            });
+          }
+        }
+      } catch (e) {
+        console.error(`[cache] Failed to load session ${siteDir}/${sessionDir}:`, e.message);
+      }
+    }
+  }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 // sync helpers (legacy – not used in the hot handleMessage path)
@@ -85,11 +125,6 @@ async function getSession(tabId, url, siteVersion) {
     await writeJsonAsync(path.join(dir, '_index.json'), index);
   }
   return sessions.get(tabId);
-}
-
-async function updateIndex(session) {
-  session.index.updatedAt = Date.now();
-  await writeJsonAsync(path.join(session.dir, '_index.json'), session.index);
 }
 
 async function updateIndexAsync(session) {
@@ -466,4 +501,5 @@ module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
   storeSmartDelta, getSmartDelta, setSessionKeep,
+  loadSessionsFromDisk,
 };

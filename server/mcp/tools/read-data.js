@@ -49,39 +49,82 @@ module.exports = function registerDataTools(registry) {
   });
 
   // 7. get_ui_catalog
-  tools.push({
-    definition: {
-      name: 'get_ui_catalog',
-      description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          tabId:  { type: 'number', description: 'Tab ID from get_sessions' },
-          search: { type: 'string', description: 'Filter elements by text/label (case-insensitive)' },
-        },
-        required: ['tabId'],
-      },
-    },
-    handler: async (args, cb) => {
-      const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
-      if (!raw) return { error: 'UI catalog not available. Trigger refresh_data.' };
+   tools.push({
+     definition: {
+       name: 'get_ui_catalog',
+       description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into.',
+       inputSchema: {
+         type: 'object',
+         properties: {
+           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+           search:    { type: 'string', description: 'Filter elements by text/label/placeholder/name (case-insensitive)' },
+           type:      { type: 'string', description: 'Filter by element type (button, link, input, image)' },
+           disabled:  { type: 'boolean', description: 'Filter for disabled elements only' },
+           required:  { type: 'boolean', description: 'Filter for required form inputs only' },
+           selector:  { type: 'string', description: 'Filter by CSS selector substring (e.g. ".btn-primary", "#submit")' },
+           inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
+         },
+         required: ['tabId'],
+       },
+     },
+     handler: async (args, cb) => {
+       const cache = cb.cache;
+       const raw = cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+       if (!raw) return { error: 'UI catalog not available. Trigger refresh_data.' };
 
-      if (args.search) {
-        const s = args.search.toLowerCase();
-        const filter = arr => (arr || []).filter(el =>
-          (el.text || el.label || el.placeholder || el.name || '').toLowerCase().includes(s)
-        );
-        return withFreshness(args.tabId, 'ui-catalog', {
-          ...raw,
-          buttons: filter(raw.buttons),
-          links:   filter(raw.links),
-          inputs:  filter(raw.inputs),
-        }, cache);
-      }
-      return withFreshness(args.tabId, 'ui-catalog', raw, cache);
-    },
-  });
+       // Get viewport for inViewport filtering
+       let vp = null;
+       if (args.inViewport) {
+         const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+         vp = liveVp || raw.viewport || null;
+       }
+
+       const filterElement = (el) => {
+         // Text/label search
+         if (args.search) {
+           const s = args.search.toLowerCase();
+           if (!(el.text || el.label || el.placeholder || el.name || '').toLowerCase().includes(s)) {
+             return false;
+           }
+         }
+         // CSS selector filter
+         if (args.selector && el.selector) {
+           if (!el.selector.toLowerCase().includes(args.selector.toLowerCase())) {
+             return false;
+           }
+         }
+         // Disabled state filter
+         if (args.disabled === true && !el.disabled) {
+           return false;
+         }
+         // Required state filter
+         if (args.required === true && !el.required) {
+           return false;
+         }
+         // Viewport filter
+         if (vp && el.x !== undefined && el.y !== undefined) {
+           const ix = el.x;
+           const iy = el.y;
+           const iw = el.width || 0;
+           const ih = el.height || 0;
+           if (ix + iw < vp.scrollX || ix > vp.scrollX + vp.width || iy + ih < vp.scrollY || iy > vp.scrollY + vp.height) {
+             return false;
+           }
+         }
+         return true;
+       };
+
+       const result = {
+         ...raw,
+         buttons: (raw.buttons || []).filter(filterElement),
+         links:   (raw.links || []).filter(filterElement),
+         inputs:  (raw.inputs || []).filter(filterElement),
+         images:  (raw.images || []).filter(filterElement),
+       };
+
+       return withFreshness(args.tabId, 'ui-catalog', result, cache);
+     },
+   });
 
   // 8. get_accessibility
   tools.push({
@@ -235,52 +278,128 @@ module.exports = function registerDataTools(registry) {
   });
 
   // 12. get_css_analysis
-  tools.push({
-    definition: {
-      name: 'get_css_analysis',
-      description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Includes css_origin_map when intelligence layer is active. Useful for understanding theming, design tokens, or style issues.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          tabId: { type: 'number', description: 'Tab ID from get_sessions' },
-        },
-        required: ['tabId'],
-      },
-    },
-    handler: async (args, cb) => {
-      const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
-      if (!raw) return { error: 'CSS analysis not available.' };
-      const result = await withFreshness(args.tabId, 'css-analyzer', raw, cache);
-      // Attach css_origin_map from intelligence layer if available
-      const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
-      if (originMap) {
-        result.css_origin_map = originMap;
-      }
-      return result;
-    },
-  });
+   tools.push({
+     definition: {
+       name: 'get_css_analysis',
+       description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Includes css_origin_map when intelligence layer is active. Useful for understanding theming, design tokens, or style issues.',
+       inputSchema: {
+         type: 'object',
+         properties: {
+           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+           selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
+           property:  { type: 'string', description: 'Filter by CSS property name (e.g. "color", "background", "font-size")' },
+           value:     { type: 'string', description: 'Filter by CSS property value (e.g. "red", "16px")' },
+         },
+         required: ['tabId'],
+       },
+     },
+     handler: async (args, cb) => {
+       const cache = cb.cache;
+       const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
+       if (!raw) return { error: 'CSS analysis not available.' };
+
+       let result = { ...raw };
+
+       // Filter by selector, property, or value
+       if (args.selector || args.property || args.value) {
+         const selFilter = args.selector ? args.selector.toLowerCase() : null;
+         const propFilter = args.property ? args.property.toLowerCase() : null;
+         const valFilter = args.value ? args.value.toLowerCase() : null;
+
+         // Filter elements array if present
+         if (raw.elements && Array.isArray(raw.elements)) {
+           result.elements = raw.elements.filter(el => {
+             if (selFilter && el.selector) {
+               if (!el.selector.toLowerCase().includes(selFilter)) return false;
+             }
+             if (propFilter && el.computedStyles) {
+               if (!Object.keys(el.computedStyles).some(p => p.toLowerCase().includes(propFilter))) return false;
+             }
+             if (valFilter && el.computedStyles) {
+               if (!Object.values(el.computedStyles).some(v => String(v).toLowerCase().includes(valFilter))) return false;
+             }
+             return true;
+           });
+         }
+       }
+
+       const final = await withFreshness(args.tabId, 'css-analyzer', result, cache);
+       // Attach css_origin_map from intelligence layer if available
+       const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
+       if (originMap) {
+         final.css_origin_map = originMap;
+       }
+       return final;
+     },
+   });
 
   // 13. get_dom_snapshot
-  tools.push({
-    definition: {
-      name: 'get_dom_snapshot',
-      description: 'Get the generic DOM tree including ARIA attributes, global state variables (window.*), and custom elements. Falls back gracefully when framework adapters are not available.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          tabId: { type: 'number', description: 'Tab ID from get_sessions' },
-        },
-        required: ['tabId'],
-      },
-    },
-    handler: async (args, cb) => {
-      const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
-      if (!raw) return { error: 'DOM snapshot not available.' };
-      return withFreshness(args.tabId, 'dom-generic', raw, cache);
-    },
-  });
+   tools.push({
+     definition: {
+       name: 'get_dom_snapshot',
+       description: 'Get the generic DOM tree including ARIA attributes, global state variables (window.*), and custom elements. Falls back gracefully when framework adapters are not available.',
+       inputSchema: {
+         type: 'object',
+         properties: {
+           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+           selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
+           tag:       { type: 'string', description: 'Filter by HTML tag name (e.g. "div", "span", "button")' },
+           text:      { type: 'string', description: 'Filter by text content (case-insensitive)' },
+           role:      { type: 'string', description: 'Filter by ARIA role (e.g. "button", "link", "textbox")' },
+           maxDepth:  { type: 'number', description: 'Max tree depth to return (default: 20)' },
+         },
+         required: ['tabId'],
+       },
+     },
+     handler: async (args, cb) => {
+       const cache = cb.cache;
+       const raw = cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
+       if (!raw) return { error: 'DOM snapshot not available.' };
+
+       let result = { ...raw };
+
+       // Filter DOM tree if present
+       if (raw.tree && (args.selector || args.tag || args.text || args.role)) {
+         const selFilter = args.selector ? args.selector.toLowerCase() : null;
+         const tagFilter = args.tag ? args.tag.toLowerCase() : null;
+         const textFilter = args.text ? args.text.toLowerCase() : null;
+         const roleFilter = args.role ? args.role.toLowerCase() : null;
+
+         const filterNode = (node) => {
+           if (!node) return null;
+           const match = (
+             (!selFilter || (node.selector && node.selector.toLowerCase().includes(selFilter))) &&
+             (!tagFilter || (node.tag && node.tag.toLowerCase() === tagFilter)) &&
+             (!textFilter || (node.text && node.text.toLowerCase().includes(textFilter))) &&
+             (!roleFilter || (node.role && node.role.toLowerCase() === roleFilter))
+           );
+           const filteredChildren = (node.children || []).map(filterNode).filter(Boolean);
+           if (match || filteredChildren.length) {
+             return { ...node, children: filteredChildren };
+           }
+           return null;
+         };
+
+         result.tree = filterNode(raw.tree);
+       }
+
+       // Apply maxDepth truncation
+       const maxDepth = args.maxDepth || 20;
+       const truncate = (node, depth) => {
+         if (!node || depth > maxDepth) return null;
+         return {
+           ...node,
+           children: (node.children || []).map(c => truncate(c, depth + 1)).filter(Boolean),
+         };
+       };
+
+       if (result.tree) {
+         result.tree = truncate(result.tree, 0);
+       }
+
+       return withFreshness(args.tabId, 'dom-generic', result, cache);
+     },
+   });
 
   registry.registerTools(tools);
 };

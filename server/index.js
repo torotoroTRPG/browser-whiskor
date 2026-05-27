@@ -358,6 +358,16 @@ httpServer.listen(HTTP_PORT, HOST, () => {
   log('info', `[http] Health:    http://${HOST}:${HTTP_PORT}/health`);
 
 
+  // Load existing sessions from disk (non-blocking)
+  setImmediate(async () => {
+    try {
+      await cache.loadSessionsFromDisk();
+      log('info', `[cache] Loaded ${cache.getSessionList().length} session(s) from disk`);
+    } catch (e) {
+      log('warn', `[cache] Failed to load sessions from disk: ${e.message}`);
+    }
+  });
+
   // Cache integrity check (non-blocking)
   const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
   setImmediate(() => {
@@ -417,7 +427,17 @@ mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
 // Intelligence Layer: expose correlator, sourceStore, and cache to MCP tools
 mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
 configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
-if (MCP_MODE || !process.stdin.isTTY) mcp.startMcpServer();
+
+// Load existing sessions from disk BEFORE starting MCP server
+(async () => {
+  try {
+    await cache.loadSessionsFromDisk();
+    log('info', `[cache] Loaded ${cache.getSessionList().length} session(s) from disk`);
+  } catch (e) {
+    log('warn', `[cache] Failed to load sessions from disk: ${e.message}`);
+  }
+  if (MCP_MODE || !process.stdin.isTTY) mcp.startMcpServer();
+})();
 
 // ── Auto-revert non-recommended config changes ────────────────────────────────
 const revertReport = configLog.autoRevertIfNeeded(_cfg, (patch) => core.pushConfig(patch));
