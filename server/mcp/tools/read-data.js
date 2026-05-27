@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const { withFreshness } = require('./read-helpers');
+const { withFreshness, filterByViewport } = require('./read-helpers');
 
 module.exports = function registerDataTools(registry) {
   const tools = [];
@@ -49,7 +49,7 @@ module.exports = function registerDataTools(registry) {
   });
 
   // 7. get_ui_catalog
-   tools.push({
+  tools.push({
      definition: {
        name: 'get_ui_catalog',
        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into.',
@@ -101,18 +101,12 @@ module.exports = function registerDataTools(registry) {
          if (args.required === true && !el.required) {
            return false;
          }
-         // Viewport filter
-         if (vp && el.x !== undefined && el.y !== undefined) {
-           const ix = el.x;
-           const iy = el.y;
-           const iw = el.width || 0;
-           const ih = el.height || 0;
-           if (ix + iw < vp.scrollX || ix > vp.scrollX + vp.width || iy + ih < vp.scrollY || iy > vp.scrollY + vp.height) {
-             return false;
-           }
-         }
-         return true;
-       };
+        // Viewport filter
+        if (vp && el.x !== undefined && el.y !== undefined) {
+          if (!filterByViewport([el], vp).length) return false;
+        }
+        return true;
+      };
 
        const result = {
          ...raw,
@@ -278,128 +272,149 @@ module.exports = function registerDataTools(registry) {
   });
 
   // 12. get_css_analysis
-   tools.push({
-     definition: {
-       name: 'get_css_analysis',
-       description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Includes css_origin_map when intelligence layer is active. Useful for understanding theming, design tokens, or style issues.',
-       inputSchema: {
-         type: 'object',
-         properties: {
-           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
-           selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
-           property:  { type: 'string', description: 'Filter by CSS property name (e.g. "color", "background", "font-size")' },
-           value:     { type: 'string', description: 'Filter by CSS property value (e.g. "red", "16px")' },
-         },
-         required: ['tabId'],
-       },
-     },
-     handler: async (args, cb) => {
-       const cache = cb.cache;
-       const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
-       if (!raw) return { error: 'CSS analysis not available.' };
+  tools.push({
+    definition: {
+      name: 'get_css_analysis',
+      description: 'Get CSS custom properties (variables), stylesheet statistics, and computed styles for key elements. Includes css_origin_map when intelligence layer is active. Useful for understanding theming, design tokens, or style issues.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+          selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
+          property:  { type: 'string', description: 'Filter by CSS property name (e.g. "color", "background", "font-size")' },
+          value:     { type: 'string', description: 'Filter by CSS property value (e.g. "red", "16px")' },
+          inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
+      if (!raw) return { error: 'CSS analysis not available.' };
 
-       let result = { ...raw };
+      // Get viewport for inViewport filtering
+      let vp = null;
+      if (args.inViewport) {
+        const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+        vp = liveVp || raw.viewport || null;
+      }
 
-       // Filter by selector, property, or value
-       if (args.selector || args.property || args.value) {
-         const selFilter = args.selector ? args.selector.toLowerCase() : null;
-         const propFilter = args.property ? args.property.toLowerCase() : null;
-         const valFilter = args.value ? args.value.toLowerCase() : null;
+      let result = { ...raw };
 
-         // Filter elements array if present
-         if (raw.elements && Array.isArray(raw.elements)) {
-           result.elements = raw.elements.filter(el => {
-             if (selFilter && el.selector) {
-               if (!el.selector.toLowerCase().includes(selFilter)) return false;
-             }
-             if (propFilter && el.computedStyles) {
-               if (!Object.keys(el.computedStyles).some(p => p.toLowerCase().includes(propFilter))) return false;
-             }
-             if (valFilter && el.computedStyles) {
-               if (!Object.values(el.computedStyles).some(v => String(v).toLowerCase().includes(valFilter))) return false;
-             }
-             return true;
-           });
-         }
-       }
+      // Filter by selector, property, value, or viewport
+      if (args.selector || args.property || args.value || args.inViewport) {
+        const selFilter = args.selector ? args.selector.toLowerCase() : null;
+        const propFilter = args.property ? args.property.toLowerCase() : null;
+        const valFilter = args.value ? args.value.toLowerCase() : null;
 
-       const final = await withFreshness(args.tabId, 'css-analyzer', result, cache);
-       // Attach css_origin_map from intelligence layer if available
-       const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
-       if (originMap) {
-         final.css_origin_map = originMap;
-       }
-       return final;
-     },
-   });
+        // Filter elements array if present
+        if (raw.elements && Array.isArray(raw.elements)) {
+          result.elements = raw.elements.filter(el => {
+            if (selFilter && el.selector) {
+              if (!el.selector.toLowerCase().includes(selFilter)) return false;
+            }
+            if (propFilter && el.computedStyles) {
+              if (!Object.keys(el.computedStyles).some(p => p.toLowerCase().includes(propFilter))) return false;
+            }
+            if (valFilter && el.computedStyles) {
+              if (!Object.values(el.computedStyles).some(v => String(v).toLowerCase().includes(valFilter))) return false;
+            }
+            if (vp && el.x !== undefined && el.y !== undefined) {
+              if (!filterByViewport([el], vp).length) return false;
+            }
+            return true;
+          });
+        }
+      }
+
+      const final = await withFreshness(args.tabId, 'css-analyzer', result, cache);
+      // Attach css_origin_map from intelligence layer if available
+      const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
+      if (originMap) {
+        final.css_origin_map = originMap;
+      }
+      return final;
+    },
+  });
 
   // 13. get_dom_snapshot
-   tools.push({
-     definition: {
-       name: 'get_dom_snapshot',
-       description: 'Get the generic DOM tree including ARIA attributes, global state variables (window.*), and custom elements. Falls back gracefully when framework adapters are not available.',
-       inputSchema: {
-         type: 'object',
-         properties: {
-           tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
-           selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
-           tag:       { type: 'string', description: 'Filter by HTML tag name (e.g. "div", "span", "button")' },
-           text:      { type: 'string', description: 'Filter by text content (case-insensitive)' },
-           role:      { type: 'string', description: 'Filter by ARIA role (e.g. "button", "link", "textbox")' },
-           maxDepth:  { type: 'number', description: 'Max tree depth to return (default: 20)' },
-         },
-         required: ['tabId'],
-       },
-     },
-     handler: async (args, cb) => {
-       const cache = cb.cache;
-       const raw = cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
-       if (!raw) return { error: 'DOM snapshot not available.' };
+  tools.push({
+    definition: {
+      name: 'get_dom_snapshot',
+      description: 'Get the generic DOM tree including ARIA attributes, global state variables (window.*), and custom elements. Falls back gracefully when framework adapters are not available.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
+          selector:  { type: 'string', description: 'Filter elements by CSS selector substring (e.g. ".btn-primary", "#header")' },
+          tag:       { type: 'string', description: 'Filter by HTML tag name (e.g. "div", "span", "button")' },
+          text:      { type: 'string', description: 'Filter by text content (case-insensitive)' },
+          role:      { type: 'string', description: 'Filter by ARIA role (e.g. "button", "link", "textbox")' },
+          maxDepth:  { type: 'number', description: 'Max tree depth to return (default: 20)' },
+          inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      const raw = cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
+      if (!raw) return { error: 'DOM snapshot not available.' };
 
-       let result = { ...raw };
+      // Get viewport for inViewport filtering
+      let vp = null;
+      if (args.inViewport) {
+        const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+        vp = liveVp || raw.viewport || null;
+      }
 
-       // Filter DOM tree if present
-       if (raw.tree && (args.selector || args.tag || args.text || args.role)) {
-         const selFilter = args.selector ? args.selector.toLowerCase() : null;
-         const tagFilter = args.tag ? args.tag.toLowerCase() : null;
-         const textFilter = args.text ? args.text.toLowerCase() : null;
-         const roleFilter = args.role ? args.role.toLowerCase() : null;
+      let result = { ...raw };
 
-         const filterNode = (node) => {
-           if (!node) return null;
-           const match = (
-             (!selFilter || (node.selector && node.selector.toLowerCase().includes(selFilter))) &&
-             (!tagFilter || (node.tag && node.tag.toLowerCase() === tagFilter)) &&
-             (!textFilter || (node.text && node.text.toLowerCase().includes(textFilter))) &&
-             (!roleFilter || (node.role && node.role.toLowerCase() === roleFilter))
-           );
-           const filteredChildren = (node.children || []).map(filterNode).filter(Boolean);
-           if (match || filteredChildren.length) {
-             return { ...node, children: filteredChildren };
-           }
-           return null;
-         };
+      // Filter DOM tree if present
+      if (raw.tree && (args.selector || args.tag || args.text || args.role || args.inViewport)) {
+        const selFilter = args.selector ? args.selector.toLowerCase() : null;
+        const tagFilter = args.tag ? args.tag.toLowerCase() : null;
+        const textFilter = args.text ? args.text.toLowerCase() : null;
+        const roleFilter = args.role ? args.role.toLowerCase() : null;
 
-         result.tree = filterNode(raw.tree);
-       }
+        const filterNode = (node) => {
+          if (!node) return null;
+          const inViewportMatch = !args.inViewport || !node.x || !node.y ||
+            filterByViewport([{ x: node.x, y: node.y, width: node.width, height: node.height }], vp).length > 0;
+          const match = inViewportMatch && (
+            (!selFilter || (node.selector && node.selector.toLowerCase().includes(selFilter))) &&
+            (!tagFilter || (node.tag && node.tag.toLowerCase() === tagFilter)) &&
+            (!textFilter || (node.text && node.text.toLowerCase().includes(textFilter))) &&
+            (!roleFilter || (node.role && node.role.toLowerCase() === roleFilter))
+          );
+          const filteredChildren = (node.children || []).map(filterNode).filter(Boolean);
+          if (match || filteredChildren.length) {
+            return { ...node, children: filteredChildren };
+          }
+          return null;
+        };
 
-       // Apply maxDepth truncation
-       const maxDepth = args.maxDepth || 20;
-       const truncate = (node, depth) => {
-         if (!node || depth > maxDepth) return null;
-         return {
-           ...node,
-           children: (node.children || []).map(c => truncate(c, depth + 1)).filter(Boolean),
-         };
-       };
+        result.tree = filterNode(raw.tree);
+      }
 
-       if (result.tree) {
-         result.tree = truncate(result.tree, 0);
-       }
+      // Apply maxDepth truncation
+      const maxDepth = args.maxDepth || 20;
+      const truncate = (node, depth) => {
+        if (!node || depth > maxDepth) return null;
+        return {
+          ...node,
+          children: (node.children || []).map(c => truncate(c, depth + 1)).filter(Boolean),
+        };
+      };
 
-       return withFreshness(args.tabId, 'dom-generic', result, cache);
-     },
-   });
+      if (result.tree) {
+        result.tree = truncate(result.tree, 0);
+      }
+
+      return withFreshness(args.tabId, 'dom-generic', result, cache);
+    },
+  });
 
   registry.registerTools(tools);
 };

@@ -300,6 +300,13 @@
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,
     "screenshotMarks":      false,
+    "duplicateDetection": {
+      "_comment_ja": "同じ操作の繰り返し検出と警告の設定",
+      "enabled": true,
+      "threshold": 3,
+      "window": 10,
+      "action": "warn"
+    },
     "_comment_agentConfig_en": "allowAgentConfig=true: agent can modify settings via set_config",
     "_comment_agentConfig_ja": "allowAgentConfig=true: agentがset_configで設定変更可能",
     "_comment_autoRevert_en":  "autoRevertConfig=true: automatically revert non-recommended changes on next startup",

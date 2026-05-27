@@ -122,6 +122,24 @@ function classifyIntent(label, threshold = 0.35) {
   return { intent: best.intent, confidence: best.score, topAnchor: best.anchor };
 }
 
+/**
+ * Filter elements by viewport intersection.
+ * @param {Array} elements - Array of elements with x, y, width, height properties
+ * @param {Object} viewport - { scrollX, scrollY, width, height }
+ * @returns {Array} Filtered elements within viewport
+ */
+function filterByViewport(elements, viewport) {
+  if (!viewport || !elements) return elements;
+  return elements.filter(el => {
+    const x = el.x ?? el.left ?? el.absoluteX ?? 0;
+    const y = el.y ?? el.top ?? el.absoluteY ?? 0;
+    const w = el.width ?? el.w ?? 0;
+    const h = el.height ?? el.h ?? 0;
+    return !(x + w < viewport.scrollX || x > viewport.scrollX + viewport.width ||
+             y + h < viewport.scrollY || y > viewport.scrollY + viewport.height);
+  });
+}
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 function withFreshness(tabId, pluginId, data, cache) {
   if (!data) return null;
@@ -162,4 +180,4 @@ function withFreshness(tabId, pluginId, data, cache) {
   return { ...data, _freshness: info };
 }
 
-module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, classifyIntent, withFreshness };
+module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, classifyIntent, withFreshness, filterByViewport };
