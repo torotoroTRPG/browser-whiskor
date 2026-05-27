@@ -249,6 +249,13 @@
     },
     "frameworkDomMap": {
       "enabled": true
+    },
+    "searchClassifier": {
+      "_comment_ja": "UIラベル意図分類器 + 意味検索の設定",
+      "enabled": true,
+      "backend": "auto",
+      "intentThreshold": 0.35,
+      "autoUnblockIntentThreshold": 0.60
     }
   },
 

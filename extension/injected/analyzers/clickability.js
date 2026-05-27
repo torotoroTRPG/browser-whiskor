@@ -230,7 +230,9 @@
     // Close button detection — search within the modal/obstructor
     let closeButtonSelector = null;
     let hasCloseButton = false;
+    let closeButtonIntentScore = null;
 
+    // Step 1: CSSセレクタによる探索
     for (const sel of CLOSE_BUTTON_SELECTORS) {
       try {
         const btn = searchRoot.querySelector(sel);
@@ -240,6 +242,30 @@
           break;
         }
       } catch (_) { /* selector parse errors */ }
+    }
+
+    // Step 1b: 意図分類によるフォールバック（CSSセレクタが失敗したときのみ）
+    if (!hasCloseButton) {
+      const autoUnblockIntentThreshold = 0.60;
+      const candidates = searchRoot.querySelectorAll('button, [role="button"], a');
+      for (const btn of candidates) {
+        const labelText = (
+          btn.textContent?.trim() ||
+          btn.getAttribute('aria-label') ||
+          btn.getAttribute('title') ||
+          ''
+        ).slice(0, 40);
+
+        if (!labelText) continue;
+
+        const result = window.__SI_CLASSIFY_INTENT__?.(labelText, autoUnblockIntentThreshold);
+        if (result && (result.intent === 'DISMISS' || result.intent === 'CANCEL')) {
+          closeButtonSelector = computeSelector(btn);
+          hasCloseButton = true;
+          closeButtonIntentScore = result.confidence;
+          break;
+        }
+      }
     }
 
     // Fallback: last button containing only an SVG (icon-only close button pattern)
@@ -279,6 +305,7 @@
       modalType,
       hasCloseButton,
       closeButtonSelector,
+      closeButtonIntentScore,
       escapeDismissible: !!escapeDismissible,
     };
   }
