@@ -6,6 +6,48 @@
  * Builds deterministic, bounded causal candidates from timestamped browser
  * events.  It is intentionally conservative: chains below the confidence floor
  * are discarded, and every emitted chain records the rule that produced it.
+ *
+ * CORRELATION WINDOWS:
+ *
+ * The correlator uses time-based windows to establish causality between events:
+ *
+ * 1. Network → DOM: 500ms default window (scoreNetworkToDom function)
+ *    - ≤50ms:  0.85 confidence (very likely causal)
+ *    - ≤500ms: 0.70-0.85 confidence (likely causal, linear decay)
+ *    - ≤5000ms: 0.50-0.70 confidence (possible causal, linear decay)
+ *    - >5000ms: 0.00 confidence (too distant, rejected)
+ *
+ *    When a framework transition is detected between network response and DOM
+ *    change, confidence is boosted to 1.0 (confirmed causal chain).
+ *
+ * 2. Framework → DOM: 100ms default window (_correlateFrameworkEvent)
+ *    - Base confidence: 0.85
+ *    - Decays by 0.10 over the 100ms window
+ *    - Minimum: confidenceFloor (default 0.50)
+ *
+ * ADJUSTING FOR HEAVY SPAs OR SLOW NETWORKS:
+ *
+ * If you observe false negatives (missing causal chains) in heavy SPAs or
+ * slow network environments, you can adjust these windows via configuration:
+ *
+ *   const correlator = new TimeSeriesCorrelator({
+ *     retentionMs: 10000,        // Increase from 5000ms to 10000ms
+ *     confidenceFloor: 0.40,     // Lower from 0.50 to 0.40 to accept weaker signals
+ *   });
+ *
+ * Or modify the scoring function directly:
+ *   - Increase the 500ms threshold in scoreNetworkToDom for slower DOM updates
+ *   - Increase the 100ms window in _correlateFrameworkEvent for slower framework rendering
+ *
+ * PRIORITY RULES (Proposal A):
+ *
+ * When multiple DOM change signals are available for the same time window:
+ *   1. Prefer dom_mutation (MutationObserver) over visual_delta (TEXT_COORD_DELTA)
+ *   2. MutationObserver provides higher precision (exact DOM nodes changed)
+ *   3. TEXT_COORD_DELTA is a fallback proxy for visual changes
+ *
+ * The _hasDomMutationCoverage method implements this priority by suppressing
+ * visual_delta correlations when a dom_mutation event exists within ±500ms.
  */
 'use strict';
 

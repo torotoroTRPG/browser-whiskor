@@ -17,9 +17,11 @@
     "allowExplorer":       true,
     "executeJsTimeoutMs":  15000,
     "actionTimeoutMs":     15000,
-    "allowedMcpOrigins":   ["*"],
+    "allowedMcpOrigins":   ["localhost", "127.0.0.1"],
     "_comment_execute_en": "Set allowExecuteJs=false to disable arbitrary JS execution from agents. For local use, set to true or use WHISKOR_SECURITY_ALLOWEXECUTEJS=true env var.",
-    "_comment_execute_ja": "エージェントからの任意JS実行を無効にするにはfalse。ローカルで有効にする場合はtrue、または環境変数WHISKOR_SECURITY_ALLOWEXECUTEJS=trueを設定"
+    "_comment_execute_ja": "エージェントからの任意JS実行を無効にするにはfalse。ローカルで有効にする場合はtrue、または環境変数WHISKOR_SECURITY_ALLOWEXECUTEJS=trueを設定",
+    "_comment_mcpOrigins_en": "allowedMcpOrigins restricts MCP server connections. Default: localhost only. Use ['*'] to allow all origins (not recommended for production).",
+    "_comment_mcpOrigins_ja": "allowedMcpOriginsはMCPサーバー接続を制限します。デフォルト: localhostのみ。['*']で全オリジンを許可（本番環境非推奨）"
   },
 
   "collection": {
@@ -251,12 +253,33 @@
       "enabled": true
     },
     "searchClassifier": {
-      "_comment_ja": "UIラベル意図分類器 + 意味検索の設定",
-      "enabled": true,
-      "backend": "auto",
-      "intentThreshold": 0.35,
-      "autoUnblockIntentThreshold": 0.60
-    }
+       "_comment_ja": "UIラベル意図分類器 + 意味検索の設定",
+       "enabled": true,
+       "backend": "auto",
+       "intentThreshold": 0.35,
+       "autoUnblockIntentThreshold": 0.60,
+       "defaultMinScore": 0.1,
+       "allowAgentMinScoreOverride": true,
+       "agentOverrideAutoResetTurns": 3,
+       "showSuggestionsOnHit": false,
+       "miniLM": {
+         "_comment_ja": "backend が 'minilm' または 'auto' のときのみ参照される",
+         "model": "paraphrase-multilingual-MiniLM-L12-v2",
+         "modelCacheDir": ".model-cache",
+         "downloadOnStart": true,
+         "_comment_download_ja": "trueにすると起動時にモデルを自動DL（初回のみ）。falseにするとモデルが存在しないときdictionaryにフォールバック",
+         "fallbackToDictionary": true,
+         "useFor": {
+           "_comment_ja": "MiniLMを使う機能を個別に制御できる",
+           "intentClassification": true,
+           "_comment_intent_ja": "classifyIntent() — UIラベルのインテント判定",
+           "fuzzyMatch": true,
+           "_comment_fuzzy_ja": "get_text_coords(match:) / get_ui_catalog(search:) のfuzzy検索をMiniLMのコサイン類似度で行う",
+           "suggestions": true,
+           "_comment_suggestions_ja": "didYouMean候補をMiniLMの意味的近傍で生成する"
+         }
+       }
+     }
   },
 
   "react": {

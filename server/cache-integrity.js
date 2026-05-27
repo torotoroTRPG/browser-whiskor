@@ -7,15 +7,18 @@
  *   - _index.json structure and required fields
  *   - JSON file parseability
  *   - Cross-references between index and actual files
+ *   - Disk usage against configured limits
  *
  * Auto-repair:
  *   - Removes references to missing files
  *   - Rebuilds corrupted _index.json from available data
  *   - Creates missing directories
+ *   - Enforces disk size limits via LRU eviction
  *
  * Usage:
- *   const { checkAndRepair } = require('./cache-integrity');
+ *   const { checkAndRepair, enforceDiskLimit } = require('./cache-integrity');
  *   const report = await checkAndRepair(cacheDir);
+ *   await enforceDiskLimit(cacheDir, maxMB);
  */
 'use strict';
 
@@ -295,10 +298,166 @@ function checkAndRepair(cacheRoot, opts = {}) {
   return result;
 }
 
+/**
+ * Calculate total disk usage of a directory recursively.
+ * @param {string} dirPath - Directory to measure
+ * @returns {number} Total size in bytes
+ */
+function calculateDiskUsage(dirPath) {
+  if (!fs.existsSync(dirPath)) return 0;
+  
+  let totalSize = 0;
+  const items = fs.readdirSync(dirPath, { withFileTypes: true });
+  
+  for (const item of items) {
+    const fullPath = path.join(dirPath, item.name);
+    if (item.isDirectory()) {
+      totalSize += calculateDiskUsage(fullPath);
+    } else if (item.isFile()) {
+      try {
+        const stat = fs.statSync(fullPath);
+        totalSize += stat.size;
+      } catch (_) {
+        // Skip files that can't be stat'd
+      }
+    }
+  }
+  
+  return totalSize;
+}
+
+/**
+ * Get all session directories with their metadata for LRU eviction.
+ * @param {string} cacheRoot - Cache root directory
+ * @returns {Array<{path: string, updatedAt: number, size: number}>}
+ */
+function getAllSessions(cacheRoot) {
+  const sessions = [];
+  
+  if (!fs.existsSync(cacheRoot)) return sessions;
+  
+  const siteDirs = fs.readdirSync(cacheRoot, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => d.name);
+  
+  for (const siteDir of siteDirs) {
+    const sitePath = path.join(cacheRoot, siteDir);
+    const sessionDirs = fs.readdirSync(sitePath, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    
+    for (const sessionDir of sessionDirs) {
+      const fullPath = path.join(sitePath, sessionDir);
+      const indexPath = path.join(fullPath, '_index.json');
+      
+      let updatedAt = 0;
+      try {
+        if (fs.existsSync(indexPath)) {
+          const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+          updatedAt = index.updatedAt || 0;
+        } else {
+          // Use directory mtime as fallback
+          const stat = fs.statSync(fullPath);
+          updatedAt = stat.mtimeMs;
+        }
+      } catch (_) {
+        // Use directory mtime as fallback
+        try {
+          const stat = fs.statSync(fullPath);
+          updatedAt = stat.mtimeMs;
+        } catch (_) {
+          updatedAt = 0;
+        }
+      }
+      
+      const size = calculateDiskUsage(fullPath);
+      sessions.push({ path: fullPath, updatedAt, size });
+    }
+  }
+  
+  return sessions;
+}
+
+/**
+ * Recursively delete a directory and all its contents.
+ * @param {string} dirPath - Directory to delete
+ */
+function deleteDirectory(dirPath) {
+  if (!fs.existsSync(dirPath)) return;
+  
+  const items = fs.readdirSync(dirPath, { withFileTypes: true });
+  for (const item of items) {
+    const fullPath = path.join(dirPath, item.name);
+    if (item.isDirectory()) {
+      deleteDirectory(fullPath);
+    } else {
+      fs.unlinkSync(fullPath);
+    }
+  }
+  fs.rmdirSync(dirPath);
+}
+
+/**
+ * Enforce disk size limit by evicting oldest sessions (LRU).
+ * @param {string} cacheRoot - Cache root directory
+ * @param {number} maxMB - Maximum allowed disk usage in megabytes
+ * @param {object} opts
+ * @param {boolean} [opts.verbose] - Log details (default: false)
+ * @returns {{totalSizeMB: number, evicted: number, evictedSizeMB: number, sessions: Array}}
+ */
+function enforceDiskLimit(cacheRoot, maxMB, opts = {}) {
+  const verbose = opts.verbose || false;
+  const maxBytes = maxMB * 1024 * 1024;
+  
+  const sessions = getAllSessions(cacheRoot);
+  
+  // Sort by updatedAt ascending (oldest first)
+  sessions.sort((a, b) => a.updatedAt - b.updatedAt);
+  
+  let totalSize = sessions.reduce((sum, s) => sum + s.size, 0);
+  const evicted = [];
+  
+  // Evict oldest sessions until we're under the limit
+  while (totalSize > maxBytes && sessions.length > 0) {
+    const oldest = sessions.shift();
+    if (verbose) {
+      console.log(`[cache-integrity] Evicting session: ${oldest.path} (${(oldest.size / 1024 / 1024).toFixed(2)} MB, last updated: ${new Date(oldest.updatedAt).toISOString()})`);
+    }
+    
+    try {
+      deleteDirectory(oldest.path);
+      totalSize -= oldest.size;
+      evicted.push(oldest);
+    } catch (err) {
+      if (verbose) {
+        console.error(`[cache-integrity] Failed to evict ${oldest.path}: ${err.message}`);
+      }
+    }
+  }
+  
+  const result = {
+    totalSizeMB: totalSize / 1024 / 1024,
+    evicted: evicted.length,
+    evictedSizeMB: evicted.reduce((sum, s) => sum + s.size, 0) / 1024 / 1024,
+    remainingSessions: sessions.length,
+  };
+  
+  if (verbose) {
+    console.log(`[cache-integrity] Disk usage: ${result.totalSizeMB.toFixed(2)} MB / ${maxMB} MB`);
+    console.log(`[cache-integrity] Evicted ${result.evicted} session(s) (${result.evictedSizeMB.toFixed(2)} MB)`);
+    console.log(`[cache-integrity] Remaining sessions: ${result.remainingSessions}`);
+  }
+  
+  return result;
+}
+
 module.exports = {
   validateJsonFile,
   validateIndexStructure,
   checkFileReferences,
   repairIndex,
   checkAndRepair,
+  calculateDiskUsage,
+  getAllSessions,
+  enforceDiskLimit,
 };
