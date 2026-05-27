@@ -42,8 +42,12 @@ function sanitizeSessionId(id) {
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-// sessionId -> { activeProfiles: Set, turnCount: number, lastUsed: Map<profile, turn> }
+// sessionId -> { activeProfiles: Set, turnCount: number, lastUsed: Map<profile, turn>, toolHistory: Array }
 const sessions = new Map();
+
+// ── Duplicate Detection Settings ─────────────────────────────────────────────
+const DUPLICATE_THRESHOLD = 3; // Same tool+args repeated this many times
+const DUPLICATE_WINDOW = 10;   // Look back this many turns
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function loadProfiles() {
@@ -61,9 +65,52 @@ function ensureSession(sessionId) {
       turnCount: 0,
       lastUsed: new Map([['core', 0]]),
       warnings: new Map(),
+      toolHistory: [],
     });
   }
   return sessions.get(sessionId);
+}
+
+// ── Duplicate Detection ───────────────────────────────────────────────────────
+/**
+ * Record a tool call in history and detect duplicates.
+ * Returns warning object if duplicate detected, null otherwise.
+ */
+function recordToolCall(session, toolName, args, config) {
+  // Check if duplicate detection is enabled
+  const dupConfig = config?.agentControl?.duplicateDetection;
+  if (dupConfig?.enabled === false) return null;
+
+  const threshold = dupConfig?.threshold ?? DUPLICATE_THRESHOLD;
+  const window = dupConfig?.window ?? DUPLICATE_WINDOW;
+
+  const callKey = `${toolName}:${JSON.stringify(args || {})}`;
+  session.toolHistory.push({
+    tool: toolName,
+    args,
+    key: callKey,
+  });
+
+  // Keep only recent history
+  if (session.toolHistory.length > window * 2) {
+    session.toolHistory = session.toolHistory.slice(-window * 2);
+  }
+
+  // Check for duplicates in the window
+  const recent = session.toolHistory.slice(-window);
+  const matches = recent.filter(h => h.key === callKey);
+
+  if (matches.length >= threshold) {
+    return {
+      code: 'DUPLICATE_OPERATION',
+      level: matches.length > threshold + 1 ? 'strong' : 'info',
+      message: `Tool '${toolName}' called ${matches.length} times with same arguments in last ${window} turns. This may indicate a loop.`,
+      tool: toolName,
+      count: matches.length,
+      action: dupConfig?.action || 'warn',
+    };
+  }
+  return null;
 }
 
 function getAllToolsForProfile(profileName, profiles, config) {
@@ -173,6 +220,14 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
   const session = ensureSession(sessionId);
   const profiles = loadProfiles();
   const results = { autoLoaded: [], warnings: [], unloaded: [] };
+
+  // 0. Record tool call and check for duplicates (before increment for accurate window)
+  if (lastToolCall) {
+    const dupWarning = recordToolCall(session, lastToolCall.name, lastToolCall.args, config);
+    if (dupWarning) {
+      results.warnings.push(dupWarning);
+    }
+  }
 
   session.turnCount++;
 

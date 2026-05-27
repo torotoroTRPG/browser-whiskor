@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "browser-whiskor",
-  "version": "0.3.0",
+  "version": "0.3.0-0",
   "description": "Agent-grade browser instrumentation with state navigation: actions, screenshots, ARIA, storage, console, React/Vue/Angular/Svelte, semantic state graph, MCP-ready.",
   "icons": {
     "16": "icons/icon.png",
@@ -27,6 +27,7 @@
         "injected/version-helper.js",
         "injected/plugin-system.js",
         "lib/bippy.iife.js",
+        "injected/lib/intent-classifier.js",
         "injected/adapters/react-hooks.js",
         "injected/adapters/react-state-managers.js",
         "injected/adapters/react.js",
@@ -83,7 +84,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected/*", "injected/adapters/*", "injected/analyzers/*", "lib/*"],
+      "resources": ["injected/*", "injected/adapters/*", "injected/analyzers/*", "injected/lib/*", "lib/*"],
       "matches": ["<all_urls>"]
     }
   ]
