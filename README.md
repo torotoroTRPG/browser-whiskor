@@ -124,11 +124,16 @@ Non-deterministic values (timestamps, UUIDs, loading flags) are excluded from ha
 
 ## Setup
 
+### Installation
+
 ```bash
 cd browser-whiskor-v3
 npm install
 node server/index.js
 ```
+
+> **Note on Machine Learning Models:** 
+> `npm install` will automatically run a `postinstall` script (`npm run download-model`) to pre-fetch the ONNX model (approx 50MB) for Semantic Search. This is downloaded from the public Hugging Face Hub. **No Hugging Face account or login is required.** The model is cached in `.model-cache/`.
 
 ### Chrome/Edge (MV3)
 1. `chrome://extensions` → Developer mode ON
@@ -327,7 +332,7 @@ Tools not listed in any profile (intelligence, capture_element_screenshot, acces
 
 **`search`** — Exact substring match (case-insensitive). Fast, returns all containing items.
 
-**`match`** — Fuzzy similarity search. Uses token overlap + character n-gram scoring. Returns results sorted by similarity score (descending, 0.0–1.0). Useful when you don't know the exact text — e.g., searching for `"sign in"` will also surface `"Login"`, `"Sign In"`, `"Log in"`.
+**`match`** — Semantic Similarity & Fuzzy matching. Powered by a local **MiniLM ONNX model** (running in a background Worker Thread), this provides high-quality semantic similarity combined with character n-gram scoring. It returns results sorted by similarity score (descending, 0.0–1.0). Useful when you don't know the exact text — e.g., searching for `"sign in"` will seamlessly surface `"Login"`, `"Sign In"`, or `"Log in"`.
 
 ```json
 {
@@ -341,7 +346,9 @@ Tools not listed in any profile (intelligence, capture_element_screenshot, acces
 }
 ```
 
-Each result includes a `contextHint` field — a short description of the element's role (e.g., `"navigation link"`, `"form label"`, `"heading"`, `"button text"`) so the agent can understand *why* this text appears and in what context.
+Each result includes a `contextHint` field — a short description of the element's role (e.g., `"navigation link"`, `"form label"`, `"heading"`, `"button text"`) so the agent can understand *why* this text appears and in what context. 
+
+> **Performance Note:** The embedding model runs entirely locally in a dedicated worker thread with dynamic batching. To prevent latency, embeddings are pre-calculated asynchronously when `refresh_data` is called or when page updates are detected.
 
 ---
 

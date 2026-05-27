@@ -576,6 +576,12 @@
     state-semantic.js     — Label generation, tag extraction, keyState, search
     state-navigator.js    — BFS path finding, action replay, hash verification
     intelligence.js       — 5 intelligence MCP tools (explain_element, why_did_this_change, analyze_click, get_source_file, detect_site_updates)
+    services/
+      embed-service.js    — Semantic search orchestration, diff-embedding, async cache
+      embed-store.js      — Embeddings JSON LRU disk cache
+      embed-worker.js     — Transformers.js ONNX embedding execution
+      embed-worker-pool.js— Single Worker thread pool manager, auto-recovery
+      load-monitor.js     — Event loop lag / EWMA batch time load detection
     core.js               — Message router, on-demand collection triggers, explore/screenshot coordination
     screenshot-manager.js — Screenshot/element-capture request management, pending-request tracking, disk save
     correlator.js         — Time-series Correlator: ring buffer, 3 correlation rules, CausalChain output
