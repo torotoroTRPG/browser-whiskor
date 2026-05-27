@@ -103,7 +103,7 @@ Phase 3 (低優先度)
   └── 🔮 選択的キャプチャ最適化    — ぼかし・2値記録
 
 ✅ v0.3.x 実装済み (Intelligence Layer):
-  ├── ✅ DOM_MUTATION Event       — server/core.js + correlator.js (Proposal A 部分実装)
+  ├── ✅ DOM_MUTATION Event       — server/core.js + correlator.js (Proposal A 完全実装)
   ├── ✅ CSS @layer解決           — css-origin.js (buildLayerRegistry) (Proposal B)
   ├── ✅ Source Map Resolver      — server/source-map-resolver.js + css-origin.js VLQ (Proposal E)
   ├── ✅ Correlator               — server/correlator.js (Rule 1-3, Framework→DOM)

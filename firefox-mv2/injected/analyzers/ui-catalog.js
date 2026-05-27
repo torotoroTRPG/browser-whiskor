@@ -28,7 +28,7 @@
           type: el.getAttribute('type') || null,
           disabled: el.disabled || null,
           rect: getRect(el),
-          classes: el.className?.slice(0, 80),
+          classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 80),
         }));
 
       const inputs = [...document.querySelectorAll('input,textarea,select')]
@@ -58,7 +58,7 @@
       const hidden = [...document.querySelectorAll('[hidden],[style*="display:none"],[style*="display: none"]')]
         .slice(0, 50).map(el => ({
           tag: el.tagName.toLowerCase(), id: el.id || null,
-          classes: el.className?.slice(0, 60),
+          classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 60),
         }));
 
       return {

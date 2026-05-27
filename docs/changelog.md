@@ -4,6 +4,23 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.3.4] — 2026-05-27
+
+### Added
+
+- **Coexistence Proxy Mode** — Resolves port binding conflicts (`EADDRINUSE`) when spawning multiple browser-whiskor instances (e.g., manually running a standalone server and editor-launched MCP clients).
+  - Automatically checks `http://localhost:7892/health` on startup.
+  - If active, switches to **Proxy Mode** where it skips binding HTTP/WebSocket ports and proxies all MCP commands to the running instance via HTTP requests.
+  - Overrides the local `embed-service` to route semantic embedding requests to the remote instance (`POST /api/embed`), avoiding heavy local ONNX model loads or duplicate workers.
+
+### Fixed
+
+- **Firefox Extension Runtime Bugs**:
+  - `css-origin.js` — Removed a syntax-breaking trailing backslash `\` at line 322.
+  - `ui-catalog.js` — Fixed a `TypeError` by adding checks for `SVGAnimatedString` class types on SVG elements (aligning with Chrome's implementation).
+- **Session Diagnostics**:
+  - `get_sessions` MCP tool — Added warnings and detailed user notes when the active sessions list is empty, helping identify missing extension connections rather than returning a silent empty list.
+
 ## [0.3.3] — 2026-05-27
 
 ### Performance

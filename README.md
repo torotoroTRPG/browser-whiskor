@@ -1,4 +1,4 @@
-# browser-whiskor v0.3.3
+# browser-whiskor v0.3.4
 
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
@@ -157,6 +157,16 @@ node server/index.js
   }
 }
 ```
+
+### Proxy Mode (Coexistence with Standalone Server)
+
+If you manually start a standalone Whiskor server (e.g., `node server/index.js` to view the dashboard and manage browser extension connections) and then launch an editor or client that spawns browser-whiskor via MCP, a port conflict (`EADDRINUSE`) would normally occur.
+
+To prevent this, browser-whiskor automatically detects if another instance is already running on port `7892`. If detected, the MCP process automatically switches to **Proxy Mode**:
+- It bypasses WebSocket/HTTP port binding (preventing socket conflicts).
+- It transparently proxies all tool actions, screenshots, data collection, and semantic embeddings to the running standalone server.
+
+This allows seamless coexistence of a global browser instrumentation dashboard and local editor-based AI agents.
 
 ---
 

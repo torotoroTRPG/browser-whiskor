@@ -319,7 +319,7 @@
     const registry = new Map(); // name → order (higher = later = wins)
     let order = 0;
     for (let i = 0; i < ruleList.length; i++) {
-      const rule = ruleList[i];\
+      const rule = ruleList[i];
       if (typeof CSSLayerStatementRule !== 'undefined' && rule instanceof CSSLayerStatementRule) {
         for (const name of (rule.nameList || [])) {
           if (!registry.has(name)) registry.set(name, order++);

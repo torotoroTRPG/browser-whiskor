@@ -1,12 +1,12 @@
 # Comprehensive Proposal/Idea Document Analysis
 
-> **Last Updated:** 2026-05-27 (v0.3.3)
+> **Last Updated:** 2026-05-27 (v0.3.4)
 > 
 > **Quick Status Summary:**
 > - ✅ **All v4 Intelligence Layer subsystems implemented** (5/5)
 > - ✅ **All architecture contradictions resolved** (10/10)
 > - ✅ **Extended Proposals:** 5/7 fully implemented (B, C, E, F, G); 1 partial (A); 1 pending (D)
-> - ✅ **v0.3.3 Improvements:** VLQ optimization, security hardening, disk management, correlator docs
+> - ✅ **v0.3.4 Improvements:** Coexistence Proxy Mode (EADDRINUSE auto-fallback), Firefox extension runtime bug fixes (Syntax/TypeErrors), Session diagnostics enhancement
 > - 🔮 **Future (v4+):** Slice XML Pipeline, Dynamic Focus, Tab Archive, SoM Variants
 
 ---
@@ -193,7 +193,7 @@
 | `MutationObserver` config (`childList`, `subtree`, `attributes`, `characterData`, `attributeOldValue`) | [ACHIEVED] |
 | 16ms coalescing window with attribute collapsing | [ACHIEVED] |
 | `type` and `tabId` in payload schema | [ACHIEVED] — M1 fixed: `type` and `tabId` added to emit call |
-| Correlator integration: `DOM_MUTATION` takes precedence over `TEXT_COORD_DELTA` | [PROPOSAL] — Not implemented. Switch in `core.js` added for DOM_MUTATION routing, but correlator priority logic pending. |
+| Correlator integration: `DOM_MUTATION` takes precedence over `TEXT_COORD_DELTA` | [ACHIEVED] — Priority logic in `correlator.js` (`_hasDomMutationCoverage`, `_correlateFrameworkEvent`) fully implemented. |
 | `dom.signal: "mutation_observer" | "text_coord_delta"` field | [ACHIEVED] — H3 fixed: `signal` field added to correlator |
 
 ### Proposal B: CSS @layer Cascade Resolution [ACHIEVED]
@@ -266,14 +266,14 @@
 
 | Phase | Proposal | Rationale | Actual Status |
 |-------|----------|-----------|---------------|
-| Phase 1 | A (DOM_MUTATION) | Improves Correlator precision | [PARTIAL] — file exists, M1 fixed; correlator integration pending |
+| Phase 1 | A (DOM_MUTATION) | Improves Correlator precision | [ACHIEVED] — full correlator priority integration done |
 | Phase 2 | E (Source Map Resolver) + B (@layer resolution) | Promotes CSS confidence to 1.00; closes correctness gap | [ACHIEVED] — VLQ + @layer done |
 | Phase 3 | C (State Visualizer) | Agent-facing map output | [ACHIEVED] |
 | Phase 4 | G (Conclusion Cache) | Reduces redundant collection | [ACHIEVED] — fully implemented |
 | Phase 5 | D (Adaptive Scheduling) | Reduces steady-state overhead | [PROPOSAL] — zero implementation |
 | Phase 6 | F (Session Replay) | Debugging and training utility | [ACHIEVED] — fully implemented |
 
-**Status:** Proposals B (CSS @layer), C (State Visualizer), E (Source Map VLQ), F (Session Replay), and G (Conclusion Cache) are [ACHIEVED]. Proposal A has partial code (file exists, M1 type/tabId fixed) but correlator integration is still pending. Proposal D has zero implementation.
+**Status:** Proposals A (DOM_MUTATION), B (CSS @layer), C (State Visualizer), E (Source Map VLQ), F (Session Replay), and G (Conclusion Cache) are [ACHIEVED]. Proposal D has zero implementation.
 
 ---
 
@@ -465,7 +465,7 @@ All contradictions (C1, H1-H3, M1-M2, L1-L4) are **resolved**. All code review f
 
 | ID | Proposal | Status | Effort |
 |----|----------|--------|--------|
-| **A (残り)** | DOM_MUTATION → correlator priority integration | [PROPOSAL] — M1 (type field) done; core.js switch done; correlator integration pending | ~20 lines |
+| **A** | DOM_MUTATION → correlator priority integration | [ACHIEVED] — M1, core.js switch, correlator priority logic all implemented | — |
 | **D** | Adaptive Collection Scheduling | [PROPOSAL] — zero implementation | Medium |
 
 ## Proposal D — Concerns
@@ -505,6 +505,21 @@ All contradictions (C1, H1-H3, M1-M2, L1-L4) are **resolved**. All code review f
 7. **Recommendation**: Do NOT implement Proposal D in its current form. Instead, consider a
    simpler approach if needed: add a configurable collection interval in the Service Worker
    that fires MANUAL_COLLECT periodically, without per-analyzer EMA tracking.
+
+---
+
+## v0.3.4 Improvements (2026-05-27)
+
+### Proxy Mode & Coexistence
+- Added automatic detection of existing Whiskor server (e.g. running manually on port 7892).
+- MCP process switches to Proxy Mode to prevent `EADDRINUSE` conflicts, forwarding MCP commands, screenshots, and semantic embeddings via HTTP calls.
+
+### Extension Bug Fixes
+- Fixed syntax error in Firefox `css-origin.js` by removing trailing backslash `\` at line 322.
+- Safe-guarded SVG `className` checks in Firefox `ui-catalog.js` to prevent `TypeError` when handling `SVGAnimatedString` elements.
+
+### Session Diagnostics
+- `get_sessions` MCP tool now returns descriptive warning messages when session list is empty, helping resolve missing extension connections transparently.
 
 ---
 

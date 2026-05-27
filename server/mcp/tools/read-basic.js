@@ -18,7 +18,20 @@ module.exports = function registerBasicTools(registry) {
       inputSchema: { type: 'object', properties: {}, required: [] },
     },
     handler: async (args, cb) => {
-      return cb.cache.getSessionList();
+      const list = await cb.cache.getSessionList();
+      if (!list || list.length === 0) {
+        return {
+          sessions: [],
+          _warnings: [
+            {
+              code: "NO_ACTIVE_SESSIONS",
+              message: "No active browser sessions found. This usually means the browser extension is not connected to the Whiskor server (ws://127.0.0.1:7891). Please open your browser, ensure the Whiskor extension is enabled, and refresh/visit a page."
+            }
+          ],
+          _note: "Whiskor WebSocket server is listening on port 7891. You can verify extension connections via the dashboard at http://127.0.0.1:7892/."
+        };
+      }
+      return list;
     },
   });
 
