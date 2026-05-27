@@ -30,4 +30,6 @@ tests/report/
 コピー.txt
 browser-whiskor-v3-complete.zip
 build/*.zip
+build/release/*.zip
+build/test-release/
 firefox-mv2/web-ext-artifacts/*.zip
