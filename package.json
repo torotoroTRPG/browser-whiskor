@@ -13,11 +13,14 @@
     "test:integration": "node --test tests/integration/",
     "test:stress": "node --test tests/stress/",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/ tests/integration/ tests/stress/",
-    "test:e2e": "npx playwright test tests/e2e/"
+    "test:e2e": "npx playwright test tests/e2e/",
+    "download-model": "node scripts/download-model.js",
+    "postinstall": "npm run download-model"
   },
   "dependencies": {
     "playwright": "^1.60.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@xenova/transformers": "^2.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0"
