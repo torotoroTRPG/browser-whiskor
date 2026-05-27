@@ -4,6 +4,8 @@
  */
 'use strict';
 
+const embedService = require('../../services/embed-service');
+
 module.exports = function registerCaptureTools(registry) {
   const tools = [];
 
@@ -80,9 +82,23 @@ module.exports = function registerCaptureTools(registry) {
       await new Promise(r => setTimeout(r, waitMs));
       const session = cb.cache.getSessionList().find(s => s.tabId === args.tabId);
       if (!session) return { ok: false, error: 'Session not found after refresh.' };
+
+      // Trigger async embedding calculation for caching
+      let embedStatus = embedService.getEmbedStatus();
+      if (embedStatus === 'ready' || embedStatus === 'pending') {
+        const raw = cb.cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
+        if (raw) {
+          const allItems = [...(raw.words || []), ...(raw.lines || []), ...(raw.blocks || [])];
+          // We don't await this, it runs in the background
+          embedService.embedForCache(allItems, args._sessionId).catch(console.error);
+          embedStatus = embedService.getEmbedStatus(); // Get updated status (likely 'pending')
+        }
+      }
+
       return {
         ok: true,
         waitedMs: waitMs,
+        embedStatus,
         session: {
           tabId:        session.tabId,
           url:          session.url,
