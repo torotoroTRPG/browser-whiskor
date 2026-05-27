@@ -343,7 +343,8 @@ function normalizeMessage(msg = {}) {
 }
 
 function scoreNetworkToDom(deltaMs, frameworkConfirmed) {
-  if (frameworkConfirmed) return 1.0;
+  if (frameworkConfirmed && deltaMs <= 100) return 0.95;
+  if (frameworkConfirmed && deltaMs <= 500) return 0.85;
   if (deltaMs <= 50) return 0.85;
   if (deltaMs <= 500) return Math.max(0.7, round2(0.85 - ((deltaMs - 50) / 450) * 0.15));
   if (deltaMs <= DEFAULTS.retentionMs) return Math.max(0.5, round2(0.7 - ((deltaMs - 500) / 4500) * 0.2));

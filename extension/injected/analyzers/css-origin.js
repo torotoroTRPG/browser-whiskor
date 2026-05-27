@@ -131,18 +131,22 @@
   // Based on the Source Map Spec (https://sourcemaps.info/spec.html)
   // Resolves a generated line/column → { source, originalLine, originalColumn }
   const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const B64_MAP = new Map();
+  for (let i = 0; i < B64.length; i++) B64_MAP.set(B64[i], i);
+
   function vlqDecode(str) {
     const result = [];
     let i = 0;
     while (i < str.length) {
       let value = 0, shift = 0, digit;
       do {
-        digit = B64.indexOf(str[i++]);
-        if (digit < 0) break;
+        digit = B64_MAP.get(str[i++]);
+        if (digit === undefined) break;
         value |= (digit & 0x1f) << shift;
         shift += 5;
       } while (digit & 0x20);
-      // VLQ sign bit is LSB
+      if (digit === undefined) break;
+      // VLQ sign bit is the LSB
       result.push(value & 1 ? -(value >> 1) : value >> 1);
     }
     return result;

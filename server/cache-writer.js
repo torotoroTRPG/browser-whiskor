@@ -20,33 +20,42 @@ const path = require('path');
 const fsp  = fs.promises;
 
 const CACHE_ROOT = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
-fs.mkdirSync(CACHE_ROOT, { recursive: true });
 
 const STALE_THRESHOLD_MS = 30_000; // 30s
+const MAX_SESSION_IDLE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // tabId → { dir, index, networkRequests[], consoleLogs[], updatedAt }
 const sessions = new Map();
 
+// Periodic cleanup of inactive sessions
+setInterval(() => {
+  const now = Date.now();
+  for (const [tabId, s] of sessions.entries()) {
+    if (!s.keep && (now - s.updatedAt > MAX_SESSION_IDLE_MS)) {
+      console.log(`[cache] Evicting inactive session for tabId=${tabId}`);
+      removeSession(tabId);
+    }
+  }
+}, 5 * 60 * 1000).unref(); // check every 5 minutes
+
 // ── Load existing sessions from disk on startup ───────────────────────────────────
 async function loadSessionsFromDisk() {
-  if (!fs.existsSync(CACHE_ROOT)) return;
+  await fsp.mkdir(CACHE_ROOT, { recursive: true });
   
-  const siteDirs = fs.readdirSync(CACHE_ROOT, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
+  const siteDirs = await fsp.readdir(CACHE_ROOT, { withFileTypes: true });
   
   for (const siteDir of siteDirs) {
-    const sitePath = path.join(CACHE_ROOT, siteDir);
-    const sessionDirs = fs.readdirSync(sitePath, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
+    if (!siteDir.isDirectory()) continue;
+    const sitePath = path.join(CACHE_ROOT, siteDir.name);
+    const sessionDirs = await fsp.readdir(sitePath, { withFileTypes: true });
     
     for (const sessionDir of sessionDirs) {
-      const fullPath = path.join(sitePath, sessionDir);
+      if (!sessionDir.isDirectory()) continue;
+      const fullPath = path.join(sitePath, sessionDir.name);
       const indexPath = path.join(fullPath, '_index.json');
       
       try {
-        const index = readJson(indexPath);
+        const index = await readJsonAsync(indexPath);
         if (index && index.tabId) {
           // Only load if not already in memory
           if (!sessions.has(index.tabId)) {
@@ -61,7 +70,7 @@ async function loadSessionsFromDisk() {
           }
         }
       } catch (e) {
-        console.error(`[cache] Failed to load session ${siteDir}/${sessionDir}:`, e.message);
+        console.error(`[cache] Failed to load session ${siteDir.name}/${sessionDir.name}:`, e.message);
       }
     }
   }
