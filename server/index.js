@@ -428,7 +428,12 @@ mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
 mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
 configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
 
-// Load existing sessions from disk BEFORE starting MCP server
+// Start MCP server immediately in MCP mode so client doesn't timeout
+if (MCP_MODE || !process.stdin.isTTY) {
+  mcp.startMcpServer();
+}
+
+// Background startup tasks (model download & cache loading)
 (async () => {
   // Pre-download embedding model on first startup
   try {
@@ -459,7 +464,6 @@ configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
   } catch (e) {
     log('warn', `[cache] Failed to load sessions from disk: ${e.message}`);
   }
-  if (MCP_MODE || !process.stdin.isTTY) mcp.startMcpServer();
 })();
 
 // ── Auto-revert non-recommended config changes ────────────────────────────────
