@@ -37,12 +37,13 @@ AI Agent (Claude / Cursor / etc.)
     ▼
 server/index.js          ← エントリーポイント。HTTP:7892 + WS:7891 を立ち上げ
     ├── server/core.js           ← WhiskorCore: WSメッセージのルーティングと永続化
-    ├── server/mcp-server.js     ← MCP層 (57ツール)
+    ├── server/mcp-server.js     ← MCP層 (61ツール)
     │       ├── mcp/registry.js        ← ツール登録・フィルター・プリセット
     │       ├── mcp/transport.js       ← stdio JSON-RPCトランスポート
     │       └── mcp/tools/
     │               ├── read.js / read-basic.js / read-data.js / read-state.js / read-helpers.js
-    │               ├── write.js       ← 16 writeツール
+    │               ├── write.js       ← 16 writeツール (click/type等は observe オプションで操作後の状態ハッシュ安定を観測可能)
+    │               ├── tabs.js        ← 4 タブ管理ツール (list_tabs/switch_tab/open_tab/close_tab)
     │               ├── capture.js / capture-element.js  ← 3 captureツール
     │               ├── control.js     ← 6 controlツール (+ 4メタツールはtool-manager)
     │               ├── intelligence.js← 5 intelligenceツール
@@ -129,6 +130,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 | **state-nav** (+9) | 自動 | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8ターン |
 | **delta** (+3) | 自動 | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6ターン |
 | **advanced-actions** (+11) | 自動 | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5ターン |
+| **tabs** (+4) | 自動 | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6ターン |
 | **intelligence** (+4) | 自動 | explain_element, why_did_this_change, get_source_file, detect_site_updates | "explain", "why", "source", "cause" | 5ターン |
 | **admin** (+4) | 自動 | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3ターン |
 | **power** (+2) | 自動 | execute_js, wait_for_element | "execute", "wait" | 2ターン |
@@ -151,6 +153,8 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 - `security.allowExecuteJs`: デフォルト `false`。`execute_js` ツールを使うには `true` が必要
 - `agentControl.allowAgentConfig`: デフォルト `false`。AIエージェントによる `set_config` 呼び出しを許可するか
 - `agentControl.screenshotMarks`: Set-of-Marks (要素番号オーバーレイ) の有効化
+- `agentControl.argTriggerDetection`: デフォルト `true`。プロファイル自動ロードのトリガー判定でツール引数のテキストも走査するか（whole-wordマッチ）。`false` でツール名のみ判定に戻す
+- `adaptiveCollection.enabled`: デフォルト `false`。アダプティブ収集スケジューラ（SW側 `CollectionScheduler`）の有効化
 - `intelligence.miniLM.downloadOnStart`: 起動時のモデル自動DL (初回のみ、~50MB)
 
 ## Coding Style
@@ -163,8 +167,8 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 ## Known Issues / Notes
 
 - `plugin-system.js` の `dependencies` フィールドは `source-fetcher` / `css-origin` / `framework-dom-map` の3件のみ設定済み。他のプラグインは `|| []` フォールバックで動作するが、厳密な依存順序は未保証
-- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.3.4`、57ツール
-- Proposal D（アダプティブ収集スケジューリング）は未実装。他の全アーキテクチャ矛盾は解決済み（詳細は `IMPLEMENTATION-PROGRESS.md` 参照）
+- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.3.4`、61ツール
+- アダプティブ収集スケジューリング（Proposal D）は **実装済みだがデフォルト無効**。実体は `extension/background/sw.js` の `CollectionScheduler` クラス（two-speed cadence: active/quiescent）。`config.json` の `adaptiveCollection.enabled: true` で有効化する。SW（長寿命）側に置かれているのは、ナビゲーションごとに破棄される MAIN-world の `collector.js` ではタイマーが保持できないため
 
 ## Key Ports & Endpoints
 

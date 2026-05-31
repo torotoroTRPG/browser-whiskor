@@ -130,6 +130,47 @@ function recordToolCall(session, toolName, args, config) {
   return null;
 }
 
+// ── Trigger Detection ─────────────────────────────────────────────────────────
+
+/**
+ * Build the text a tool call is matched against for profile auto-triggering.
+ * Combines the tool name with its primitive (string/number/boolean) argument
+ * values, so an intent expressed in arguments — e.g. get_text_coords({match:
+ * "console error"}) while debugging — can surface the relevant profile even when
+ * the tool name itself carries no trigger keyword. Capped to keep matching cheap.
+ */
+function buildTriggerText(toolCall) {
+  const name = (toolCall.name || '').toLowerCase();
+  const args = toolCall.args;
+  if (!args || typeof args !== 'object') return { name, argsText: '' };
+
+  const parts = [];
+  for (const v of Object.values(args)) {
+    if (typeof v === 'string') parts.push(v);
+    else if (typeof v === 'number' || typeof v === 'boolean') parts.push(String(v));
+  }
+  return { name, argsText: parts.join(' ').toLowerCase().slice(0, 500) };
+}
+
+/**
+ * Decide whether a profile trigger keyword matches a tool call.
+ *   - Tool name: substring match (names are structured identifiers, e.g.
+ *     get_css_analysis contains "css").
+ *   - Argument text: whole-word / phrase match, so "error" matches "console
+ *     error" but not "errorBoundary" or "terror" — avoiding spurious loads from
+ *     arbitrary page data the agent happens to be searching for.
+ */
+function triggerMatches(trigger, name, argsText) {
+  if (name.includes(trigger)) return true;
+  if (!argsText) return false;
+  try {
+    const re = new RegExp('\\b' + trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    return re.test(argsText);
+  } catch (_) {
+    return argsText.includes(trigger);
+  }
+}
+
 function getAllToolsForProfile(profileName, profiles, config) {
   const profile = profiles[profileName];
   if (!profile) return [];
@@ -248,14 +289,18 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
 
   session.turnCount++;
 
-  // 1. Auto-detect triggers from last tool call or arguments
+  // 1. Auto-detect triggers from the last tool call (name + argument text).
+  //    Argument scanning can be disabled via agentControl.argTriggerDetection.
   if (lastToolCall) {
-    const triggerText = lastToolCall.name.toLowerCase();
+    const { name: callName, argsText: rawArgsText } = buildTriggerText(lastToolCall);
+    const argsEnabled = config?.agentControl?.argTriggerDetection !== false;
+    const argsText = argsEnabled ? rawArgsText : '';
+
     for (const [name, profile] of Object.entries(profiles)) {
       if (session.activeProfiles.has(name) || name === 'core') continue;
       if (!profile.triggers) continue;
 
-      const matched = profile.triggers.some(t => triggerText.includes(t));
+      const matched = profile.triggers.some(t => triggerMatches(t, callName, argsText));
       if (matched) {
         const loadResult = loadProfile(sessionId, name, allTools, config, true);
         if (loadResult.success) {

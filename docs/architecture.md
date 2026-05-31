@@ -34,7 +34,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    55 tools available, organized in a layered architecture:                  │
+│    61 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
@@ -42,7 +42,9 @@
 │    tool-manager.js        ← Dynamic profile management, auto-load/unload     │
 │    mcp/tools/read.js      ← Entry point → 21 read tools (split into         │
 │    read-basic.js, read-data.js, read-state.js, read-helpers.js)             │
-│    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page)      │
+│    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page;      │
+│                             observe option on interaction tools)            │
+│    mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close_tab)        │
 │    mcp/tools/capture.js   ← 3 capture tools (screenshot, refresh_data,      │
 │                             capture_element)                                │
 │    mcp/tools/capture-element.js ← element screenshot crop+encode            │
@@ -65,6 +67,8 @@
 │    │                  │ press_key, hover, scroll_page, mouse_scroll,     │  │
 │    │                  │ drag, select_option, check_box, execute_js,      │  │
 │    │                  │ wait_for_element, go_back/forward, reload_page   │  │
+│    ├──────────────────┼──────────────────────────────────────────────────┤  │
+│    │  TABS (4)        │ list_tabs, switch_tab, open_tab, close_tab       │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CAPTURE (3)     │ capture_screenshot (± SoM marks), refresh_data,   │
 │                  │ capture_element_screenshot (selector/rect/padding)  │  │
@@ -562,7 +566,8 @@
         read-basic.js     — READ tools 1–5 (sessions → framework_state)
         read-data.js      — READ tools 6–13 (network → dom_snapshot)
         read-state.js     — READ tools 14–21 (state_map → lookup_pattern)
-        write.js          — 16 WRITE tools (navigate_to → reload_page)
+        write.js          — 16 WRITE tools (navigate_to → reload_page; observe option helper)
+        tabs.js           — 4 TABS tools (list_tabs, switch_tab, open_tab, close_tab)
         capture.js        — 3 CAPTURE tools (screenshot, refresh_data, capture_element)
         capture-element.js — Element screenshot crop+encode logic
         control.js        — 10 CONTROL tools (set_config → profile_status)

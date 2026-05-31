@@ -111,6 +111,61 @@ describe('11.3 Tool Manager', () => {
     });
   });
 
+  describe('Auto-Detection from arguments', () => {
+    it('loads debug profile when a trigger word appears in string args (not the tool name)', () => {
+      toolManager.resetAll();
+      toolManager.initSession('test-arg-1');
+      // get_text_coords has no debug-trigger in its name, but the agent is
+      // clearly debugging — the keyword is in the argument.
+      const result = toolManager.processTurn(
+        'test-arg-1',
+        { name: 'get_text_coords', args: { match: 'console error banner' } },
+        mockTools, mockConfig
+      );
+      assert.ok(result.autoLoaded.includes('debug'),
+        'argument keyword "console"/"error" should auto-load debug');
+    });
+
+    it('uses whole-word matching to avoid false positives inside larger words', () => {
+      toolManager.resetAll();
+      toolManager.initSession('test-arg-2');
+      // "errorBoundary" / "terror" must NOT match the "error" trigger.
+      const result = toolManager.processTurn(
+        'test-arg-2',
+        { name: 'get_text_coords', args: { match: 'errorBoundary terror' } },
+        mockTools, mockConfig
+      );
+      assert.ok(!result.autoLoaded.includes('debug'),
+        'substring-only occurrences must not trigger the profile');
+    });
+
+    it('can be disabled via agentControl.argTriggerDetection=false', () => {
+      toolManager.resetAll();
+      toolManager.initSession('test-arg-3');
+      const cfg = { ...mockConfig, agentControl: { ...mockConfig.agentControl, argTriggerDetection: false } };
+      const result = toolManager.processTurn(
+        'test-arg-3',
+        { name: 'get_text_coords', args: { match: 'console error' } },
+        mockTools, cfg
+      );
+      assert.ok(!result.autoLoaded.includes('debug'),
+        'argument scanning disabled → no auto-load from args');
+    });
+
+    it('still auto-loads from the tool name when args scanning is disabled', () => {
+      toolManager.resetAll();
+      toolManager.initSession('test-arg-4');
+      const cfg = { ...mockConfig, agentControl: { ...mockConfig.agentControl, argTriggerDetection: false } };
+      const result = toolManager.processTurn(
+        'test-arg-4',
+        { name: 'get_console_logs', args: {} },
+        mockTools, cfg
+      );
+      assert.ok(result.autoLoaded.includes('debug'),
+        'name-based triggers remain active regardless of args scanning');
+    });
+  });
+
   describe('Idle Unload', () => {
     it('unloads idle profile after max turns', () => {
       toolManager.resetAll();

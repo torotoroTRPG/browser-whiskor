@@ -43,13 +43,14 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (57 tools, configurable visibility)                 │
+│  MCP Layer (61 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
 │  mcp/transport.js       ← stdio JSON-RPC transport             │
 │  mcp/tools/read.js      ← 18 read tools (sessions, DOM, etc.) │
-│  mcp/tools/write.js     ← 16 write tools (click, type, drag, etc.) │
+│  mcp/tools/write.js     ← 16 write tools (click, type, drag — observe opt.) │
+│  mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close) │
 │  mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh)│
 │  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
 │                                                                │
@@ -220,11 +221,11 @@ Warning codes:
 
 ---
 
-## MCP Tools (v0.3.4: 57 tools)
+## MCP Tools (v0.3.4: 61 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 57 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 61 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
@@ -233,13 +234,14 @@ Instead of exposing all 57 tools at once, browser-whiskor uses **dynamic profile
 | **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
 | **advanced-actions** (+11) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
+| **tabs** (+4) | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6 turns |
 | **intelligence** (+4) | explain_element, why_did_this_change, get_source_file, detect_site_updates | "explain", "why", "source", "cause" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
 
 **How it works:**
 1. **Core tools** are always available.
-2. **Auto-detection**: When you call a tool that matches a profile's triggers, the server automatically loads that profile.
+2. **Auto-detection**: When you call a tool that matches a profile's triggers, the server automatically loads that profile. Triggers are matched against both the tool name and the tool's string arguments (whole-word), so an intent expressed in arguments — e.g. `get_text_coords({match: "console error"})` — can surface the relevant profile. Argument scanning can be disabled via `agentControl.argTriggerDetection: false`.
 3. **Idle unloading**: Profiles not used for N turns are automatically removed.
 4. **Warnings**: If a profile stays active too long, you'll get a warning suggesting unload→reload.
 5. **Manual control**: Use `load_profile`, `unload_profile`, `search_tools`, and `profile_status` for explicit management.
@@ -290,6 +292,8 @@ Instead of exposing all 57 tools at once, browser-whiskor uses **dynamic profile
 
 > These work but are not the focus of this project. For serious browser automation, use Playwright/Puppeteer alongside browser-whiskor.
 
+> **`observe` option:** `click`, `type_text`, `press_key`, `hover`, `scroll_page`, `mouse_scroll`, `drag`, `select_option`, `check_box`, and `right_click` accept `observe: true`. After the action, the server watches the page state hash until it settles and returns `_observation: { available, fromHash, toHash, hashChanged, settled, elapsedMs }` — letting you check whether the action changed the UI state without a separate `refresh_data` round-trip. Requires the page to report a composite state hash (state graph / explorer active); otherwise `_observation.available` is `false` and the action still runs normally.
+
 | Tool | Description |
 |------|-------------|
 | `navigate_to` | Navigate to URL |
@@ -307,6 +311,15 @@ Instead of exposing all 57 tools at once, browser-whiskor uses **dynamic profile
 | `wait_for_element` | Wait for element |
 | `go_back` / `go_forward` | Browser history |
 | `reload_page` | Reload |
+
+### Tabs
+
+| Tool | Description |
+|------|-------------|
+| `list_tabs` | List all open browser tabs (every window), including tabs whiskor has not instrumented. Complements `get_sessions` (whiskor-active tabs only). |
+| `switch_tab` | Activate a tab by `tabId` and bring its window to the foreground (handles popups, auth windows) |
+| `open_tab` | Open a new tab, optionally at a URL; returns the new `tabId` |
+| `close_tab` | Close a tab by `tabId` |
 
 ### Intelligence
 

@@ -434,7 +434,7 @@ Invoke-RestMethod "http://localhost:7892/api/sessions/1/tools"
 
 ---
 
-# MCP ツールリファレンス (全57ツール)
+# MCP ツールリファレンス (全61ツール)
 
 MCP は Model Context Protocol。stdio 経由の JSON-RPC で動作します。
 
@@ -554,6 +554,17 @@ $req | node server/index.js --mcp
 | `check_box` | `tabId`, `selector` | チェックボックスON/OFF |
 | `scroll_page` | `tabId` | ページ/要素スクロール |
 | `wait_for_element` | `tabId` | 要素出現まで待機 |
+
+> **`observe` オプション:** `click` / `type_text` / `press_key` / `hover` / `scroll_page` / `mouse_scroll` / `drag` / `select_option` / `check_box` / `right_click` は `observe: true` を受け付ける。操作後に状態ハッシュが安定するまで監視し、レスポンスに `_observation: { available, fromHash, toHash, hashChanged, settled, elapsedMs }` を付与する（UIが変化したかを `refresh_data` 無しで確認できる）。ハッシュ未報告時は `available: false`。
+
+## TABS (4 ツール) — タブ管理
+
+| ツール | 必須パラメータ | 説明 |
+|--------|---------------|------|
+| `list_tabs` | (なし) | 全ブラウザタブ一覧 (whiskor未収集タブも含む)。`get_sessions` を補完 |
+| `switch_tab` | `tabId` | タブをアクティブ化 + ウィンドウをforeground化 |
+| `open_tab` | (なし) | 新規タブを開く (`url` / `active` 任意)。新 `tabId` を返す |
+| `close_tab` | `tabId` | タブを閉じる |
 
 ## CAPTURE (3 ツール) — 取得
 

@@ -8,7 +8,7 @@ browser-whiskor v3 (現在)          browser-whiskor v4+ (未来)
 ══════════════════════════════════  ══════════════════════════════════
   LLM Agent                           LLM Agent
   ───────────                         ───────────
-  MCP Server (55 tools)               MCP Server (85+ tools)
+  MCP Server (61 tools)               MCP Server (85+ tools)
   │                                    │
   ├─ Read (21)                         ├─ Read (21)
   ├─ Write (16)                        ├─ Write (17)
@@ -75,7 +75,7 @@ browser-whiskor v3 (現在)          browser-whiskor v4+ (未来)
 | 1 | **Slice XML Pipeline** — スクリーンショットをDOM構造に基づいてスライスし、XMLメタデータを付与 | [`slice-xml-pipeline/`](slice-xml-pipeline/) | 高 | 🔮 未実装 (v4+) |
 | 2 | **Transparent Overlay** — Dashboard上で要素の矩形を透明パネルとして可視化 | [`transparent-overlay/`](transparent-overlay/) | 高 | 🔮 未実装 (v4+) |
 | 3 | **Dynamic Focus** — AIの注視指示でポインタ中心に拡大＋重なるコード行を切り出し | [`dynamic-focus/`](dynamic-focus/) | 高 | 🔮 未実装 (v4+) |
-| 4 | **Tab Lifecycle & Archive** — タブ管理(一覧/切替/追加/閉鎖) + アーカイブ(状態保存→復元) | [`tab-archive/`](tab-archive/) | 高 | 🔮 未実装 (v4+) |
+| 4 | **Tab Lifecycle & Archive** — タブ管理(一覧/切替/追加/閉鎖) + アーカイブ(状態保存→復元) | [`tab-archive/`](tab-archive/) | 高 | 🟡 **タブ管理は実装済み** (list_tabs/switch_tab/open_tab/close_tab)。アーカイブ系(状態保存→復元)は 🔮 未実装 (v4+) |
 | 5 | **Context Brain / Intelligence Layer** — Correlator, Source Map, Conclusion Cache等 | [`context-brain/`](context-brain/) | — | ✅ **実装済み (v0.3.x)** |
 | 6 | **SoM Variants** — 背景適応型6色SoM、モデル別統計、Agent向けチートシート | [`som-variants/`](som-variants/) | 中 | 🔮 未実装 (v4+) |
 | 7 | **Extended Proposals** — Proposals A–G (B, C, E, F, G実装済み; A部分実装; D未実装) | [`extended-proposals/`](extended-proposals/) | — | ✅ **大半実装済み (v0.3.x)** |
@@ -89,7 +89,7 @@ Phase 1 (高優先度 — 新規機能)
   ├── 🔮 Slice XML Pipeline       — MCPツール追加、SW実装完了
   ├── 🔮 Transparent Overlay      — Dashboard UX改善
   ├── 🔮 Dynamic Focus Core       — ポインタ注視＋拡大画像生成
-  ├── 🔮 Tab Management           — list_tabs / switch_tab / open_tab / close_tab
+  ├── ✅ Tab Management           — list_tabs / switch_tab / open_tab / close_tab (実装済み)
   └── 🔮 Tab Archive              — archive_tab / restore_archive / search
 
 Phase 2 (中優先度)
@@ -98,7 +98,7 @@ Phase 2 (中優先度)
   └── 🔮 Agent Cheat Sheet        — 座標＋要素情報の同時提供
 
 Phase 3 (低優先度)
-  ├── 🔮 Adaptive Scheduling      — 定常オーバーヘッド削減 (Proposal D)
+  ├── 🟡 Adaptive Scheduling      — 定常オーバーヘッド削減 (Proposal D)。SW側 CollectionScheduler 実装済み・デフォルト無効 (adaptiveCollection.enabled)
   ├── 🔮 Transient Context Search — コード断片の横断検索
   └── 🔮 選択的キャプチャ最適化    — ぼかし・2値記録
 

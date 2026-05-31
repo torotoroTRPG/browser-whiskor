@@ -132,4 +132,4 @@ SHA-256(compositeHash + CSS_ORIGIN_MAP.contentHash + FRAMEWORK_DOM_MAP.contentHa
 | Conclusion Cache | 実装済み | server/conclusion-cache.js |
 | State Visualizer | 実装済み | server/state-visualizer.js |
 | Session Replay | 実装済み | server/session-replay.js |
-| Adaptive Scheduling | **未実装 (Proposal D)** | — |
+| Adaptive Scheduling | **実装済み・デフォルト無効 (Proposal D)** | extension/background/sw.js (CollectionScheduler), config: adaptiveCollection.enabled |

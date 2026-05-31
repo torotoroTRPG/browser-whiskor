@@ -16,20 +16,84 @@
     catch { return null; }
   }
 
-  function findByText(text, tags = ['button', 'a', 'input', 'label', '[role=button]', '[role=link]']) {
-    const lower = text.toLowerCase();
-    // Try each tag group, prefer exact match, then partial
-    const selector = tags.join(',');
-    const candidates = [...document.querySelectorAll(selector)];
-    const exact = candidates.find(el => {
-      const t = (el.textContent || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().toLowerCase();
-      return t === lower;
-    });
-    if (exact) return exact;
-    return candidates.find(el => {
-      const t = (el.textContent || el.value || el.placeholder || el.getAttribute('aria-label') || '').trim().toLowerCase();
-      return t.includes(lower);
-    }) || null;
+  function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function elementText(el) {
+    return (el.textContent || el.value || el.placeholder ||
+            el.getAttribute('aria-label') || el.getAttribute('title') || '')
+      .trim().toLowerCase();
+  }
+
+  function isElementVisible(el) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    const st = window.getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
+  }
+
+  /**
+   * Locate an element by its visible text.
+   *
+   * Two-pass strategy:
+   *   Pass 1 — explicit interactive elements (links, buttons, form fields, ARIA
+   *            widgets, [onclick], focusable nodes). These are the most likely
+   *            click targets, so a strong match here wins immediately.
+   *   Pass 2 — text-bearing leaf elements (div/span/li/headings with ≤2 element
+   *            children). Covers the common SPA pattern of a <div>/<span> carrying
+   *            a click handler, which Pass 1's selector list cannot express.
+   *
+   * Candidates are scored (exact > prefix > word-boundary > substring) and biased
+   * toward concise, visible, leaf-like elements so the label itself is preferred
+   * over a large wrapping container that merely contains the text.
+   */
+  function findByText(text) {
+    const lower = (text || '').toLowerCase().trim();
+    if (!lower) return null;
+    let wordRe = null;
+    try { wordRe = new RegExp('\\b' + escapeRegex(lower) + '\\b'); } catch (_) {}
+
+    function score(el) {
+      const t = elementText(el);
+      if (!t) return 0;
+      let s;
+      if (t === lower)                 s = 1.0;
+      else if (t.startsWith(lower))    s = 0.85;
+      else if (wordRe && wordRe.test(t)) s = 0.7;
+      else if (t.includes(lower))      s = 0.55;
+      else return 0;
+      // Prefer elements whose text is mostly the query (the label, not a wrapper).
+      s += (lower.length / Math.max(t.length, 1)) * 0.2;
+      if (isElementVisible(el)) s += 0.1;
+      if (el.children.length === 0) s += 0.05;
+      return s;
+    }
+
+    let best = null, bestScore = 0;
+
+    // Pass 1: explicit interactive elements.
+    const interactiveSel =
+      'button, a, input, textarea, select, label, summary, ' +
+      '[role=button], [role=link], [role=tab], [role=menuitem], [role=option], ' +
+      '[role=checkbox], [role=radio], [role=switch], [onclick], ' +
+      '[tabindex]:not([tabindex="-1"])';
+    for (const el of document.querySelectorAll(interactiveSel)) {
+      const sc = score(el);
+      if (sc > bestScore) { bestScore = sc; best = el; }
+    }
+    if (best && bestScore >= 0.7) return best;
+
+    // Pass 2: text-bearing leaf elements (covers clickable div/span/li/etc.).
+    for (const el of document.querySelectorAll(
+      'div, span, li, td, th, p, h1, h2, h3, h4, h5, h6, strong, b, em'
+    )) {
+      if (el.children.length > 2) continue; // skip large containers
+      const sc = score(el);
+      if (sc > bestScore) { bestScore = sc; best = el; }
+    }
+
+    return bestScore > 0 ? best : null;
   }
 
   function findByCoords(x, y) {

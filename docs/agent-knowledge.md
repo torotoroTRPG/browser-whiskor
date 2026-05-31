@@ -60,6 +60,17 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 | `go_forward` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.goForward) | — |
 | `reload_page` | `mcp/tools/write.js` | `sw.js` (chrome.tabs.reload) | — |
 
+> **`observe` option:** `click`, `type_text`, `press_key`, `hover`, `scroll_page`, `mouse_scroll`, `drag`, `select_option`, `check_box`, `right_click` accept `observe: true`. The server captures the pre-action composite hash, runs the action, then polls until the hash settles, attaching `_observation: { available, fromHash, toHash, hashChanged, settled, elapsedMs }`. Degrades to `{ available: false, reason }` when no hash channel exists (proxy mode / explorer inactive / page reports no compositeHash). Source: `mcp/tools/write.js` (`observeAction`) → `state-navigator.requestHash`.
+
+### TABS Tools
+
+| Tool | Handler | Extension Handler | Source |
+|------|---------|-------------------|--------|
+| `list_tabs` | `mcp/tools/tabs.js` | `sw.js` / `background.js` (chrome.tabs.query) | — |
+| `switch_tab` | `mcp/tools/tabs.js` | `sw.js` / `background.js` (chrome.tabs.update + windows.update) | — |
+| `open_tab` | `mcp/tools/tabs.js` | `sw.js` / `background.js` (chrome.tabs.create) | — |
+| `close_tab` | `mcp/tools/tabs.js` | `sw.js` / `background.js` (chrome.tabs.remove) | — |
+
 ### CAPTURE Tools
 
 | Tool | Handler | Extension Handler | Source |
