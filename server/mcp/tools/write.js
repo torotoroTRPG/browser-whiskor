@@ -4,6 +4,104 @@
  */
 'use strict';
 
+// JSON-schema fragment shared by interaction tools that support post-action
+// state observation. Spread into each tool's `properties`.
+const OBSERVE_SCHEMA = {
+  observe: {
+    type: 'boolean',
+    description: 'After the action, watch the page state hash until it settles and report whether the action changed the UI state. Lets you skip a separate refresh_data round-trip to check if anything happened. Requires the page to expose a composite state hash (explorer/state graph active); otherwise reported as unavailable.',
+  },
+  observeTimeoutMs: {
+    type: 'number',
+    description: 'Max time to wait for the state hash to settle when observe=true (default: 3000ms).',
+  },
+};
+
+/**
+ * Observe the page state hash before and after an action so the agent learns
+ * whether the action actually transitioned the UI — without a separate read.
+ *
+ * Degrades gracefully: if the hash channel is unavailable (proxy mode, explorer
+ * not running, or the page never reports a composite hash) the action still runs
+ * and `_observation.available` is false. Never lets observation failure mask the
+ * underlying action result.
+ *
+ * @returns the action result, with an attached `_observation` when observe=true.
+ */
+async function observeAction(cb, tabId, action, args) {
+  if (args.observe !== true) {
+    return cb._callAction(tabId, action, args.timeoutMs);
+  }
+
+  const navigator = require('../../state-navigator');
+  const broadcast = cb._navigateBroadcast;
+  const maxWaitMs = args.observeTimeoutMs || 3000;
+
+  if (typeof broadcast !== 'function') {
+    const result = await cb._callAction(tabId, action, args.timeoutMs);
+    return { ...result, _observation: { available: false, reason: 'State hash observation not available in this server mode.' } };
+  }
+
+  // Pre-action hash (best effort — short timeout so we never stall the action).
+  let fromHash = null;
+  try {
+    const pre = await navigator.requestHash(tabId, broadcast, 1500);
+    fromHash = pre?.compositeHash || null;
+  } catch (_) { /* page does not report a hash yet */ }
+
+  const result = await cb._callAction(tabId, action, args.timeoutMs);
+
+  const observation = await _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs);
+  return { ...result, _observation: observation };
+}
+
+/**
+ * Poll the page state hash until two consecutive reads agree (settled) or the
+ * deadline passes, then summarise the transition relative to `fromHash`.
+ */
+async function _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs) {
+  const SETTLE_READS = 2;
+  const INTERVAL_MS  = 200;
+  const start = Date.now();
+
+  let lastHash = null;
+  let stable   = 0;
+  let latest   = null;
+
+  while (Date.now() - start < maxWaitMs) {
+    let h = null;
+    try {
+      const r = await navigator.requestHash(tabId, broadcast, 1500);
+      h = r?.compositeHash || null;
+    } catch (_) {
+      break; // hash channel unresponsive — stop polling
+    }
+    if (h == null) break;
+    latest = h;
+
+    if (h === lastHash) {
+      if (++stable >= SETTLE_READS) break;
+    } else {
+      stable = 1;
+      lastHash = h;
+    }
+    await new Promise(r => setTimeout(r, INTERVAL_MS));
+  }
+
+  if (latest == null) {
+    return { available: false, reason: 'Page did not report a state hash (explorer/state graph may be inactive).' };
+  }
+
+  return {
+    available: true,
+    fromHash,
+    toHash: latest,
+    hashChanged: fromHash != null ? fromHash !== latest : null,
+    settled: stable >= SETTLE_READS,
+    elapsedMs: Date.now() - start,
+  };
+}
+
 module.exports = function registerWriteTools(registry) {
   const tools = [];
 
@@ -42,12 +140,13 @@ module.exports = function registerWriteTools(registry) {
           double:   { type: 'boolean', description: 'Double-click instead of single click (default: false)' },
           button:   { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button (default: left)' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type: 'click',
         selector: args.selector,
         text:     args.text,
@@ -55,7 +154,7 @@ module.exports = function registerWriteTools(registry) {
         y:        args.y,
         double:   args.double,
         button:   args.button,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -73,18 +172,19 @@ module.exports = function registerWriteTools(registry) {
           x:        { type: 'number', description: 'Absolute X coordinate' },
           y:        { type: 'number', description: 'Absolute Y coordinate' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type:     'right_click',
         selector: args.selector,
         text:     args.text,
         x:        args.x,
         y:        args.y,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -102,18 +202,19 @@ module.exports = function registerWriteTools(registry) {
           clear:      { type: 'boolean', description: 'Clear existing content before typing (default: false)' },
           pressEnter: { type: 'boolean', description: 'Press Enter after typing (default: false)' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId', 'text'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type:       'type',
         text:       args.text,
         selector:   args.selector,
         clear:      args.clear,
         pressEnter: args.pressEnter,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -128,12 +229,13 @@ module.exports = function registerWriteTools(registry) {
           tabId: { type: 'number', description: 'Tab ID' },
           key:   { type: 'string', description: 'Key or combo (e.g. "Enter", "Escape", "Tab", "Control+a", "Shift+ArrowDown")' },
           timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId', 'key'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, { type: 'press_key', key: args.key }, args.timeoutMs);
+      return observeAction(cb, args.tabId, { type: 'press_key', key: args.key }, args);
     },
   });
 
@@ -149,12 +251,13 @@ module.exports = function registerWriteTools(registry) {
           selector: { type: 'string', description: 'CSS selector' },
           text:     { type: 'string', description: 'Visible text (fallback if selector is absent)' },
           timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, { type: 'hover', selector: args.selector, text: args.text }, args.timeoutMs);
+      return observeAction(cb, args.tabId, { type: 'hover', selector: args.selector, text: args.text }, args);
     },
   });
 
@@ -175,12 +278,13 @@ module.exports = function registerWriteTools(registry) {
           deltaY:    { type: 'number', description: 'Scroll by this many pixels vertically' },
           behavior:  { type: 'string', enum: ['instant', 'smooth'], description: 'Scroll behavior (default: instant)' },
           timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type:      'scroll',
         toElement: args.toElement,
         selector:  args.selector,
@@ -189,7 +293,7 @@ module.exports = function registerWriteTools(registry) {
         deltaX:    args.deltaX,
         deltaY:    args.deltaY,
         behavior:  args.behavior,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -206,14 +310,15 @@ module.exports = function registerWriteTools(registry) {
           value:    { type: 'string', description: 'Option value attribute to select' },
           label:    { type: 'string', description: 'Option text label to select (used if value is absent, partial match)' },
           timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId', 'selector'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type: 'select_option', selector: args.selector, value: args.value, label: args.label,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -229,14 +334,15 @@ module.exports = function registerWriteTools(registry) {
           selector: { type: 'string', description: 'CSS selector of the checkbox/radio' },
           checked:  { type: 'boolean', description: 'true = check, false = uncheck (default: true)' },
           timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId', 'selector'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type: 'check', selector: args.selector, checked: args.checked !== false,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -255,19 +361,20 @@ module.exports = function registerWriteTools(registry) {
           toY:          { type: 'number', description: 'Absolute Y coordinate of drag end' },
           fromSelector: { type: 'string', description: 'CSS selector of drag source (alternative to fromX/fromY — uses element center)' },
           timeoutMs:    { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type:        'drag',
         fromX:       args.fromX,
         fromY:       args.fromY,
         toX:         args.toX,
         toY:         args.toY,
         fromSelector: args.fromSelector,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
@@ -287,12 +394,13 @@ module.exports = function registerWriteTools(registry) {
           lines:     { type: 'number', description: 'Number of lines to scroll (alternative to deltaY; 1 line ≈ 100px)' },
           selector:  { type: 'string', description: 'CSS selector — fires wheel at element center (alternative to x/y)' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
         },
         required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, {
+      return observeAction(cb, args.tabId, {
         type:     'mouse_scroll',
         x:        args.x,
         y:        args.y,
@@ -300,7 +408,7 @@ module.exports = function registerWriteTools(registry) {
         deltaY:   args.deltaY,
         lines:    args.lines,
         selector: args.selector,
-      }, args.timeoutMs);
+      }, args);
     },
   });
 
