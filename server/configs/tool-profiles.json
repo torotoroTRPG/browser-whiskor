@@ -58,6 +58,14 @@
     "triggers": ["drag", "hover", "select", "checkbox", "scroll", "right-click", "key", "back", "forward", "reload"]
   },
 
+  "tabs": {
+    "description": "Browser tab lifecycle — list, switch, open, and close tabs (handles popups, auth redirects, multi-tab flows).",
+    "tools": ["list_tabs", "switch_tab", "open_tab", "close_tab"],
+    "autoUnload": true,
+    "idleTurns": 6,
+    "triggers": ["switch tab", "other tab", "new tab", "browser tab", "close tab", "open tab", "list tab", "popup", "redirect"]
+  },
+
   "intelligence": {
     "description": "Deep element analysis and causal investigation. Auto-loads when AI needs to explain CSS, trace changes, or detect site updates.",
     "tools": [

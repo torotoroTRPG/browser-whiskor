@@ -25,6 +25,7 @@ const toolManager = require('./tool-manager');
 // ツールカテゴリを登録
 require('./mcp/tools/read')(registry);
 require('./mcp/tools/write')(registry);
+require('./mcp/tools/tabs')(registry);
 require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
 require('./mcp/tools/intelligence')(registry);

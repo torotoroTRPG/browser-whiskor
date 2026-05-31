@@ -72,6 +72,11 @@
     "go_forward":         { "enabled": true,  "category": "write" },
     "reload_page":        { "enabled": true,  "category": "write" },
 
+    "list_tabs":          { "enabled": true,  "category": "write" },
+    "switch_tab":         { "enabled": true,  "category": "write" },
+    "open_tab":           { "enabled": true,  "category": "write" },
+    "close_tab":          { "enabled": true,  "category": "write" },
+
     "capture_screenshot": { "enabled": true,  "category": "capture" },
     "refresh_data":       { "enabled": true,  "category": "capture" },
 

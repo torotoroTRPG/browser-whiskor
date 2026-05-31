@@ -224,6 +224,36 @@ async function handleServerMessage(msg) {
           await browser.tabs.goForward(tabId); result = { ok: true };
         } else if (action.type === 'reload') {
           await browser.tabs.reload(tabId, { bypassCache: !!action.hard }); result = { ok: true };
+        } else if (action.type === 'list_tabs') {
+          const query = action.currentWindowOnly ? { currentWindow: true } : {};
+          const tabs = await browser.tabs.query(query);
+          result = {
+            ok: true,
+            tabs: tabs.map(t => ({
+              tabId:    t.id,
+              url:      t.url || '',
+              title:    t.title || '',
+              active:   !!t.active,
+              windowId: t.windowId,
+              index:    t.index,
+              status:   t.status || null,
+              pinned:   !!t.pinned,
+              audible:  !!t.audible,
+            })),
+          };
+        } else if (action.type === 'switch_tab') {
+          const target = await browser.tabs.update(action.targetTabId, { active: true });
+          try { await browser.windows.update(target.windowId, { focused: true }); } catch (_) {}
+          result = { ok: true, tabId: target.id, url: target.url || '', title: target.title || '' };
+        } else if (action.type === 'open_tab') {
+          const opened = await browser.tabs.create({
+            url: action.url || 'about:blank',
+            active: action.active !== false,
+          });
+          result = { ok: true, tabId: opened.id, url: opened.url || (action.url || 'about:blank') };
+        } else if (action.type === 'close_tab') {
+          await browser.tabs.remove(action.targetTabId);
+          result = { ok: true, closedTabId: action.targetTabId };
         } else {
           result = await executeInPage(tabId, action);
         }

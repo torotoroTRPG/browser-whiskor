@@ -399,6 +399,48 @@ async function handleServerMessage(msg) {
             result = { ok: true, tabId: newTab.id, url: newTab.url };
             break;
 
+          case 'list_tabs': {
+            const query = action.currentWindowOnly ? { currentWindow: true } : {};
+            const tabs = await chrome.tabs.query(query);
+            result = {
+              ok: true,
+              tabs: tabs.map(t => ({
+                tabId:    t.id,
+                url:      t.url || t.pendingUrl || '',
+                title:    t.title || '',
+                active:   !!t.active,
+                windowId: t.windowId,
+                index:    t.index,
+                status:   t.status || null,
+                pinned:   !!t.pinned,
+                audible:  !!t.audible,
+              })),
+            };
+            break;
+          }
+
+          case 'switch_tab': {
+            const target = await chrome.tabs.update(action.targetTabId, { active: true });
+            try { await chrome.windows.update(target.windowId, { focused: true }); } catch (_) {}
+            result = { ok: true, tabId: target.id, url: target.url || '', title: target.title || '' };
+            break;
+          }
+
+          case 'open_tab': {
+            const opened = await chrome.tabs.create({
+              url: action.url || 'about:blank',
+              active: action.active !== false,
+            });
+            result = { ok: true, tabId: opened.id, url: opened.url || opened.pendingUrl || (action.url || 'about:blank') };
+            break;
+          }
+
+          case 'close_tab': {
+            await chrome.tabs.remove(action.targetTabId);
+            result = { ok: true, closedTabId: action.targetTabId };
+            break;
+          }
+
           case 'set_viewport':
             await chrome.windows.update((await chrome.tabs.get(tabId)).windowId, {
               width: action.width,
