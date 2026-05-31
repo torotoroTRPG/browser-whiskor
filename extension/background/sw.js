@@ -10,6 +10,13 @@
  */
 'use strict';
 
+// ── App Isolation (optional) ──────────────────────────────────────────────────
+// To isolate this extension instance from others sharing the same server,
+// set APP_ID to a unique string and configure the same id in config.json
+// under appIsolation.apps[]. Leave empty for default public (shared) access.
+const APP_ID    = '';
+const APP_TOKEN = '';
+
 const WS_URL       = 'ws://127.0.0.1:7891';
 const RECONNECT_MS = 3000;
 const PING_MS      = 20000;   // keepalive ping interval
@@ -180,7 +187,11 @@ async function cropImage(dataUrl, rect, padding, format, quality) {
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 function connectWs() {
-  try { ws = new WebSocket(WS_URL); }
+  let wsTarget = WS_URL;
+  if (APP_ID) {
+    wsTarget += `?appId=${encodeURIComponent(APP_ID)}&token=${encodeURIComponent(APP_TOKEN)}`;
+  }
+  try { ws = new WebSocket(wsTarget); }
   catch (e) { scheduleReconnect(); return; }
 
   const connectTimer = setTimeout(() => {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "browser-whiskor",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Agent-grade browser instrumentation for Firefox with state navigation: actions, ARIA, storage, console, semantic state graph, MCP-ready.",
   "icons": {
     "16": "icons/icon.png",
@@ -20,6 +20,7 @@
         "injected/version-helper.js",
         "injected/plugin-system.js",
         "lib/bippy.iife.js",
+        "injected/lib/intent-classifier.js",
         "injected/adapters/react-hooks.js",
         "injected/adapters/react-state-managers.js",
         "injected/adapters/react.js",

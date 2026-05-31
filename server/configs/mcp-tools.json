@@ -82,7 +82,15 @@
     "navigate_to_state":  { "enabled": true,  "category": "control" },
     "get_navigation_path": { "enabled": true, "category": "control" },
 
-    "analyze_click":      { "enabled": true,  "category": "core" },
+    "capture_element_screenshot": { "enabled": true, "category": "capture" },
+
+    "get_delta":          { "enabled": true,  "category": "read" },
+    "list_patterns":      { "enabled": true,  "category": "read" },
+    "lookup_pattern":     { "enabled": true,  "category": "read" },
+
+    "scroll_page":        { "enabled": true,  "category": "write" },
+
+    "analyze_click":      { "enabled": true,  "category": "intelligence" },
     "explain_element":    { "enabled": true,  "category": "intelligence" },
     "why_did_this_change": { "enabled": true, "category": "intelligence" },
     "get_source_file":    { "enabled": true,  "category": "intelligence" },

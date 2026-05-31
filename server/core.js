@@ -21,6 +21,8 @@ class WhiskorCore extends EventEmitter {
     this._pendingActions = new Map();
     this._wsToTabs = new Map();       // WebSocket → Set<tabId>
     this._tabDisconnectedAt = new Map(); // tabId → timestamp
+    this._wsToApp  = new Map();       // WebSocket → appId (null = unregistered/public)
+    this._tabToApp = new Map();       // tabId    → appId
     // Task 1: deferred buffer — holds TEXT_COORD_DELTA 100ms to let DOM_MUTATION arrive first
     this._deferredDeltas = new Map(); // tabId → { timer, msg }
 
@@ -39,6 +41,7 @@ class WhiskorCore extends EventEmitter {
     this.correlator       = opts.correlator       || null;
     this.sourceStore      = opts.sourceStore      || null;
     this._conclusionCache = opts.conclusionCache  || null;
+    this.appRegistry      = opts.appRegistry      || null;
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',
@@ -105,8 +108,15 @@ class WhiskorCore extends EventEmitter {
   }
 
   // ── WebSocket connection handling ───────────────────────────────────────────
-  handleSWConnect(ws, config) {
+
+  /** Returns the appId associated with a given tabId (null if unregistered). */
+  getTabApp(tabId) {
+    return this._tabToApp.get(tabId) ?? null;
+  }
+
+  handleSWConnect(ws, config, appId = null) {
     this.swSockets.add(ws);
+    this._wsToApp.set(ws, appId);
     ws.send(JSON.stringify({ type: 'SET_CONFIG', config }));
 
     ws.on('message', (raw) => {
@@ -120,6 +130,7 @@ class WhiskorCore extends EventEmitter {
 
     const onDisconnect = () => {
       this.swSockets.delete(ws);
+      this._wsToApp.delete(ws);
       // Mark all tabs for this ws as disconnected
       const tabs = this._wsToTabs.get(ws);
       if (tabs) {
@@ -156,11 +167,15 @@ class WhiskorCore extends EventEmitter {
   // ── Message routing ─────────────────────────────────────────────────────────
   async routeMessage(msg, fromWs) {
     this.emit('message', msg, fromWs);
-    // Track which tabIds belong to this WebSocket for cleanup
+    // Track which tabIds belong to this WebSocket for cleanup + app isolation
     if (msg.tabId && fromWs) {
       if (!this._wsToTabs.has(fromWs)) this._wsToTabs.set(fromWs, new Set());
       this._wsToTabs.get(fromWs).add(msg.tabId);
       this._tabDisconnectedAt.delete(msg.tabId); // reconnected
+      // Bind tab → app (first reporter wins; stable for the tab's lifetime)
+      if (!this._tabToApp.has(msg.tabId)) {
+        this._tabToApp.set(msg.tabId, this._wsToApp.get(fromWs) ?? null);
+      }
     }
 
     switch (msg.type) {
@@ -400,6 +415,8 @@ class WhiskorCore extends EventEmitter {
   handleHttpRequest(req) {
     const { method, url, body } = req;
     const p = url.pathname;
+    const callerAppId  = req.callerAppId  ?? null;
+    const appRegistry  = this.appRegistry;
 
     if (method === 'GET' && p === '/health') {
       return { status: 200, body: { ok: true, wsConnections: this.swSockets.size, sessions: this.cache.getSessionList().length, pendingActions: this.actions.pendingCount() } };
@@ -422,12 +439,22 @@ class WhiskorCore extends EventEmitter {
     }
 
     if (method === 'GET' && p === '/api/sessions') {
-      return { status: 200, body: this.cache.getSessionList() };
+      let sessions = this.cache.getSessionList();
+      if (appRegistry?.enabled) {
+        sessions = sessions.filter(s =>
+          appRegistry.canAccess(callerAppId, this.getTabApp(s.tabId))
+        );
+      }
+      return { status: 200, body: sessions };
     }
 
     const sessionM = p.match(/^\/api\/sessions\/(\d+)$/);
     if (method === 'GET' && sessionM) {
-      const d = this.cache.getSessionData(parseInt(sessionM[1]));
+      const tabId = parseInt(sessionM[1]);
+      if (appRegistry?.enabled && !appRegistry.canAccess(callerAppId, this.getTabApp(tabId))) {
+        return { status: 403, body: { error: 'Access denied: this tab belongs to another app' } };
+      }
+      const d = this.cache.getSessionData(tabId);
       return d ? { status: 200, body: d } : { status: 404, body: { error: 'Not found' } };
     }
 

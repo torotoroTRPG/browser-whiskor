@@ -34,6 +34,7 @@ const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
 const sourceStore = require('./source-store');
 const conclusionCache = require('./conclusion-cache');
+const AppRegistry = require('./app-registry');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -112,6 +113,7 @@ function requestServer(method, pathname, body = null) {
 let core = null;
 let wss = null;
 let PROXY_MODE = false;
+let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
 (async () => {
   // Only check for proxy mode if we are in MCP mode or stdin is not a TTY
@@ -137,6 +139,11 @@ let PROXY_MODE = false;
       maxChainsPerSession:  correlatorCfg.maxChainsPerSession  || 500,
     });
 
+    appRegistry = new AppRegistry(_cfg.appIsolation || {});
+    if (appRegistry.enabled) {
+      log('info', '[app-isolation] enabled — multi-app tab isolation is active');
+    }
+
     core = new WhiskorCore({
       cache,
       actions,
@@ -148,6 +155,7 @@ let PROXY_MODE = false;
       correlator,
       sourceStore,
       conclusionCache,
+      appRegistry,
       initialConfig: {
         mode: 'always_on',
         plugins: _cfg.plugins || {},
@@ -187,11 +195,26 @@ let PROXY_MODE = false;
 
     if (wss) {
       wss.on('connection', (ws, req) => {
-        if (req.url === '/dashboard') {
+        if (req.url === '/dashboard' || req.url.startsWith('/dashboard?')) {
           core.handleDashboardConnect(ws, cache.getSessionList(), core.globalConfig);
           return;
         }
-        core.handleSWConnect(ws, core.globalConfig);
+
+        // Parse appId / token from WS URL query string
+        let wsAppId = null;
+        try {
+          const wsUrl = new URL(req.url, `ws://${HOST}:${WS_PORT}`);
+          wsAppId = wsUrl.searchParams.get('appId') || null;
+          const wsToken = wsUrl.searchParams.get('token') || '';
+          const err = appRegistry.validate(wsAppId, wsToken);
+          if (err) {
+            log('warn', `[app-isolation] WS rejected: ${err}`);
+            ws.close(4001, err);
+            return;
+          }
+        } catch { /* malformed URL — allow with no appId */ }
+
+        core.handleSWConnect(ws, core.globalConfig, wsAppId);
       });
 
       wss.on('error', (err) => {
@@ -338,7 +361,15 @@ let PROXY_MODE = false;
     }
 
     // Delegate to core HTTP handler
-    const coreReq = { method, url: { pathname: p }, body: null };
+    // Resolve caller appId from request headers (for app isolation)
+    const httpAppId    = req.headers['x-whiskor-app-id']    || null;
+    const httpAppToken = req.headers['x-whiskor-app-token'] || '';
+    const httpAuthErr  = appRegistry.validate(httpAppId, httpAppToken);
+    if (httpAuthErr) {
+      return sendJson({ error: httpAuthErr }, 403);
+    }
+
+    const coreReq = { method, url: { pathname: p }, body: null, callerAppId: httpAppId };
     let bodyPromise = Promise.resolve(null);
     if (method === 'POST') {
       bodyPromise = readBody();

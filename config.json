@@ -319,6 +319,14 @@
     "_comment_ja": "Service Workerから定期的にMANUAL_COLLECTを送信する機能。enabled:falseで無効（デフォルト）。有効時はアクティブなタブにactiveIntervalMs間隔で収集を指示し、quiescentAfterMs間操作がない場合はquiescentIntervalMs間隔に切り替わる。"
   },
 
+  "appIsolation": {
+    "enabled": false,
+    "apps": [],
+    "_comment_en": "Optional multi-app isolation. When enabled, apps register with an id + optional token and an access level (public / private). Private apps can only see tabs reported by their own extension instance. Set enabled:true and add entries to apps[] to activate. Agents cannot modify this section.",
+    "_comment_ja": "任意の複数アプリ分離機能。有効にすると、アプリはid+任意のtoken+アクセスレベル(public/private)で登録します。privateアプリは自分の拡張機能が報告したタブのみ参照可能。エージェントはこのセクションを変更できません。",
+    "_comment_example": "apps: [{\"id\":\"myapp\",\"token\":\"secret123\",\"access\":\"private\"}]"
+  },
+
   "agentControl": {
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,
@@ -358,6 +366,7 @@
       "server",
       "security",
       "agentControl",
+      "appIsolation",
       "permissions"
     ],
     "warnOnUnauthorized": true,

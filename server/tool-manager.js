@@ -22,11 +22,16 @@ const WARNING_TURN_THRESHOLD = 5;
 // of the toolset (search → load → status → unload). They are intentionally kept
 // out of the `core` profile in tool-profiles.json so that the profile config
 // reflects only domain tools while meta tools are owned by the manager itself.
+//
+// analyze_click is also always visible: it is a pre-action dry-run utility
+// (clickability report before committing a click) that is useful in any context
+// and carries no side effects, making it appropriate alongside meta tools.
 const ALWAYS_VISIBLE_TOOLS = Object.freeze([
   'search_tools',
   'load_profile',
   'unload_profile',
   'profile_status',
+  'analyze_click',
 ]);
 
 // Allowed characters for an externally supplied session id (env var).

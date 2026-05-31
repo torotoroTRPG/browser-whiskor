@@ -7,10 +7,10 @@
     "tools": [
       "get_sessions", "get_index", "get_text_coords", "get_viewport",
       "get_framework_state", "get_ui_catalog", "get_network",
-      "refresh_data", "capture_screenshot",
+      "refresh_data", "capture_screenshot", "capture_element_screenshot",
       "click", "type_text", "navigate_to"
     ],
-    "_metaTools": "search_tools/load_profile/unload_profile/profile_status are always visible (handled by tool-manager.js, see ALWAYS_VISIBLE_TOOLS).",
+    "_metaTools": "search_tools/load_profile/unload_profile/profile_status/analyze_click are always visible (handled by tool-manager.js, see ALWAYS_VISIBLE_TOOLS).",
     "autoUnload": false
   },
 
@@ -30,11 +30,12 @@
     "tools": [
       "get_state_map", "list_states", "search_states",
       "get_state_detail", "pin_state",
-      "navigate_to_state", "get_navigation_path"
+      "navigate_to_state", "get_navigation_path",
+      "get_state_map_visual", "replay_session"
     ],
     "autoUnload": true,
     "idleTurns": 8,
-    "triggers": ["state", "graph", "navigate", "history", "backtrack", "time-travel"]
+    "triggers": ["state", "graph", "navigate", "history", "backtrack", "time-travel", "replay", "ascii"]
   },
 
   "delta": {
@@ -50,11 +51,22 @@
     "tools": [
       "drag", "hover", "select_option", "check_box",
       "mouse_scroll", "right_click", "press_key",
-      "go_back", "go_forward", "reload_page"
+      "go_back", "go_forward", "reload_page", "scroll_page"
     ],
     "autoUnload": true,
     "idleTurns": 5,
     "triggers": ["drag", "hover", "select", "checkbox", "scroll", "right-click", "key", "back", "forward", "reload"]
+  },
+
+  "intelligence": {
+    "description": "Deep element analysis and causal investigation. Auto-loads when AI needs to explain CSS, trace changes, or detect site updates.",
+    "tools": [
+      "explain_element", "why_did_this_change",
+      "get_source_file", "detect_site_updates"
+    ],
+    "autoUnload": true,
+    "idleTurns": 5,
+    "triggers": ["explain", "why", "source", "origin", "cause", "causal", "changed", "update", "detect", "css origin", "sourcemap"]
   },
 
   "admin": {

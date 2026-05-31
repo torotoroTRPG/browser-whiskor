@@ -3,6 +3,12 @@
  */
 'use strict';
 
+// ── App Isolation (optional) ──────────────────────────────────────────────────
+// Set APP_ID to a unique string and configure the same id in config.json
+// under appIsolation.apps[]. Leave empty for default public (shared) access.
+const APP_ID    = '';
+const APP_TOKEN = '';
+
 const WS_URL       = 'ws://127.0.0.1:7891';
 const RECONNECT_MS = 3000;
 const PING_MS      = 20000;
@@ -140,7 +146,11 @@ async function cropImage(dataUrl, rect, padding, format, quality) {
 
 // ── Set-of-Marks: Draw numbered markers on screenshot ────────────────────────
 function connectWs() {
-  try { ws = new WebSocket(WS_URL); } catch { scheduleReconnect(); return; }
+  let wsTarget = WS_URL;
+  if (APP_ID) {
+    wsTarget += `?appId=${encodeURIComponent(APP_ID)}&token=${encodeURIComponent(APP_TOKEN)}`;
+  }
+  try { ws = new WebSocket(wsTarget); } catch { scheduleReconnect(); return; }
   ws.addEventListener('open', () => {
     wsReady = true;
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
