@@ -1,19 +1,20 @@
 /**
- * server/mcp-server.js  –  browser-whiskor v0.3.0
+ * server/mcp-server.js  –  browser-whiskor v0.3.4
  *
  * MCP (Model Context Protocol) server — 新アーキテクチャ。
  *
  * 階層:
  *   mcp-server.js (エントリポイント)
  *     → mcp/registry.js (ツール登録・フィルタリング)
- *     → mcp/tools/read.js
+ *     → mcp/tools/read.js (read-basic / read-data / read-state / read-helpers)
  *     → mcp/tools/write.js
- *     → mcp/tools/capture.js
+ *     → mcp/tools/capture.js / capture-element.js
  *     → mcp/tools/control.js
  *     → mcp/tools/intelligence.js
+ *     → mcp/tools/replay.js
  *     → mcp/transport.js (stdio/JSON-RPC)
  *
- * 全55ツール（READ 21, WRITE 16, CAPTURE 3, CONTROL 10, INTELLIGENCE 5）。
+ * 全57ツール（READ 21, WRITE 16, CAPTURE 3, CONTROL 6+4meta, INTELLIGENCE 6, REPLAY 1）。
  */
 'use strict';
 

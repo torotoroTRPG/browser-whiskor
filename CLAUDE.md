@@ -37,31 +37,64 @@ AI Agent (Claude / Cursor / etc.)
     ▼
 server/index.js          ← エントリーポイント。HTTP:7892 + WS:7891 を立ち上げ
     ├── server/core.js           ← WhiskorCore: WSメッセージのルーティングと永続化
-    ├── server/mcp-server.js     ← MCP層 (55ツール)
-    │       ├── mcp/registry.js  ← ツール登録・フィルター・プリセット
-    │       ├── mcp/transport.js ← stdio JSON-RPCトランスポート
-    │       └── mcp/tools/       ← read / write / capture / control / intelligence
-    ├── server/cache-writer.js   ← ディスク永続化 (cache/{tabId}/raw/...)
-    ├── server/state-store.js    ← ステートグラフ (LRU + gzip + 後方互換)
+    ├── server/mcp-server.js     ← MCP層 (57ツール)
+    │       ├── mcp/registry.js        ← ツール登録・フィルター・プリセット
+    │       ├── mcp/transport.js       ← stdio JSON-RPCトランスポート
+    │       └── mcp/tools/
+    │               ├── read.js / read-basic.js / read-data.js / read-state.js / read-helpers.js
+    │               ├── write.js       ← 16 writeツール
+    │               ├── capture.js / capture-element.js  ← 3 captureツール
+    │               ├── control.js     ← 6 controlツール (+ 4メタツールはtool-manager)
+    │               ├── intelligence.js← 5 intelligenceツール
+    │               └── replay.js      ← replay_session
+    ├── server/tool-manager.js   ← 動的プロファイルロード/アンロード (ALWAYS_VISIBLE_TOOLS)
+    ├── server/cache-writer.js   ← ディスク永続化 (cache/sessions/{tabId}/raw/...)
+    ├── server/cache-integrity.js← 起動時キャッシュ検証・自動修復
+    ├── server/action-executor.js← アクション実行ルーター
+    ├── server/screenshot-manager.js ← スクリーンショット + 要素キャプチャ管理
+    ├── server/app-registry.js   ← マルチアプリ分離 (appIsolation設定で有効化)
+    ├── server/state-store.js    ← ステートグラフ (LRU + gzip + 後方互換コア)
+    ├── server/state-machine.js  ← state-store.js への後方互換ラッパー
+    ├── server/state-persistence.js ← ステートグラフのディスクI/O
     ├── server/state-fingerprint.js ← FNV32ハッシュエンジン
+    ├── server/state-semantic.js ← ラベル生成・タグ抽出・keyState・検索
     ├── server/state-navigator.js   ← BFS経路探索 + アクションリプレイ
+    ├── server/state-visualizer.js  ← ASCIIステートグラフレンダリング
     ├── server/delta-engine.js   ← スマートデルタ集約・モーションクラスタリング
     ├── server/pattern-registry.js  ← UIパターン保存 + ref ID参照
-    ├── server/tool-manager.js   ← 動的プロファイルロード/アンロード
     ├── server/correlator.js     ← TimeSeriesCorrelator (UI変化の因果相関)
-    └── server/source-store.js   ← CSSソースキャッシュ + クロスセッションハッシュ
+    ├── server/source-store.js   ← CSSソースキャッシュ + クロスセッションハッシュ
+    ├── server/source-map-resolver.js ← VLQ sourcemap解決・LRUキャッシュ
+    ├── server/conclusion-cache.js   ← explain_element結果キャッシュ (SHA-256無効化)
+    ├── server/session-replay.js     ← actions.jsonl記録 + リプレイエンジン
+    ├── server/config-loader.js      ← config.json + .env + mcp-tools.json読み込み
+    ├── server/config-change-log.js  ← エージェント設定変更追跡・自動リバート
+    └── server/services/
+            ├── embed-service.js     ← セマンティック検索オーケストレーション
+            ├── embed-store.js       ← 埋め込みベクトルLRUキャッシュ
+            ├── embed-worker.js      ← Transformers.js ONNX実行
+            ├── embed-worker-pool.js ← ワーカースレッドプール管理
+            └── load-monitor.js      ← イベントループ遅延検知
 
 extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
     ├── background/sw.js              background/background.js
     └── injected/                 └── injected/  ← shared/ からコピーされる
-            ├── collector.js
-            ├── bridge.js
-            ├── executor.js
-            ├── explorer.js
-            ├── state-reporter.js
-            ├── plugin-system.js
-            ├── adapters/ (React/Vue3/Vue2/Angular/Svelte/Preact/Alpine/Solid/DOM)
-            └── analyzers/ (text-coords/ui-catalog/css-analyzer/accessibility/...)
+            ├── plugin-system.js      ← ホットリロード可能なプラグインレジストリ
+            ├── collector.js          ← プラグイン出力アグリゲーター
+            ├── bridge.js             ← ISOLATED world中継
+            ├── executor.js           ← アクション実行 (click/type/key/scroll/JS)
+            ├── explorer.js           ← 自律ページ探索 (compositeHash)
+            ├── state-reporter.js     ← REQUEST_STATE_HASH ハンドラ
+            ├── adapters/             ← フレームワーク状態抽出 (9アダプター)
+            │   react.js + react-hooks.js + react-state-managers.js
+            │   vue3.js / vue2.js / angular.js / svelte.js
+            │   preact.js / alpine.js / solid.js / dom-generic.js
+            └── analyzers/            ← ページデータ収集 (15アナライザー)
+                text-coords.js / network.js / css.js / css-origin.js
+                source-fetcher.js / ui-catalog.js / perf.js
+                dom-mutations.js / shadow-dom.js / dom-snapshot.js
+                clickability.js / framework-dom-map.js
+                accessibility.js / console-logger.js / storage-reader.js
 ```
 
 ### 重要: shared/injected/ の役割
@@ -87,7 +120,20 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 ### MCPツールプロファイル
 
-常時公開は12ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` の4つは常時公開される「メタツール」。
+常時公開は13ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` / `analyze_click` の5つは常時公開される「メタツール」（`server/tool-manager.js` の `ALWAYS_VISIBLE_TOOLS`）。
+
+| プロファイル | ツール数 | 主なツール | 自動トリガーキーワード | アイドル解除 |
+|---|---|---|---|---|
+| **core** (13) | 常時 | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | — | なし |
+| **debug** (+6) | 自動 | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10ターン |
+| **state-nav** (+9) | 自動 | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8ターン |
+| **delta** (+3) | 自動 | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6ターン |
+| **advanced-actions** (+11) | 自動 | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5ターン |
+| **intelligence** (+4) | 自動 | explain_element, why_did_this_change, get_source_file, detect_site_updates | "explain", "why", "source", "cause" | 5ターン |
+| **admin** (+4) | 自動 | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3ターン |
+| **power** (+2) | 自動 | execute_js, wait_for_element | "execute", "wait" | 2ターン |
+
+プロファイル定義は `server/configs/tool-profiles.json`。ツール有効/無効設定は `server/configs/mcp-tools.json`。
 
 ## Extension Setup
 
@@ -117,7 +163,8 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 ## Known Issues / Notes
 
 - `plugin-system.js` の `dependencies` フィールドは `source-fetcher` / `css-origin` / `framework-dom-map` の3件のみ設定済み。他のプラグインは `|| []` フォールバックで動作するが、厳密な依存順序は未保証
-- IMPLEMENTATION-PROGRESS.md に記載された「mcp-tools.json 追記未完了」「Firefox manifest 未登録」の2件は解決済み
+- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.3.4`、57ツール
+- Proposal D（アダプティブ収集スケジューリング）は未実装。他の全アーキテクチャ矛盾は解決済み（詳細は `IMPLEMENTATION-PROGRESS.md` 参照）
 
 ## Key Ports & Endpoints
 
@@ -127,19 +174,43 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 | `HTTP :7892` | REST API + ダッシュボード |
 | `GET /health` | 接続確認 |
 | `GET /` | ダッシュボード |
+| `GET /api/config` | 現在の設定取得 |
+| `POST /api/config` | 設定変更 |
+| `GET /api/sessions` | セッション一覧 |
+| `GET /api/sessions/:tabId` | 特定セッションの詳細 |
+| `DELETE /api/sessions/:tabId` | セッション削除 |
+| `GET /api/sessions/:tabId/states` | ステート一覧 |
+| `GET /api/graphs` | ステートグラフ一覧 |
 | `POST /api/action` | ブラウザ操作 (click/type/navigate 等) |
 | `POST /api/screenshot` | スクリーンショット取得 |
 | `POST /api/collect` | データ収集トリガー |
+| `POST /api/embed` | テキストベクトル埋め込み (MiniLMモデル) |
+| `POST /api/plugins/:id/:action` | プラグインON/OFF (`enable`/`disable`) |
+
+## CI / GitHub Actions
+
+`.github/workflows/` に2つのワークフローがある:
+- **ci.yml** (push/PR → main): `shared/injected/` が変更されていれば両拡張機能に自動同期コミット、その後テスト実行
+- **release.yml** (`v*` タグ or 手動): Chrome・Firefox・フルバンドルの ZIP をビルドし GitHub Release を作成
+
+リリース手順: `git tag v0.x.x && git push origin v0.x.x`
 
 ## Manual Testing
 
-`manual/` ディレクトリに手動テスト用ツールがある。文字化け防止のため `chcp 65001` を事前に実行すること。
+`manual/` ディレクトリに手動テスト用ツールがある。詳細は `manual/README.md` 参照。
 
 ```powershell
-# 対話型MCPシェル (おすすめ)
+# 非対話型 MCP CLI (推奨 — スクリプト・CI向け)
+node manual/mcp-client.js ping
+node manual/mcp-client.js call get_sessions
+node manual/mcp-client.js call capture_screenshot '{"tabId":1234}'
+node manual/mcp-client.js list     # ツール一覧
+node manual/mcp-client.js profiles # プロファイル状態
+
+# 対話型MCPシェル (Windows は事前に chcp 65001 が必要)
 python manual/mcp-shell.py
 
-# ワンライナーMCP呼び出し
+# ワンライナーMCP呼び出し (NonInteractive環境では不可)
 .\manual\mcp.ps1 -call get_sessions
 .\manual\mcp.ps1 -call capture_screenshot -json '{"tabId":1234}'
 ```

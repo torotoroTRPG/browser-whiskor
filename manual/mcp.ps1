@@ -1,5 +1,10 @@
 #!/usr/bin/env pwsh
-# manual/mcp.ps1  —  MCP Manual Transmission (MT) モード
+# manual/mcp.ps1  —  MCP Manual Transmission (MT) モード  [🧪 テスト専用]
+#
+# 【推奨度】テスト専用 — 人間が手で動作確認するためのツール。
+#           ⚠ Claude Code など NonInteractive 環境では動作しません。
+#           スクリプト・自動化には manual/mcp-client.js を使うこと。
+#
 # 人間が AI の席に座って、生の JSON-RPC を直接送受信する。
 #
 # 使い方:

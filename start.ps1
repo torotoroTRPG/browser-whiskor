@@ -33,10 +33,10 @@ $connections = netstat -ano 2>$null | Select-String "LISTENING"
 foreach ($c in $connections) {
   $parts = $c -split '\s+'
   $addr = $parts[-2]
-  $pid = $parts[-1]
+  $procId = $parts[-1]
   if ($addr -match ":($port1|$port2)`$") {
     $inUse = $true
-    $existingProcesses += @{ Port = [int]$Matches[1]; Pid = [int]$pid }
+    $existingProcesses += @{ Port = [int]$Matches[1]; Pid = [int]$procId }
   }
 }
 
@@ -78,7 +78,7 @@ if ($cacheDir) { $env:WHISKOR_CACHE_DIR = $cacheDir }
 # ── Banner ─────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║       browser-whiskor v0.3.0  —  Server   ║" -ForegroundColor Cyan
+Write-Host "║       browser-whiskor v0.3.4  —  Server   ║" -ForegroundColor Cyan
 Write-Host "╠══════════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "║  WebSocket   ws://localhost:$port1             ║" -ForegroundColor Cyan
 Write-Host "║  HTTP API    http://localhost:$port2/api       ║" -ForegroundColor Cyan

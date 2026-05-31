@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-browser-whiskor MCP Interactive Shell
+browser-whiskor MCP Interactive Shell  [🧪 テスト専用]
+
+【推奨度】テスト専用 — 人間が手で動作確認するためのツール。
+          ⚠ Windows では文字コード問題があるため、実行前に必ず chcp 65001 を実行すること。
+          スクリプト・自動化には manual/mcp-client.js を使うこと。
 
 人間が AI の席に座って MCP プロトコルを直接操作するための対話型シェル。
 

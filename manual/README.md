@@ -2,15 +2,59 @@
 
 全 API / MCP を**人間が手で触りながら**テストするためのリファレンスです。
 
+---
+
+## ⚡ どのツールを使うべきか？
+
+```
+MCP 対応アプリ (Claude Code 等) が使える？
+  └─ YES → mcp__whiskor__* ツールを直接使う          ✅ 最推奨
+        例: mcp__whiskor__get_sessions
+
+MCP 非対応アプリ / スクリプトから呼び出したい？
+  └─ YES → manual/mcp-client.js を使う               🔶 準推奨
+        例: node manual/mcp-client.js call get_sessions
+
+人間が手で動作確認したい？
+  ├─ Python OK → manual/mcp-shell.py (対話型)         🧪 テスト専用
+  └─ PS だけ  → manual/mcp.ps1 (ワンライナー)          🧪 テスト専用
+                ※ Claude Code の自動実行環境では動作しません
+```
+
 ## スクリプト一覧
 
-| スクリプト | 言語 | モード | 説明 |
-|-----------|------|--------|------|
-| `mcp-shell.py` | Python | AT/MT | 対話型シェル。プロンプトでツール名を打つと呼び出せる |
-| `mcp.ps1` | PowerShell | MT only | 1行でツール呼び出し。生JSON-RPCがそのまま見える |
-| `notes.ps1` | PowerShell | - | テストメモ帳。結果や気づきを保存 |
+| スクリプト | 言語 | 推奨度 | 説明 | 制限 |
+|-----------|------|--------|------|------|
+| `mcp-client.js` | Node.js | 🔶 準推奨 | 非対話型・スクリプト向けCLI | なし |
+| `mcp-shell.py` | Python | 🧪 テスト専用 | 対話型シェル (AT/MT モード) | Windows 文字コード注意 (`chcp 65001` 必須) |
+| `mcp.ps1` | PowerShell | 🧪 テスト専用 | MCP ワンライナー (生JSON-RPC) | NonInteractive 環境では動作不可 |
+| `notes.ps1` | PowerShell | - | テストメモ帳 | - |
 
-### `mcp-shell.py` — 対話型 MCP シェル (おすすめ)
+### `mcp-client.js` — 非対話型 MCP CLI (準推奨)
+
+> MCP 対応アプリが使えない場合の代替手段。スクリプト・CI からの自動呼び出しに。
+
+```powershell
+# 疎通確認
+node manual/mcp-client.js ping
+
+# ツール一覧
+node manual/mcp-client.js list
+
+# プロファイル状態
+node manual/mcp-client.js profiles
+
+# ツール呼び出し (引数なし)
+node manual/mcp-client.js call get_sessions
+
+# ツール呼び出し (JSON引数あり)
+node manual/mcp-client.js call get_text_coords '{"tabId":1234,"search":"ログイン"}'
+node manual/mcp-client.js call capture_screenshot '{"tabId":1234}'
+```
+
+---
+
+### `mcp-shell.py` — 対話型 MCP シェル (テスト専用)
 
 ```powershell
 python manual/mcp-shell.py
