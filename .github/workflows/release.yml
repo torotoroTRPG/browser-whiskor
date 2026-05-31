@@ -167,6 +167,11 @@ jobs:
         with:
           path: dist
 
+      - name: Generate SHA256 checksums
+        run: |
+          find dist -name "*.zip" | sort | xargs sha256sum | sed 's|dist/.*/||' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Generate release notes
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
@@ -204,4 +209,5 @@ jobs:
           body_path: release-notes.md
           files: |
             dist/*/*.zip
+            SHA256SUMS.txt
           fail_on_unmatched_files: false
