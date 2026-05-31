@@ -43,7 +43,7 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (55 tools, configurable visibility)                 │
+│  MCP Layer (57 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
@@ -220,23 +220,22 @@ Warning codes:
 
 ---
 
-## MCP Tools (v3.11: 55 tools)
+## MCP Tools (v0.3.4: 57 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 55 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 57 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
-| **core** (12) | sessions, text_coords, viewport, framework_state, ui_catalog, network, screenshot, refresh_data, click, type_text, navigate_to, get_index | Always loaded | Never |
-| **debug** (+6) | console_logs, storage, perf_metrics, css_analysis, dom_snapshot, accessibility | "console", "debug", "error" | 10 turns |
-| **state-nav** (+7) | state_map, list_states, search_states, state_detail, pin_state, navigate_to_state, navigation_path | "state", "graph", "navigate" | 8 turns |
+| **core** (13) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | Always loaded | Never |
+| **debug** (+6) | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10 turns |
+| **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
-| **advanced-actions** (+10) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page | "drag", "hover", "select" | 5 turns |
+| **advanced-actions** (+11) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
+| **intelligence** (+4) | explain_element, why_did_this_change, get_source_file, detect_site_updates | "explain", "why", "source", "cause" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
-
-Tools not listed in any profile (intelligence, capture_element_screenshot, accessibility, perf, css_analysis, dom_snapshot, state_map) are available on demand at any time.
 
 **How it works:**
 1. **Core tools** are always available.
@@ -245,7 +244,7 @@ Tools not listed in any profile (intelligence, capture_element_screenshot, acces
 4. **Warnings**: If a profile stays active too long, you'll get a warning suggesting unload→reload.
 5. **Manual control**: Use `load_profile`, `unload_profile`, `search_tools`, and `profile_status` for explicit management.
 
-> **Meta tools are always visible.** `search_tools`, `load_profile`, `unload_profile`, and `profile_status` are exposed in every `tools/list` response regardless of the active profiles, so an agent can discover and bootstrap the rest of the toolset from a cold start. They are owned by `server/tool-manager.js` (`ALWAYS_VISIBLE_TOOLS`) and intentionally **not** listed in any profile in `server/configs/tool-profiles.json`. `profile_status` additionally returns an `available` array listing every inactive profile, its `requiresConfig` gate and tool count, so the agent can plan loads without an extra `search_tools` round-trip.
+> **Meta tools are always visible.** `search_tools`, `load_profile`, `unload_profile`, `profile_status`, and `analyze_click` are exposed in every `tools/list` response regardless of the active profiles, so an agent can discover and bootstrap the rest of the toolset from a cold start. They are owned by `server/tool-manager.js` (`ALWAYS_VISIBLE_TOOLS`) and intentionally **not** listed in any profile in `server/configs/tool-profiles.json`. `profile_status` additionally returns an `available` array listing every inactive profile, its `requiresConfig` gate and tool count, so the agent can plan loads without an extra `search_tools` round-trip.
 
 ### Environment variables
 
