@@ -122,7 +122,7 @@ module.exports = function registerControlTools(registry) {
     },
     handler: async (args, cb) => {
       if (!cb._callAction) return { ok: false, error: 'No browser connected.' };
-      const navigator = require('../state-navigator');
+      const navigator = require('../../state-navigator');
       try {
         return await navigator.navigate(args.tabId, args.hash, {
           siteVersion: args.siteVersion,
@@ -155,7 +155,7 @@ module.exports = function registerControlTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      const navigator = require('../state-navigator');
+      const navigator = require('../../state-navigator');
       let fromHash = args.fromHash;
       if (!fromHash && args.tabId && cb._callAction) {
         return { error: 'fromHash is required for dry-run. Use navigate_to_state to navigate from current state.' };

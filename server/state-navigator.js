@@ -13,6 +13,7 @@
 'use strict';
 
 const stateStore = require('./state-store');
+const semantic = require('./state-semantic');
 
 // Pending hash requests: requestId → { resolve, reject, timer }
 const pendingHashRequests = new Map();
@@ -315,19 +316,84 @@ function getNavigationPath(fromHash, toHash, siteVersion) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Rank states by semantic + structural similarity to a target node.
+ *
+ * Used to give the agent actionable alternatives when no replayable path to the
+ * requested state exists. Combines three independent signals so a useful
+ * suggestion surfaces even when any single one is weak:
+ *   1. Tag overlap (Jaccard)      — the strongest semantic fingerprint
+ *   2. Label similarity (bigram)  — reuses state-semantic's bigram engine
+ *   3. URL / pathname proximity   — structural locality on the graph
+ */
 function _findSimilarStates(graph, targetHash, limit) {
-  const targetNode = graph.nodes[targetHash];
-  if (!targetNode) return [];
+  const target = graph.nodes[targetHash];
+  if (!target) return [];
 
-  const suggestions = [];
+  const targetTags  = new Set(target.tags || []);
+  const targetLabel = (target.label || '').toLowerCase();
+  let targetPath = null;
+  if (target.url) {
+    try { targetPath = new URL(target.url, 'http://x').pathname; } catch (_) {}
+  }
+
+  const scored = [];
+
   for (const [hash, node] of Object.entries(graph.nodes)) {
     if (hash === targetHash || node.evicted) continue;
-    // Same URL is a good candidate
-    if (targetNode.url && node.url === targetNode.url) {
-      suggestions.push({ hash, label: node.label, url: node.url, reason: 'Same URL' });
+
+    let score = 0;
+    const reasons = [];
+
+    // 1. Tag overlap (Jaccard) — weighted highest.
+    const nodeTags = new Set(node.tags || []);
+    if (targetTags.size && nodeTags.size) {
+      let inter = 0;
+      for (const t of targetTags) if (nodeTags.has(t)) inter++;
+      if (inter > 0) {
+        const union = targetTags.size + nodeTags.size - inter;
+        score += (inter / union) * 2.0;
+        reasons.push(`${inter} shared tag${inter > 1 ? 's' : ''}`);
+      }
+    }
+
+    // 2. Label similarity (bigram) — semantic closeness of generated labels.
+    if (targetLabel && node.label) {
+      const labelSim = semantic.computeBigramSimilarity(targetLabel, node.label.toLowerCase());
+      if (labelSim > 0.3) {
+        score += labelSim;
+        reasons.push('similar label');
+      }
+    }
+
+    // 3. URL proximity — exact URL is a strong structural signal; same pathname
+    //    (ignoring query string) is a softer one.
+    if (target.url && node.url === target.url) {
+      score += 1.5;
+      reasons.push('same URL');
+    } else if (targetPath && node.url) {
+      try {
+        if (new URL(node.url, 'http://x').pathname === targetPath) {
+          score += 0.75;
+          reasons.push('same path');
+        }
+      } catch (_) {}
+    }
+
+    if (score > 0) {
+      scored.push({
+        hash,
+        label: node.label,
+        url: node.url,
+        tags: node.tags || [],
+        score: Math.round(score * 100) / 100,
+        reason: reasons.join(', '),
+      });
     }
   }
-  return suggestions.slice(0, limit);
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
 }
 
 // ── Exports ──────────────────────────────────────────────────────────────────
@@ -338,4 +404,5 @@ module.exports = {
   getNavigationPath,
   handleHashReport,
   requestHash,
+  _findSimilarStates,
 };
