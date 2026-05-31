@@ -68,6 +68,10 @@ jobs:
       sync_errors: ${{ steps.sync.outputs.errors }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify version consistency (manifests == package.json)
+        run: node scripts/_check-version.js
+
       - name: Verify shared/ matches both extensions
         id: sync
         run: |

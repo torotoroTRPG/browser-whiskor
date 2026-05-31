@@ -37,6 +37,10 @@ firefox-mv2/web-ext-artifacts/*.zip
 .idea/
 .vscode/
 
+# Python caches
+__pycache__/
+*.pyc
+
 # Temporary / local files
 .antigravitycli/
 .mcp.json

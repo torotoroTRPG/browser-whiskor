@@ -1,6 +1,6 @@
 {
   "name": "browser-whiskor",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Agent-grade browser instrumentation with MCP server",
   "main": "server/index.js",
   "scripts": {
@@ -14,7 +14,10 @@
     "test:stress": "node --test tests/stress/",
     "test:coverage": "node --test --experimental-test-coverage tests/unit/ tests/integration/ tests/stress/",
     "test:e2e": "npx playwright test tests/e2e/",
-    "download-model": "node scripts/download-model.js"
+    "download-model": "node scripts/download-model.js",
+    "check-version": "node scripts/_check-version.js",
+    "sync-version": "node scripts/_check-version.js --fix",
+    "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json"
   },
   "dependencies": {
     "playwright": "^1.60.0",

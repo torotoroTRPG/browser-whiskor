@@ -25,9 +25,17 @@ npm run test:coverage             # カバレッジ付き
 
 # 開発支援
 npm run download-model            # MiniLM ONNX モデルを手動DL (.model-cache/ に保存)
-.\scripts\validate.ps1            # push前チェック (YAML lint + shared同期 + 構造確認)
+npm run check-version             # manifestsのバージョンがpackage.jsonと一致するか検証
+npm run sync-version              # manifestsをpackage.jsonのバージョンに合わせる
+.\scripts\validate.ps1            # push前チェック (YAML lint + shared同期 + バージョン整合 + 構造確認)
 .\scripts\sync-shared.ps1         # shared/injected/ を両拡張機能に同期 (後述)
 ```
+
+### バージョン管理
+
+`package.json` の `version` が**唯一の真実**。`extension/manifest.json` と `firefox-mv2/manifest.json` はこれに追従し、`npm run check-version`（実体は `scripts/_check-version.js`）が一致を検証する。CI (`ci.yml` の `verify-sync`) と `validate.ps1` の両方がこのチェックを走らせるため、ズレたまま push すると落ちる。
+
+バージョンを上げるときは `npm version patch`（/`minor`/`major`）を使う。`package.json` と `package-lock.json` が更新され、`version` ライフサイクルスクリプトが両manifestを自動同期してコミット＆タグに含める。`git push --follow-tags` で `release.yml` が起動する。`package-lock.json` は npm が管理するためチェック対象外（`npm version`/`npm install` で自然に揃う）。
 
 ## Architecture
 
@@ -197,7 +205,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 - **ci.yml** (push/PR → main): `shared/injected/` が変更されていれば両拡張機能に自動同期コミット、その後テスト実行
 - **release.yml** (`v*` タグ or 手動): Chrome・Firefox・フルバンドルの ZIP をビルドし GitHub Release を作成
 
-リリース手順: `git tag v0.x.x && git push origin v0.x.x`
+リリース手順: `npm version patch`（package.json/lock/manifestを揃えてコミット＆タグ生成）→ `git push --follow-tags`。タグから `release.yml` がバージョンを取得する。既存リリースの上書きは guard でブロックされる（意図的に上書きする場合は注釈付きタグメッセージに `re-release` を含めるか、手動実行で `force_release=true`）
 
 ## Manual Testing
 

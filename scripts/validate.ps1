@@ -128,7 +128,17 @@ try {
     Fail "Invalid JSON: $_"
 }
 
-# ── 5. Model config consistency ──────────────────────────────────────────────
+# ── 5. Version consistency ───────────────────────────────────────────────────
+Write-Host "`n  Version Sync" -ForegroundColor White
+
+$VersionResult = node (Join-Path $Root 'scripts/_check-version.js') 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Pass "Manifests match package.json — $VersionResult"
+} else {
+    Fail "Version mismatch — $VersionResult"
+}
+
+# ── 6. Model config consistency ──────────────────────────────────────────────
 Write-Host "`n  Model Config" -ForegroundColor White
 
 $ModelResult = node (Join-Path $Root 'scripts/_check-model-config.js') 2>&1
