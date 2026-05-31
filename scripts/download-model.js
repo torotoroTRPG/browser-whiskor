@@ -29,7 +29,7 @@ const FILES_TO_DOWNLOAD = [
 ];
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const SAVE_BASE_DIR = path.join(PROJECT_ROOT, '.model-cache', 'models', 'Xenova', MODEL_NAME);
+const SAVE_BASE_DIR = path.join(PROJECT_ROOT, '.model-cache', 'Xenova', MODEL_NAME);
 
 /**
  * Download a file with progress reporting and redirect handling

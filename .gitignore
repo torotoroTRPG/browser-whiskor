@@ -29,7 +29,17 @@ tests/report/
 # Build artifacts / session logs
 コピー.txt
 browser-whiskor-v3-complete.zip
-build/*.zip
-build/release/*.zip
-build/test-release/
+build/
 firefox-mv2/web-ext-artifacts/*.zip
+
+# IDE / editor
+.run/
+.idea/
+.vscode/
+
+# Temporary / local files
+.antigravitycli/
+.mcp.json
+2026-05-*
+err.txt
+out.txt

@@ -264,7 +264,7 @@
        "showSuggestionsOnHit": false,
        "miniLM": {
          "_comment_ja": "backend が 'minilm' または 'auto' のときのみ参照される",
-         "model": "paraphrase-multilingual-MiniLM-L12-v2",
+         "model": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
          "modelCacheDir": ".model-cache",
          "downloadOnStart": true,
          "_comment_download_ja": "trueにすると起動時にモデルを自動DL（初回のみ）。falseにするとモデルが存在しないときdictionaryにフォールバック",

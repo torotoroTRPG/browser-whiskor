@@ -250,7 +250,7 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
 
   // 1. Auto-detect triggers from last tool call or arguments
   if (lastToolCall) {
-    const triggerText = `${lastToolCall.name} ${JSON.stringify(lastToolCall.args || '')}`.toLowerCase();
+    const triggerText = lastToolCall.name.toLowerCase();
     for (const [name, profile] of Object.entries(profiles)) {
       if (session.activeProfiles.has(name) || name === 'core') continue;
       if (!profile.triggers) continue;
