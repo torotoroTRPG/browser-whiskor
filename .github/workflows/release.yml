@@ -68,7 +68,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # needed to read annotated tag messages
+          fetch-depth: 0
+
+      - name: Fetch annotated tag object
+        env:
+          TAG: v${{ needs.check-version.outputs.version }}
+        run: git fetch origin "+refs/tags/$TAG:refs/tags/$TAG" --force
 
       - name: Check for existing release and validate re-release intent
         id: check
@@ -90,8 +95,10 @@ jobs:
             fi
 
             # annotated tag whose message contains "re-release" (case-insensitive)
+            # git for-each-ref is more reliable than git tag -l for reading tag objects
             if [ "$IS_RERELEASE" = "false" ]; then
-              TAG_MSG=$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || echo "")
+              TAG_MSG=$(git for-each-ref --format='%(contents)' "refs/tags/$TAG" 2>/dev/null || echo "")
+              echo "Tag message: $TAG_MSG"
               if echo "$TAG_MSG" | grep -qi "re-release"; then
                 IS_RERELEASE=true
                 echo "::notice::Re-release authorised via annotated tag message."
