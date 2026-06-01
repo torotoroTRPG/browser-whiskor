@@ -294,7 +294,23 @@
     "captureRecoil":         true,
     "captureMobX":           true,
     "captureRouter":         true,
-    "debounceMs":            200
+    "debounceMs":            200,
+    "hashFilter": {
+      "mode": "key-aware",
+      "excludeKeys": [],
+      "_comment_en": "Filters non-deterministic prop values out of the React state hash (used by observe + explorer). 'key-aware' (default): strips a value only when its key looks volatile (createdAt, timestamp, nonce…) or the value is an unambiguous UUID/ISO-8601 — legitimate numeric IDs (even 13-digit) survive. 'aggressive': also strips bare 13-digit numbers and 32+ char random strings regardless of key. 'off': no filtering (legacy; hash changes on every volatile prop). excludeKeys adds extra prop names to drop entirely. Changing the mode re-buckets existing state-graph hashes.",
+      "_comment_ja": "React状態ハッシュ(observe/explorerが使用)から非決定的なprop値を除外する。'key-aware'(既定): キー名が揮発的(createdAt/timestamp/nonce等)か、値が明確なUUID/ISO-8601のときだけ除外し、正当な数値ID(13桁でも)は温存。'aggressive': キーに関係なく13桁の数値や32文字以上のランダム文字列も除外(旧来の動作)。'off': フィルタ無し(レガシー。揮発propが変わる度にハッシュが変化)。excludeKeysで除外するprop名を追加。modeを変えると既存のステートグラフのハッシュが再分類される。"
+    }
+  },
+
+  "observe": {
+    "adaptive":    true,
+    "intervalsMs": [60, 60, 120, 200],
+    "intervalMs":  200,
+    "settleReads": 2,
+    "quiescentMs": 150,
+    "_comment_en": "Tuning for the observe option on interaction tools (click/type/etc.) that watches the page state hash until it settles. adaptive=true (default): poll fast at first (intervalsMs, ramping to the last value) so brief SPA transitions aren't missed, and require quiescentMs of quiet after the last change before declaring settled (prevents a fast A→B→A flip from settling early). adaptive=false: legacy fixed-interval behaviour using intervalMs with immediate settle on settleReads equal reads. settleReads = consecutive equal reads required.",
+    "_comment_ja": "操作系ツール(click/type等)の observe オプションの調整。observeはページ状態ハッシュが安定するまで監視する。adaptive=true(既定): 最初は高速にポーリング(intervalsMs、最後の値まで漸増)して高速SPAの中間遷移を見逃さず、最後の変化からquiescentMs静穏が続いてから安定と判定(高速なA→B→A反転での早期安定を防ぐ)。adaptive=false: intervalMs固定間隔でsettleReads回連続一致で即安定する従来動作。settleReadsは安定判定に必要な連続一致回数。"
   },
 
   "textCoords": {

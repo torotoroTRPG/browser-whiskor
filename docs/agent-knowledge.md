@@ -131,11 +131,11 @@ States are identified by a composite hash:
 | domHash | URL pathname + interactive element signatures | FNV32 32bit |
 | compositeHash | `FNV32(reactHash \| domHash)` or `domHash` | FNV32 32bit |
 
-Non-deterministic values are excluded from hash computation:
-- Timestamps (13-digit numbers, ISO 8601 strings)
-- UUIDs (v4 pattern)
-- Long random strings (32+ alphanumeric chars)
-- Configurable keys: `createdAt`, `updatedAt`, `timestamp`, `lastSeen`, `capturedAt`, etc.
+Non-deterministic values are filtered from hash computation (mode set via `config.json` → `react.hashFilter.mode`):
+- **`key-aware`** (default): strips a value only when its *key* looks volatile (`createdAt`, `*At`, `timestamp`, `nonce`…) or the value is an unambiguous UUID v4 / ISO-8601 datetime. Legitimate numeric IDs (even 13-digit) survive — avoids merging distinct states.
+- **`aggressive`**: also strips bare 13-digit numbers and 32+ char random strings regardless of key (the old blind heuristic).
+- **`off`**: no filtering (legacy).
+- Configurable `excludeKeys` (`createdAt`, `updatedAt`, `timestamp`, `lastSeen`, `capturedAt`, …) are always dropped except in `off`.
 
 ### State Node Structure
 

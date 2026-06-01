@@ -28,6 +28,30 @@ const OBSERVE_SCHEMA = {
  *
  * @returns the action result, with an attached `_observation` when observe=true.
  */
+// Defaults for the post-action settle loop. Overridable via config.json `observe`.
+const OBSERVE_DEFAULTS = {
+  adaptive:    true,
+  intervalsMs: [60, 60, 120, 200], // fast first reads catch quick SPA transitions
+  intervalMs:  200,                // fixed interval used when adaptive=false (legacy)
+  settleReads: 2,                  // consecutive equal reads required
+  quiescentMs: 150,                // min quiet time after the last change before settling
+};
+
+// Resolve observe tuning from the live server config (cb._config.observe),
+// falling back to the legacy-compatible defaults.
+function _observeOpts(cb) {
+  const c = (cb && cb._config && cb._config.observe) || {};
+  const adaptive = c.adaptive !== false;
+  return {
+    adaptive,
+    intervalsMs: Array.isArray(c.intervalsMs) && c.intervalsMs.length ? c.intervalsMs : OBSERVE_DEFAULTS.intervalsMs,
+    intervalMs:  c.intervalMs  > 0 ? c.intervalMs  : OBSERVE_DEFAULTS.intervalMs,
+    settleReads: c.settleReads > 0 ? c.settleReads : OBSERVE_DEFAULTS.settleReads,
+    // quiescent window only applies in adaptive mode; legacy stays immediate.
+    quiescentMs: adaptive ? (c.quiescentMs != null ? c.quiescentMs : OBSERVE_DEFAULTS.quiescentMs) : 0,
+  };
+}
+
 async function observeAction(cb, tabId, action, args) {
   if (args.observe !== true) {
     return cb._callAction(tabId, action, args.timeoutMs);
@@ -51,22 +75,30 @@ async function observeAction(cb, tabId, action, args) {
 
   const result = await cb._callAction(tabId, action, args.timeoutMs);
 
-  const observation = await _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs);
+  const observation = await _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs, _observeOpts(cb));
   return { ...result, _observation: observation };
 }
 
 /**
- * Poll the page state hash until two consecutive reads agree (settled) or the
- * deadline passes, then summarise the transition relative to `fromHash`.
+ * Poll the page state hash until it settles or the deadline passes, then
+ * summarise the transition relative to `fromHash`.
+ *
+ * Adaptive mode (default): the first reads fire quickly (intervalsMs) so brief
+ * SPA transitions aren't missed, then back off. "Settled" requires `settleReads`
+ * consecutive equal reads AND at least `quiescentMs` of quiet since the last
+ * change — so a fast A→B→A flip resets the window instead of falsely settling.
+ *
+ * Legacy mode (adaptive=false): fixed interval, immediate settle on N equal
+ * reads — identical to the original behaviour.
  */
-async function _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs) {
-  const SETTLE_READS = 2;
-  const INTERVAL_MS  = 200;
+async function _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs, opts = OBSERVE_DEFAULTS) {
   const start = Date.now();
 
-  let lastHash = null;
-  let stable   = 0;
-  let latest   = null;
+  let lastHash     = null;
+  let stable       = 0;
+  let latest       = null;
+  let lastChangeAt = start;
+  let reads        = 0;
 
   while (Date.now() - start < maxWaitMs) {
     let h = null;
@@ -77,15 +109,26 @@ async function _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs) {
       break; // hash channel unresponsive — stop polling
     }
     if (h == null) break;
+    reads++;
     latest = h;
 
     if (h === lastHash) {
-      if (++stable >= SETTLE_READS) break;
+      stable++;
     } else {
       stable = 1;
       lastHash = h;
+      lastChangeAt = Date.now();
     }
-    await new Promise(r => setTimeout(r, INTERVAL_MS));
+
+    const quiet = Date.now() - lastChangeAt >= opts.quiescentMs;
+    if (stable >= opts.settleReads && quiet) break;
+
+    const interval = opts.adaptive
+      ? opts.intervalsMs[Math.min(reads - 1, opts.intervalsMs.length - 1)]
+      : opts.intervalMs;
+    const remaining = maxWaitMs - (Date.now() - start);
+    if (remaining <= 0) break;
+    await new Promise(r => setTimeout(r, Math.min(interval, remaining)));
   }
 
   if (latest == null) {
@@ -97,7 +140,9 @@ async function _awaitSettled(navigator, tabId, broadcast, fromHash, maxWaitMs) {
     fromHash,
     toHash: latest,
     hashChanged: fromHash != null ? fromHash !== latest : null,
-    settled: stable >= SETTLE_READS,
+    settled: stable >= opts.settleReads,
+    reads,
+    mode: opts.adaptive ? 'adaptive' : 'fixed',
     elapsedMs: Date.now() - start,
   };
 }
@@ -515,3 +560,6 @@ module.exports = function registerWriteTools(registry) {
 
   registry.registerTools(tools);
 };
+
+// Exposed for unit tests (not part of the public tool API).
+module.exports._internals = { _awaitSettled, _observeOpts, OBSERVE_DEFAULTS };

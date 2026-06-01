@@ -148,32 +148,87 @@
       return h.toString(36);
     },
 
-    _getStateHash: function(snapshot) {
-      // Robust hashing: combine tree structure with key props (excluding volatile ones)
+    // ── Non-deterministic value filter (mirrors server/state-fingerprint.js) ──
+    // 揮発値(タイムスタンプ/UUID/nonce 等)で状態ハッシュが無駄に変わるのを防ぐ。
+    // observe/explorer が「幻の遷移」を検出しないようハッシュを安定させる。
+    // Default mode 'key-aware': strips a value only when its KEY looks volatile
+    // (timeAt/timestamp/nonce…) or the value is an unambiguous format (UUID /
+    // ISO-8601) — so a legitimate numeric id (even a 13-digit one) survives.
+    // 'aggressive' restores the old blind 13-digit / 32+ random heuristic.
+    // 'off' disables filtering entirely (legacy behaviour).
+    _ND_UUID: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    _ND_ISO:  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/,
+    _ND_TS13: /^\d{13}$/,
+    _ND_RAND: /^[A-Za-z0-9_-]{32,}$/,
+    _ND_DEFAULT_EXCLUDE: ['createdAt', 'updatedAt', 'timestamp', 'lastSeen', 'capturedAt', 'requestId', 'nonce', 'csrf', 'expiresAt', 'lastModified', '_id', 'firstSeen', 'visitCount'],
+
+    _ndIsTemporalKey: function(k) {
+      return /At$/.test(k) || /(?:time|date|stamp|epoch|expires|lastseen|firstseen|nonce|_ts$|^ts$)/i.test(k);
+    },
+
+    // Returns the normalized value, or undefined to signal "drop this key".
+    _ndNormalize: function(key, v, nd) {
+      if (nd.mode === 'off') return v;
+      if (nd.exclude.has(key)) return undefined;
+      const temporal = this._ndIsTemporalKey(key);
+      if (typeof v === 'number') {
+        if (this._ND_TS13.test(String(v)) && (nd.mode === 'aggressive' || temporal)) return '__TS__';
+        return v;
+      }
+      if (typeof v === 'string') {
+        if (this._ND_UUID.test(v)) return '__UUID__';
+        if (this._ND_ISO.test(v)) return '__TS__';
+        if (this._ND_TS13.test(v) && (nd.mode === 'aggressive' || temporal)) return '__TS__';
+        if (nd.mode === 'aggressive' && this._ND_RAND.test(v)) return '__RAND__';
+        return v;
+      }
+      return v;
+    },
+
+    // Build the filter context once per hash from the injected react config.
+    // 設定は server/index.js が config.json の `react` を options.react に spread。
+    _ndContext: function(api) {
+      let opt = {};
+      try {
+        const cfg = api && api.getConfig && api.getConfig();
+        opt = (cfg && cfg.options && cfg.options.react && cfg.options.react.hashFilter) || {};
+      } catch (_) { /* fall through to defaults */ }
+      const extra = Array.isArray(opt.excludeKeys) ? opt.excludeKeys : [];
+      return {
+        mode: opt.mode || 'key-aware',   // 'off' | 'key-aware' | 'aggressive'
+        exclude: new Set(this._ND_DEFAULT_EXCLUDE.concat(extra)),
+      };
+    },
+
+    _getStateHash: function(snapshot, nd) {
+      nd = nd || { mode: 'key-aware', exclude: new Set(this._ND_DEFAULT_EXCLUDE) };
+      // Robust hashing: combine tree structure with key props (volatile ones filtered)
       const slim = {
-        tree: snapshot.componentTree ? this._getTreeShape(snapshot.componentTree) : null,
+        tree: snapshot.componentTree ? this._getTreeShape(snapshot.componentTree, nd) : null,
         router: snapshot.router?.location?.pathname || '/',
         reduxKeys: snapshot.redux ? Object.keys(snapshot.redux).sort() : []
       };
       return this._hash(JSON.stringify(slim));
     },
 
-    _getTreeShape: function(node) {
+    _getTreeShape: function(node, nd) {
       if (!node) return null;
+      nd = nd || { mode: 'key-aware', exclude: new Set(this._ND_DEFAULT_EXCLUDE) };
       // Capture name and non-function props to differentiate states
       const props = {};
       if (node.p) {
         for (const k in node.p) {
           const v = node.p[k];
-          if (typeof v !== 'object' && typeof v !== 'function') {
-            props[k] = v;
-          }
+          if (typeof v === 'object' || typeof v === 'function') continue;
+          const nv = this._ndNormalize(k, v, nd);
+          if (nv === undefined) continue; // excluded volatile key
+          props[k] = nv;
         }
       }
       return {
         n: node.n,
         p: props,
-        c: node.c ? node.c.map(child => this._getTreeShape(child)) : []
+        c: node.c ? node.c.map(child => this._getTreeShape(child, nd)) : []
       };
     },
 
@@ -208,7 +263,8 @@
             var data = self.collect(api);
             if (!data) return;
 
-            const currentHash = self._getStateHash(data);
+            const nd = self._ndContext(api);
+            const currentHash = self._getStateHash(data, nd);
             // Write to global for explorer.js compositeHash calculation
             window.__SI_REACT_HASH__ = currentHash;
 

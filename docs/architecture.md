@@ -259,11 +259,19 @@
     = FNV32(reactHash + "|" + domHash)  if reactHash available
     = domHash                            otherwise
 
-  Non-deterministic filter excludes:
-    - Timestamps: 13-digit numbers, ISO 8601 strings
-    - UUIDs: v4 pattern
-    - Long random strings: 32+ alphanumeric chars
-    - Configurable keys: createdAt, updatedAt, timestamp, etc.
+  Non-deterministic filter (config.json react.hashFilter.mode):
+    - 'key-aware' (default): a value is normalized away only when its KEY looks
+      volatile (createdAt, *At, timestamp, nonce…) OR the value is an
+      unambiguous format (UUID v4, ISO-8601). Legitimate numeric IDs — even
+      13-digit ones — survive, so distinct states stay distinct.
+    - 'aggressive': additionally strips bare 13-digit numbers and 32+ char
+      random strings regardless of key (the old blind heuristic).
+    - 'off': no filtering (legacy; hash changes on every volatile prop).
+    - Configurable excludeKeys are always dropped (except in 'off').
+
+  NOTE: the live reactHash is produced client-side in
+  shared/injected/adapters/react.js (_getStateHash); server/state-fingerprint.js
+  mirrors the same spec. observe + explorer both consume the client hash.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
