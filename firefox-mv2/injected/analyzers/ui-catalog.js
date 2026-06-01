@@ -55,10 +55,10 @@
     }
     if (tag === 'textarea') return { key: null, confidence: 'native', evidence: '<textarea>: Enter = newline' };
     const hint = [attr('placeholder'), attr('aria-label'), refText(el, 'aria-describedby')].filter(Boolean).join(' ').toLowerCase();
-    if (/\bctrl\s*\+?\s*enter\b/.test(hint))         return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint: Ctrl+Enter' };
-    if (/\b(cmd|meta|⌘)\s*\+?\s*enter\b/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint: Cmd+Enter' };
-    if (/\bshift\s*\+?\s*enter\b/.test(hint))        return { key: 'enter', confidence: 'hint', evidence: 'hint: Shift+Enter=newline' };
-    if (/(送信|to send|press enter)/.test(hint))      return { key: 'enter', confidence: 'hint', evidence: 'hint: send/送信' };
+    if (/(ctrl|control|⌃)\s*\+?\s*(enter|return|↵|⏎)/.test(hint))   return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint: Ctrl+Enter' };
+    if (/(cmd|command|meta|⌘)\s*\+?\s*(enter|return|↵|⏎)/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint: Cmd+Enter' };
+    if (/(shift|⇧)\s*\+?\s*(enter|return|↵|⏎)/.test(hint))          return { key: 'enter', confidence: 'hint', evidence: 'hint: Shift+Enter=newline' };
+    if (/(送信|そうしん|to send|press (enter|return)|hit (enter|return)|(enter|return)\s*(で|to)\s*(send|送信)|return to send)/.test(hint)) return { key: 'enter', confidence: 'hint', evidence: 'hint: send/送信' };
     return { key: null, confidence: 'unknown', evidence: 'no signal' };
   }
 

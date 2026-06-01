@@ -183,8 +183,50 @@
       .map(el => el.getAttribute('data-svelte-h')).slice(0, 100);
   }
 
+  /**
+   * Collect component source locations from element.__svelte_meta (present in DEV
+   * builds; stripped in production). Reveals real component names/files even when no
+   * live instance is reachable. Deduped by source file with a DOM-node count.
+   */
+  function collectMetaComponents() {
+    const byFile = new Map();
+    const all = document.querySelectorAll('*');
+    const cap = Math.min(all.length, 8000);
+    for (let i = 0; i < cap; i++) {
+      const el = all[i];
+      const loc = el.__svelte_meta && el.__svelte_meta.loc;
+      if (!loc || !loc.file) continue;
+      if (!byFile.has(loc.file)) {
+        const name = (String(loc.file).split(/[\\/]/).pop() || loc.file).replace(/\.svelte$/, '');
+        byFile.set(loc.file, { component: name, file: loc.file, firstLine: loc.line ?? null, count: 0, sampleTag: el.tagName.toLowerCase() });
+      }
+      byFile.get(loc.file).count++;
+    }
+    return [...byFile.values()].slice(0, 100);
+  }
+
+  /**
+   * Group scoped-style hashes (svelte-XXXXXX) into component fingerprints. Each hash is
+   * one compiled component's styles, so this works in PRODUCTION where instances and
+   * __svelte_meta are gone — giving the count and a sample for each distinct component.
+   */
+  function collectComponentFingerprints(hashes) {
+    const esc = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape : (s) => s;
+    return hashes.map(hash => {
+      let els = [];
+      try { els = document.querySelectorAll('.' + esc(hash)); } catch (_) {}
+      const sample = els[0];
+      return {
+        hash,
+        count: els.length,
+        sampleTag: sample ? sample.tagName.toLowerCase() : null,
+        sampleText: sample ? ((sample.textContent || '').trim().slice(0, 30) || null) : null,
+      };
+    }).slice(0, 100);
+  }
+
   registry.register({
-    id: 'svelte-meta', name: 'Svelte Analyzer', version: '2.0.0',
+    id: 'svelte-meta', name: 'Svelte Analyzer', version: '2.1.0',
     runAt: 'load', realtime: false, priority: 10,
     emitType: 'SVELTE_SNAPSHOT', cacheTarget: 'svelte/',
 
@@ -217,6 +259,8 @@
       const scopedHashes    = collectScopedHashes();
       const hydrationHashes = collectHydrationHashes();
       const stores          = collectStores();
+      const metaComponents        = collectMetaComponents();
+      const componentFingerprints = collectComponentFingerprints(scopedHashes);
 
       let components = [];
       let ownerTree  = null;
@@ -245,9 +289,20 @@
         capturedAt: Date.now(),
         framework: 'svelte',
         version,
+        summary: {
+          componentsFromInstances: components.length,
+          componentsFromMeta:      metaComponents.length,
+          scopedComponents:        componentFingerprints.length,
+          stores:                  stores ? Object.keys(stores).length : 0,
+          note: (components.length || metaComponents.length)
+            ? undefined
+            : 'No live instances or __svelte_meta (production build). componentFingerprints lists components inferred from scoped CSS hashes.',
+        },
         scopedHashes,           // CSS scoping hashes → unique component fingerprints
+        componentFingerprints,  // per-hash element counts + sample (production-friendly)
         hydrationHashes,        // data-svelte-h SSR markers
         components,             // Svelte 4 instance data
+        metaComponents,         // __svelte_meta source locations (dev builds)
         ownerTree,              // Svelte 5 dev mode signal/effect tree
         devtoolsComponents,     // from window.__svelte.components (if available)
         stores,

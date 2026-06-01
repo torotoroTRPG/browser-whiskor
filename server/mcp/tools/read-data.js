@@ -602,9 +602,13 @@ module.exports = function registerDataTools(registry) {
         scored = pool.map(c => ({ ...c, score: fuzzyScore(args.query, c.text) }));
       }
 
+      // Demote obstructed (clickable:false) and offscreen (null) candidates so a
+      // reachable target outranks a covered one of similar score — without overriding a
+      // clearly better text match. The reported score stays the true fuzzy score.
+      const reach = (c) => c.clickable === false ? 0.2 : (c.clickable === null ? 0.05 : 0);
       const candidates = scored
         .filter(c => c.score >= minScore)
-        .sort((a, b) => b.score - a.score)
+        .sort((a, b) => (b.score - reach(b)) - (a.score - reach(a)))
         .slice(0, limit)
         .map(c => ({
           ...c,

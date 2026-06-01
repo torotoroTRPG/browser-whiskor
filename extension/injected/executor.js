@@ -167,10 +167,10 @@
     // 3. Textual hints (placeholder / aria-label / aria-describedby tooltip).
     const hint = [attr('placeholder'), attr('aria-label'), refText(el, 'aria-describedby')]
       .filter(Boolean).join(' ').toLowerCase();
-    if (/\bctrl\s*\+?\s*enter\b/.test(hint))       return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint text mentions Ctrl+Enter' };
-    if (/\b(cmd|meta|⌘)\s*\+?\s*enter\b/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint text mentions Cmd+Enter' };
-    if (/\bshift\s*\+?\s*enter\b/.test(hint))       return { key: 'enter', confidence: 'hint', evidence: 'hint implies Shift+Enter=newline, Enter=send' };
-    if (/(送信|to send|press enter|enterで送信)/.test(hint)) return { key: 'enter', confidence: 'hint', evidence: 'hint text mentions send/送信' };
+    if (/(ctrl|control|⌃)\s*\+?\s*(enter|return|↵|⏎)/.test(hint))   return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint: Ctrl+Enter' };
+    if (/(cmd|command|meta|⌘)\s*\+?\s*(enter|return|↵|⏎)/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint: Cmd+Enter' };
+    if (/(shift|⇧)\s*\+?\s*(enter|return|↵|⏎)/.test(hint))          return { key: 'enter', confidence: 'hint', evidence: 'hint: Shift+Enter=newline → Enter sends' };
+    if (/(送信|そうしん|to send|press (enter|return)|hit (enter|return)|(enter|return)\s*(で|to)\s*(send|送信)|return to send)/.test(hint)) return { key: 'enter', confidence: 'hint', evidence: 'hint: send/送信' };
 
     // 4. Unknown — be honest, do not guess.
     return { key: null, confidence: 'unknown', evidence: 'no enterkeyhint, native form, or hint text found' };

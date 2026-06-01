@@ -4,6 +4,14 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.3] — 2026-06-02
+
+### Changed
+
+- **`find_target` deprioritizes obstructed candidates** — Ranking now demotes covered (`clickable:false`, −0.2) and offscreen (`clickable:null`, −0.05) candidates so a reachable target outranks a covered one of similar score, without overriding a clearly better text match. The reported `score` stays the true fuzzy score.
+- **Wider `submit:"auto"` hint dictionary** — Submit inference now recognises `return` / `↵` / `⏎` as Enter, more modifier spellings (`ctrl`/`control`/`⌃`, `cmd`/`command`/`⌘`, `shift`/`⇧`), and more phrasings ("press/hit enter", "enterで送信", "return to send", "そうしん", …).
+- **Stronger Svelte adapter** — `get_framework_state` (svelte) now also returns `metaComponents` (real component names/files from `__svelte_meta`, dev builds), `componentFingerprints` (per scoped-CSS-hash element counts + a sample — which work in production where instances are gone), and a `summary` of how many components each path found, so a production Svelte app reports useful context instead of an empty `components` list.
+
 ## [0.4.2] — 2026-06-02
 
 ### Added
