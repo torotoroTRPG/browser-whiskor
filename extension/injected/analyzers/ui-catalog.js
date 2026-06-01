@@ -39,6 +39,29 @@
     return parts.map(s => (s || '').trim()).filter(Boolean).join(' ').slice(0, 80) || null;
   }
 
+  // Best-effort guess of which Enter gesture submits a field (cannot read JS handlers,
+  // so returns key:null honestly when unknown). Mirrors executor.js inferSubmitKey.
+  function inferSubmitKey(el) {
+    const attr = (n) => (el.getAttribute && el.getAttribute(n)) || '';
+    const ekh = attr('enterkeyhint').toLowerCase();
+    if (['send', 'go', 'search', 'done'].includes(ekh)) return { key: 'enter', confidence: 'attr', evidence: `enterkeyhint=${ekh}` };
+    if (ekh === 'enter') return { key: null, confidence: 'attr', evidence: 'enterkeyhint=enter (newline)' };
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' && el.form) {
+      const type = (el.type || 'text').toLowerCase();
+      if (!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image'].includes(type)) {
+        return { key: 'enter', confidence: 'native', evidence: 'single-line <input> in a <form>' };
+      }
+    }
+    if (tag === 'textarea') return { key: null, confidence: 'native', evidence: '<textarea>: Enter = newline' };
+    const hint = [attr('placeholder'), attr('aria-label'), refText(el, 'aria-describedby')].filter(Boolean).join(' ').toLowerCase();
+    if (/\bctrl\s*\+?\s*enter\b/.test(hint))         return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint: Ctrl+Enter' };
+    if (/\b(cmd|meta|⌘)\s*\+?\s*enter\b/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint: Cmd+Enter' };
+    if (/\bshift\s*\+?\s*enter\b/.test(hint))        return { key: 'enter', confidence: 'hint', evidence: 'hint: Shift+Enter=newline' };
+    if (/(送信|to send|press enter)/.test(hint))      return { key: 'enter', confidence: 'hint', evidence: 'hint: send/送信' };
+    return { key: null, confidence: 'unknown', evidence: 'no signal' };
+  }
+
   registry.register({
     id: 'ui-catalog', name: 'UI Element Catalog', version: '1.0.0',
     runAt: 'DOMContentLoaded', realtime: false, priority: 15,
@@ -73,7 +96,9 @@
           type: el.tagName.toLowerCase() === 'input' ? (el.type || 'text') : el.tagName.toLowerCase(),
           name: el.name || null, id: el.id || null,
           placeholder: el.placeholder || null,
+          label: accessibleName(el),
           required: el.required || null,
+          enterKey: inferSubmitKey(el),
           rect: getRect(el),
         }));
 

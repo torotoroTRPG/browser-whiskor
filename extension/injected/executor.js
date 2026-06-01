@@ -130,9 +130,67 @@
   // Resolve the post-type Enter behaviour from an action, honouring the legacy
   // `pressEnter` boolean. Returns: 'none' | 'enter' | 'shift-enter' | 'ctrl-enter' | 'cmd-enter'.
   function resolveSubmit(action) {
-    const allowed = ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'];
+    const allowed = ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter', 'auto'];
     if (typeof action.submit === 'string' && allowed.includes(action.submit)) return action.submit;
     return action.pressEnter ? 'enter' : 'none';
+  }
+
+  // Best-effort inference of which Enter gesture submits THIS field. We cannot read a
+  // page's JS keydown handlers from a content script (getEventListeners is DevTools-only),
+  // so this reads only observable signals and returns { key:null } honestly when unknown —
+  // it never guesses. key ∈ {'enter','ctrl-enter','cmd-enter', null}.
+  function inferSubmitKey(el) {
+    const attr = (n) => (el.getAttribute && el.getAttribute(n)) || '';
+
+    // 1. enterkeyhint — purpose-built hint for the Enter key's action.
+    const ekh = attr('enterkeyhint').toLowerCase();
+    if (['send', 'go', 'search', 'done'].includes(ekh)) {
+      return { key: 'enter', confidence: 'attr', evidence: `enterkeyhint=${ekh}` };
+    }
+    if (ekh === 'enter') {
+      return { key: null, confidence: 'attr', evidence: 'enterkeyhint=enter (newline)' };
+    }
+
+    // 2. Native form semantics.
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' && el.form) {
+      const type = (el.type || 'text').toLowerCase();
+      const singleLine = !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image'].includes(type);
+      if (singleLine) {
+        return { key: 'enter', confidence: 'native', evidence: 'single-line <input> in a <form> (Enter submits natively)' };
+      }
+    }
+    if (tag === 'textarea') {
+      return { key: null, confidence: 'native', evidence: '<textarea>: Enter inserts a newline; submit gesture is app-defined' };
+    }
+
+    // 3. Textual hints (placeholder / aria-label / aria-describedby tooltip).
+    const hint = [attr('placeholder'), attr('aria-label'), refText(el, 'aria-describedby')]
+      .filter(Boolean).join(' ').toLowerCase();
+    if (/\bctrl\s*\+?\s*enter\b/.test(hint))       return { key: 'ctrl-enter', confidence: 'hint', evidence: 'hint text mentions Ctrl+Enter' };
+    if (/\b(cmd|meta|⌘)\s*\+?\s*enter\b/.test(hint)) return { key: 'cmd-enter', confidence: 'hint', evidence: 'hint text mentions Cmd+Enter' };
+    if (/\bshift\s*\+?\s*enter\b/.test(hint))       return { key: 'enter', confidence: 'hint', evidence: 'hint implies Shift+Enter=newline, Enter=send' };
+    if (/(送信|to send|press enter|enterで送信)/.test(hint)) return { key: 'enter', confidence: 'hint', evidence: 'hint text mentions send/送信' };
+
+    // 4. Unknown — be honest, do not guess.
+    return { key: null, confidence: 'unknown', evidence: 'no enterkeyhint, native form, or hint text found' };
+  }
+
+  // Compact descriptor of where an action landed — lets the agent confirm it typed into
+  // the intended element (e.g. when no selector was given and activeElement was used).
+  function describeTarget(el) {
+    if (!el) return null;
+    const cls = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '');
+    const sel = el.id ? `#${el.id}`
+      : (cls ? '.' + cls.trim().split(/\s+/).slice(0, 2).join('.') : (el.tagName || '').toLowerCase());
+    return {
+      tag: (el.tagName || '').toLowerCase(),
+      id: el.id || undefined,
+      name: el.name || undefined,
+      label: ((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('placeholder'))) ||
+              (el.textContent || '').trim().slice(0, 40)) || undefined,
+      selector: sel,
+    };
   }
 
   // Dispatch an Enter keystroke (optionally with a modifier) to submit a field or
@@ -341,10 +399,24 @@
       const text = action.text == null ? '' : String(action.text);
       const submit = resolveSubmit(action);
 
-      // Empty text with no submit key is a focus-only no-op (the element is already
-      // focused above). Allow empty text WITH a submit key — e.g. "just press Enter".
-      if (text === '' && submit === 'none') {
-        return { ok: true, typedLength: 0, note: 'Nothing to type and no submit key — element focused only.' };
+      // submit:'auto' → infer the submit key from observable signals (honest null on
+      // unknown). onFail='abort' returns without typing; 'type-only' (default) types
+      // the text and just skips the submit, reporting submitInference either way.
+      let effectiveSubmit = submit;
+      let submitInference = null;
+      if (submit === 'auto') {
+        submitInference = inferSubmitKey(el);
+        effectiveSubmit = submitInference.key || 'none';
+        if (!submitInference.key && (action.submitOnFail || 'type-only') === 'abort') {
+          return { ok: true, typedLength: 0, submitted: null, submitInference,
+                   note: 'Submit key could not be inferred (onFail=abort): nothing typed. Specify submit explicitly or click the send control.' };
+        }
+      }
+
+      // Empty text with no effective submit key is a focus-only no-op (already focused).
+      if (text === '' && effectiveSubmit === 'none') {
+        return { ok: true, typedLength: 0, ...(submitInference ? { submitInference } : {}),
+                 note: 'Nothing to type and no submit key — element focused only.' };
       }
 
       // contenteditable / rich-text editors (Gemini, Notion, ProseMirror, …) have no
@@ -373,8 +445,9 @@
           el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
           el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
         }
-        if (submit !== 'none') pressEnterCombo(el, submit, false);
-        return { ok: true, typedLength: text.length, submitted: submit !== 'none' ? submit : undefined, currentValue: el.textContent };
+        if (effectiveSubmit !== 'none') pressEnterCombo(el, effectiveSubmit, false);
+        return { ok: true, typedLength: text.length, submitted: effectiveSubmit !== 'none' ? effectiveSubmit : undefined,
+                 ...(submitInference ? { submitInference } : {}), target: describeTarget(el), currentValue: el.textContent };
       }
 
       if (action.clear) {
@@ -398,10 +471,11 @@
         el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
       }
 
-      if (submit !== 'none') pressEnterCombo(el, submit, true);
+      if (effectiveSubmit !== 'none') pressEnterCombo(el, effectiveSubmit, true);
 
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true, typedLength: text.length, submitted: submit !== 'none' ? submit : undefined, currentValue: el.value };
+      return { ok: true, typedLength: text.length, submitted: effectiveSubmit !== 'none' ? effectiveSubmit : undefined,
+               ...(submitInference ? { submitInference } : {}), target: describeTarget(el), currentValue: el.value };
     },
 
     press_key(action) {

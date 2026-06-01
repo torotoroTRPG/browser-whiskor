@@ -64,14 +64,14 @@ module.exports = function registerBasicTools(registry) {
          type: 'object',
          properties: {
            tabId:      { type: 'number', description: 'Tab ID from get_sessions' },
-           search:     { type: 'string', description: 'Exact substring filter (case-insensitive)' },
+           search:     { type: 'string', description: 'Exact substring filter (case-insensitive). If unsure of the exact wording, use "match" instead for fuzzy/semantic (MiniLM) search.' },
            match:      { type: 'string', description: 'Fuzzy similarity search — returns results sorted by match score (0.0-1.0). Use when you don\'t know the exact text.' },
            level:      { type: 'string', enum: ['words', 'lines', 'blocks', 'all'], description: 'Granularity (default: words)' },
            maxResults: { type: 'number', description: 'Max items to return. Use with "match" to get top-N results (default: 50)' },
            minScore:   { type: 'number', description: 'Minimum similarity score for "match" mode (0.0-1.0, default: 0.1)' },
            inViewport: { type: 'boolean', description: 'If true, only return text whose bounding box intersects the current viewport (based on scroll position).' },
            focusScope: { type: 'string', description: 'CSS selector identifying the subtree to search within (e.g. \'[role="dialog"]\'). Elements outside this scope are summarized separately in outOfScopeMatches.' },
-           includeSuggestions: { type: 'boolean', description: 'If true, include _suggestions when search/match finds no exact matches.' },
+           includeSuggestions: { type: 'boolean', description: 'Include fuzzy/semantic _suggestions when search/match finds nothing (default: true; set false to disable).' },
          },
          required: ['tabId'],
        },
@@ -88,7 +88,7 @@ module.exports = function registerBasicTools(registry) {
         const minScore   = args.minScore != null ? args.minScore : 0.1;
         const inViewport = args.inViewport === true;
         const focusScope = args.focusScope;
-        const includeSuggestions = args.includeSuggestions === true;
+        const includeSuggestions = args.includeSuggestions !== false;
 
         // Get session for minScoreOverride and system messages
         const session = cb._toolManager?.getSessionState?.(args._sessionId);
@@ -326,6 +326,12 @@ module.exports = function registerBasicTools(registry) {
           [level]:      items,
           fullText:     search ? undefined : raw.fullText,
         };
+        // Exact substring search found nothing → offer fuzzy/semantic suggestions by
+        // default (opt out with includeSuggestions:false) so a near-miss isn't a dead end.
+        if (search && items.length === 0 && includeSuggestions) {
+          result._warnings = [{ code: 'NO_MATCH', message: `No text contains "${args.search}". Showing fuzzy suggestions — use match: for full semantic search.` }];
+          result._suggestions = await generateSuggestions(args.search, raw[level] || raw.words || []);
+        }
         if (systemMessage) result._systemMessage = systemMessage;
         return withFreshness(args.tabId, 'text-coords', result, cache);
       },

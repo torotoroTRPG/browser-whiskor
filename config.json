@@ -354,6 +354,10 @@
       "quality": 70,
       "maxWidth": 1280
     },
+    "submitInference": {
+      "_comment_ja": "type_text(submit:'auto') が送信キーを推論できなかった時の既定動作。type-only=テキストだけ入力し送信は諦めて理由を返す / abort=入力もせず返す。per-call の onFail 引数で上書き可",
+      "onFail": "type-only"
+    },
     "duplicateDetection": {
       "_comment_ja": "同じ操作の繰り返し検出と警告の設定",
       "enabled": true,

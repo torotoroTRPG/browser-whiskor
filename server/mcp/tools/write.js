@@ -245,7 +245,8 @@ module.exports = function registerWriteTools(registry) {
           text:       { type: 'string', description: 'Text to type. Optional — omit (or pass "") to only send the submit key.' },
           selector:   { type: 'string', description: 'CSS selector of target input (if absent, types into currently focused element)' },
           clear:      { type: 'boolean', description: 'Clear existing content before typing (default: false)' },
-          submit:     { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'], description: 'Key to press after typing: enter (submit in most chats), shift-enter (newline), ctrl-enter/cmd-enter (submit in Slack/forms/editors), or none (default). Best-effort: synthetic keys may be ignored by editors that require trusted events.' },
+          submit:     { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter', 'auto'], description: 'Key to press after typing: enter (submit in most chats), shift-enter (newline), ctrl-enter/cmd-enter (submit in Slack/forms/editors), none (default), or auto (infer from enterkeyhint / native form / hint text). Best-effort: synthetic keys may be ignored by editors that require trusted events. With auto, the response includes submitInference {key, confidence, evidence}; key=null means it could not be inferred (no guess is made).' },
+          onFail:     { type: 'string', enum: ['type-only', 'abort'], description: 'When submit="auto" cannot infer a key: type-only (default) types the text and skips submit; abort types nothing and returns. Defaults to agentControl.submitInference.onFail.' },
           pressEnter: { type: 'boolean', description: 'Legacy alias for submit="enter". Prefer submit (default: false).' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
@@ -254,13 +255,15 @@ module.exports = function registerWriteTools(registry) {
       },
     },
     handler: async (args, cb) => {
+      const onFail = args.onFail || cb._config?.agentControl?.submitInference?.onFail || 'type-only';
       return observeAction(cb, args.tabId, {
-        type:       'type',
-        text:       args.text,
-        selector:   args.selector,
-        clear:      args.clear,
-        submit:     args.submit,
-        pressEnter: args.pressEnter,
+        type:         'type',
+        text:         args.text,
+        selector:     args.selector,
+        clear:        args.clear,
+        submit:       args.submit,
+        submitOnFail: onFail,
+        pressEnter:   args.pressEnter,
       }, args);
     },
   });

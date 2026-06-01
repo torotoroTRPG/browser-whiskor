@@ -53,19 +53,19 @@ module.exports = function registerDataTools(registry) {
    tools.push({
       definition: {
         name: 'get_ui_catalog',
-        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label, coordinates (x,y,w,h), and state (disabled, required). Use this to find what you can click or type into. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
+        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label (accessible name from aria-label/title/tooltip), coordinates (x,y,w,h), and state (disabled, required). Form inputs also include enterKey — an inferred submit gesture {key, confidence} (key=null when it could not be inferred). Use this to find what you can click or type into. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
         inputSchema: {
           type: 'object',
           properties: {
             tabId:     { type: 'number', description: 'Tab ID from get_sessions' },
-            search:    { type: 'string', description: 'Filter elements by text/label/placeholder/name (case-insensitive)' },
+            search:    { type: 'string', description: 'Exact substring filter over text/label/placeholder/name (case-insensitive). If unsure of the exact label, also set includeSuggestions:true for fuzzy/semantic suggestions, or use get_text_coords(match:) for fuzzy text search.' },
             type:      { type: 'string', description: 'Filter by element type (button, link, input, image)' },
             disabled:  { type: 'boolean', description: 'Filter for disabled elements only' },
             required:  { type: 'boolean', description: 'Filter for required form inputs only' },
             selector:  { type: 'string', description: 'Filter by CSS selector substring (e.g. ".btn-primary", "#submit")' },
             inViewport: { type: 'boolean', description: 'Only return elements currently in the viewport' },
             focusScope: { type: 'string', description: 'CSS selector identifying the subtree to search within (e.g. \'[role="dialog"]\'). Elements outside this scope are summarized separately in outOfScopeMatches.' },
-            includeSuggestions: { type: 'boolean', description: 'If true, include _suggestions when search finds no exact matches.' },
+            includeSuggestions: { type: 'boolean', description: 'Include fuzzy/semantic _suggestions when search finds nothing (default: true; set false to disable).' },
           },
           required: ['tabId'],
         },
@@ -215,7 +215,7 @@ module.exports = function registerDataTools(registry) {
          };
 
          // Add suggestions if no results and includeSuggestions is true
-         if (args.includeSuggestions && result.buttons.length === 0 && result.links.length === 0 &&
+         if (args.includeSuggestions !== false && result.buttons.length === 0 && result.links.length === 0 &&
              result.inputs.length === 0 && result.images.length === 0 && args.search) {
            const allElements = [...(raw.buttons || []), ...(raw.links || []), ...(raw.inputs || []), ...(raw.images || [])];
            result._suggestions = await generateSuggestions(args.search, allElements);

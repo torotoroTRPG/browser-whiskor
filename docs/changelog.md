@@ -4,6 +4,15 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.1] — 2026-06-02
+
+### Added
+
+- **`type_text` submit inference (`submit:"auto"`)** — Infers the submit gesture from observable signals (`enterkeyhint`, a single-line `<input>` in a `<form>`, `<textarea>` = newline, hint text such as "Ctrl+Enter" / "送信"). It cannot read a page's JS keydown handlers, so it returns `submitInference {key, confidence, evidence}` with `key:null` (an honest "unknown") rather than guessing. `onFail` — `agentControl.submitInference.onFail` plus a per-call override — chooses `type-only` (default: type the text, skip submit) or `abort` (type nothing, return).
+- **Pre-typing submit hint in `get_ui_catalog`** — Form inputs now carry `enterKey` (the same inference) so an agent knows how to submit before typing; inputs also gained a `label` (accessible name).
+- **Fuzzy suggestions by default** — `get_text_coords` and `get_ui_catalog` now return MiniLM semantic `_suggestions` automatically when an exact `search` finds nothing (opt out with `includeSuggestions:false`); previously this required `includeSuggestions:true`. Search descriptions now point to fuzzy (`match:` / suggestions) when the exact wording is unknown.
+- **`type_text` target echo** — The response reports the element actually typed into (`target:{tag,id,name,label,selector}`), so a wrong-target type (e.g. when `selector` is omitted and `activeElement` was unexpected) is caught immediately.
+
 ## [0.4.0] — 2026-06-01
 
 ### Added
