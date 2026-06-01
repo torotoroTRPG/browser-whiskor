@@ -4,6 +4,14 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.2] — 2026-06-02
+
+### Added
+
+- **`find_target` tool (core)** — A one-shot "where do I act for X?" resolver. It combines `get_ui_catalog` (buttons / links / inputs, with accessible-name labels) and `get_text_coords`, fuzzy-ranks them (MiniLM when available), and returns ranked candidates with click coordinates (`center`), a selector hint, `kind`, `score`, and — for inputs — the inferred `enterKey`. It finds an icon control by its label/tooltip (e.g. "送信") at the control's own coordinates rather than a floating tooltip overlay, and the returned `center` can be passed straight to `click(x, y)`. (61 → 62 tools; `core` profile 13 → 14.)
+- **Clickability hints in `get_ui_catalog` / `find_target`** — Each interactive element now carries a collection-time `clickable` hint (`true` / `false` / `null` when offscreen) with `obstructedBy` (the covering element's selector) when something sits on top. Surfaced through `find_target` candidates so an agent can spot an obstructed target up front instead of after a failed click.
+- **contenteditable / rich-text editors in `get_ui_catalog`** — Chat boxes and other `contenteditable` / `role="textbox"` editors are now catalogued among inputs (`type:"contenteditable"`) with an accessible-name `label` and inferred `enterKey`, so they're findable via `search` / `find_target` — not just native form fields.
+
 ## [0.4.1] — 2026-06-02
 
 ### Added

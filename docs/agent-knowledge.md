@@ -17,6 +17,7 @@ Reverse reference and source map for LLM agents using browser-whiskor via MCP.
 | `get_framework_state` | `mcp/tools/read-basic.js` | Framework adapters | `cache/{tabId}/raw/react_snapshot.json` etc. |
 | `get_network` | `mcp/tools/read-data.js` | `network.js` analyzer | `cache/{tabId}/raw/network/requests.json` |
 | `get_ui_catalog` | `mcp/tools/read-data.js` | `ui-catalog.js` analyzer | `cache/{tabId}/raw/ui/elements.json` |
+| `find_target` | `mcp/tools/read-data.js` | `ui-catalog.js` + `text-coords.js` (fuzzy-ranked) | `raw/ui/elements.json` + `raw/visual/text-coords.json` |
 | `get_accessibility` | `mcp/tools/read-data.js` | `accessibility.js` analyzer | `cache/{tabId}/raw/accessibility/tree.json` |
 | `get_storage` | `mcp/tools/read-data.js` | `storage-reader.js` analyzer | `cache/{tabId}/raw/storage/data.json` |
 | `get_console_logs` | `mcp/tools/read-data.js` | `console-logger.js` analyzer | `cache/{tabId}/raw/console/logs.json` |

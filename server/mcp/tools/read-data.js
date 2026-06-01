@@ -53,7 +53,7 @@ module.exports = function registerDataTools(registry) {
    tools.push({
       definition: {
         name: 'get_ui_catalog',
-        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label (accessible name from aria-label/title/tooltip), coordinates (x,y,w,h), and state (disabled, required). Form inputs also include enterKey — an inferred submit gesture {key, confidence} (key=null when it could not be inferred). Use this to find what you can click or type into. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
+        description: 'Get all interactive UI elements: buttons, links, form inputs, images. Each includes text/label (accessible name from aria-label/title/tooltip), coordinates (x,y,w,h), and state (disabled, required). Form inputs also include enterKey — an inferred submit gesture {key, confidence} (key=null when it could not be inferred) — and now cover contenteditable / rich-text editors (chat boxes), not just native fields. Each interactive element carries a collection-time clickable hint (true/false/null) with obstructedBy when something covers it. Use this to find what you can click or type into. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -519,6 +519,108 @@ module.exports = function registerDataTools(registry) {
       }
 
       return withFreshness(args.tabId, 'dom-generic', result, cache);
+    },
+  });
+
+  // 14. find_target — "where do I act for X?" one-shot resolver
+  tools.push({
+    definition: {
+      name: 'find_target',
+      description: 'Find the best interactive element(s) for a query. Combines get_ui_catalog (buttons/links/inputs, with accessible-name labels) and get_text_coords, fuzzy-ranks them (MiniLM when available), and returns ranked candidates with click coordinates (center), a selector hint, kind, score, and — for inputs — the inferred enterKey. Each candidate also carries a clickable hint (true/false/null) with obstructedBy when covered. Use this when you know WHAT to interact with ("送信", "search box", "next") but not the exact element. The returned center can be passed straight to click(x,y).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:      { type: 'number', description: 'Tab ID from get_sessions' },
+          query:      { type: 'string', description: 'What to act on — visible text, accessible label, or intent (e.g. "送信", "search", "next page").' },
+          kind:       { type: 'string', enum: ['any', 'button', 'link', 'input', 'text'], description: 'Restrict to a kind of target (default: any).' },
+          limit:      { type: 'number', description: 'Max candidates to return (default: 5).' },
+          inViewport: { type: 'boolean', description: 'Only consider elements currently within the viewport.' },
+          minScore:   { type: 'number', description: 'Minimum fuzzy score 0.0-1.0 (default: 0.3).' },
+        },
+        required: ['tabId', 'query'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      const kind = args.kind || 'any';
+      const limit = args.limit || 5;
+      const minScore = args.minScore != null ? args.minScore : 0.3;
+
+      const ui = await cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+      const tc = (kind === 'text' || kind === 'any')
+        ? await cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json') : null;
+      if (!ui && !tc) return { error: 'No UI/text data yet. Trigger refresh_data first.' };
+
+      const center = (r) => r ? { x: Math.round(r.x + (r.w || 0) / 2), y: Math.round(r.y + (r.h || 0) / 2) } : null;
+      const selFrom = (el) => el.id ? `#${el.id}`
+        : (el.name ? `[name="${el.name}"]`
+        : (el.classes ? '.' + String(el.classes).trim().split(/\s+/).slice(0, 2).join('.') : null));
+
+      const cands = [];
+      const pushEl = (kindName, el) => {
+        const text = (el.label || el.text || el.placeholder || el.name || '').trim();
+        if (!text) return;
+        cands.push({
+          kind: kindName, text, center: center(el.rect), selector: selFrom(el),
+          ...(el.enterKey ? { enterKey: el.enterKey } : {}),
+          ...(el.clickable !== undefined ? { clickable: el.clickable } : {}),
+          ...(el.obstructedBy ? { obstructedBy: el.obstructedBy } : {}),
+          ...(el.href ? { href: el.href } : {}),
+        });
+      };
+      if (ui) {
+        if (kind === 'any' || kind === 'button') (ui.buttons || []).forEach(b => pushEl('button', b));
+        if (kind === 'any' || kind === 'link')   (ui.links   || []).forEach(l => pushEl('link', l));
+        if (kind === 'any' || kind === 'input')  (ui.inputs  || []).forEach(i => pushEl('input', i));
+      }
+      if (tc && (kind === 'text' || kind === 'any')) {
+        (tc.words || []).forEach(w => {
+          const text = (w.text || '').trim();
+          if (!text) return;
+          cands.push({
+            kind: 'text', text, selector: null,
+            center: { x: Math.round((w.left ?? w.x ?? 0) + (w.width || 0) / 2), y: Math.round((w.top ?? w.y ?? 0) + (w.height || 0) / 2) },
+          });
+        });
+      }
+
+      let pool = cands;
+      if (args.inViewport) {
+        const vp = ui?.viewport || tc?.viewport || null;
+        if (vp) pool = pool.filter(c => c.center &&
+          c.center.x >= vp.scrollX && c.center.x <= vp.scrollX + vp.width &&
+          c.center.y >= vp.scrollY && c.center.y <= vp.scrollY + vp.height);
+      }
+
+      const backend = await resolveBackend(cb._config);
+      setBackend(backend);
+      let scored;
+      if (backend.batchFuzzyScore) {
+        const scores = await backend.batchFuzzyScore(args.query, pool.map(c => c.text));
+        scored = pool.map((c, i) => ({ ...c, score: scores[i] }));
+      } else {
+        scored = pool.map(c => ({ ...c, score: fuzzyScore(args.query, c.text) }));
+      }
+
+      const candidates = scored
+        .filter(c => c.score >= minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map(c => ({
+          ...c,
+          score: Math.round(c.score * 100) / 100,
+          recommend: c.kind === 'input'
+            ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
+            : 'click(center.x, center.y) — or click(text)',
+        }));
+
+      return {
+        query: args.query,
+        ...(backend.isMiniLM ? { matchBackend: 'minilm' } : {}),
+        total: pool.length,
+        candidates,
+        ...(candidates.length === 0 ? { note: 'No candidate above minScore. Lower minScore, widen kind, or call refresh_data.' } : {}),
+      };
     },
   });
 

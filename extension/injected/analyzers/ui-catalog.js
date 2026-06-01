@@ -62,6 +62,26 @@
     return { key: null, confidence: 'unknown', evidence: 'no signal' };
   }
 
+  // Cheap collection-time clickability hint: is the element's own center the topmost
+  // node there? clickable:true = reachable, false+by = covered by another element,
+  // null = offscreen/unknown until scrolled. A hint (state at collection time), not a guarantee.
+  function clickHint(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return null; }
+    if (!r || r.width < 1 || r.height < 1) return { clickable: false, reason: 'zero-size' };
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) {
+      return { clickable: null, reason: 'offscreen' };
+    }
+    let top;
+    try { top = document.elementFromPoint(cx, cy); } catch (_) { return null; }
+    if (!top) return { clickable: null, reason: 'no-hit' };
+    if (top === el || el.contains(top) || top.contains(el)) return { clickable: true };
+    const cls = (typeof top.className === 'string' ? top.className : (top.className && top.className.baseVal) || '');
+    const by = top.id ? `#${top.id}` : (cls ? '.' + cls.trim().split(/\s+/).slice(0, 2).join('.') : top.tagName.toLowerCase());
+    return { clickable: false, reason: 'obstructed', by };
+  }
+
   registry.register({
     id: 'ui-catalog', name: 'UI Element Catalog', version: '1.0.0',
     runAt: 'DOMContentLoaded', realtime: false, priority: 15,
@@ -82,34 +102,43 @@
 
     collect(api) {
       const buttons = [...document.querySelectorAll('button,[role=button],[type=button],[type=submit]')]
-        .slice(0, 200).map(el => ({
+        .slice(0, 200).map(el => { const h = clickHint(el); return {
           text: el.textContent.trim().slice(0, 60),
           label: accessibleName(el),
           type: el.getAttribute('type') || null,
           disabled: el.disabled || null,
+          clickable: h ? h.clickable : null,
+          ...(h && h.by ? { obstructedBy: h.by } : {}),
           rect: getRect(el),
           classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 80),
-        }));
+        }; });
 
-      const inputs = [...document.querySelectorAll('input,textarea,select')]
-        .slice(0, 100).map(el => ({
-          type: el.tagName.toLowerCase() === 'input' ? (el.type || 'text') : el.tagName.toLowerCase(),
+      // Includes contenteditable / role=textbox rich editors (chat boxes) alongside
+      // native form fields, so they're searchable and carry an inferred enterKey.
+      const inputs = [...document.querySelectorAll('input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]')]
+        .slice(0, 100).map(el => { const h = clickHint(el); return {
+          type: el.isContentEditable ? 'contenteditable'
+            : (el.tagName.toLowerCase() === 'input' ? (el.type || 'text') : el.tagName.toLowerCase()),
           name: el.name || null, id: el.id || null,
-          placeholder: el.placeholder || null,
+          placeholder: el.placeholder || el.getAttribute('data-placeholder') || null,
           label: accessibleName(el),
           required: el.required || null,
           enterKey: inferSubmitKey(el),
+          clickable: h ? h.clickable : null,
+          ...(h && h.by ? { obstructedBy: h.by } : {}),
           rect: getRect(el),
-        }));
+        }; });
 
       const links = [...document.querySelectorAll('a[href]')]
-        .slice(0, 200).map(el => ({
+        .slice(0, 200).map(el => { const h = clickHint(el); return {
           text: el.textContent.trim().slice(0, 60),
           label: accessibleName(el),
           href: el.href,
           target: el.target || null,
+          clickable: h ? h.clickable : null,
+          ...(h && h.by ? { obstructedBy: h.by } : {}),
           rect: getRect(el),
-        }));
+        }; });
 
       const images = [...document.querySelectorAll('img[src]')]
         .slice(0, 100).map(el => ({

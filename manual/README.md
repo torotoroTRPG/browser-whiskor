@@ -434,7 +434,7 @@ Invoke-RestMethod "http://localhost:7892/api/sessions/1/tools"
 
 ---
 
-# MCP ツールリファレンス (全61ツール)
+# MCP ツールリファレンス (全62ツール)
 
 MCP は Model Context Protocol。stdio 経由の JSON-RPC で動作します。
 

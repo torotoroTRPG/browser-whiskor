@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**browser-whiskor** (v0.4.1) はAIエージェントにブラウザの「知覚能力」を与えるChrome/Firefox拡張機能 + Node.jsサーバー。拡張側がページ内のDOM・フレームワーク状態・ネットワーク・テキスト座標などを収集し、サーバーがHTTP APIとMCP (Model Context Protocol) stdioの両方でAIエージェントに公開する。
+**browser-whiskor** (v0.4.2) はAIエージェントにブラウザの「知覚能力」を与えるChrome/Firefox拡張機能 + Node.jsサーバー。拡張側がページ内のDOM・フレームワーク状態・ネットワーク・テキスト座標などを収集し、サーバーがHTTP APIとMCP (Model Context Protocol) stdioの両方でAIエージェントに公開する。
 
 ## Commands
 
@@ -45,7 +45,7 @@ AI Agent (Claude / Cursor / etc.)
     ▼
 server/index.js          ← エントリーポイント。HTTP:7892 + WS:7891 を立ち上げ
     ├── server/core.js           ← WhiskorCore: WSメッセージのルーティングと永続化
-    ├── server/mcp-server.js     ← MCP層 (61ツール)
+    ├── server/mcp-server.js     ← MCP層 (62ツール)
     │       ├── mcp/registry.js        ← ツール登録・フィルター・プリセット
     │       ├── mcp/transport.js       ← stdio JSON-RPCトランスポート
     │       └── mcp/tools/
@@ -129,11 +129,11 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 ### MCPツールプロファイル
 
-常時公開は13ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` / `analyze_click` の5つは常時公開される「メタツール」（`server/tool-manager.js` の `ALWAYS_VISIBLE_TOOLS`）。
+常時公開は14ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` / `analyze_click` の5つは常時公開される「メタツール」（`server/tool-manager.js` の `ALWAYS_VISIBLE_TOOLS`）。
 
 | プロファイル | ツール数 | 主なツール | 自動トリガーキーワード | アイドル解除 |
 |---|---|---|---|---|
-| **core** (13) | 常時 | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | — | なし |
+| **core** (14) | 常時 | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | — | なし |
 | **debug** (+6) | 自動 | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10ターン |
 | **state-nav** (+9) | 自動 | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8ターン |
 | **delta** (+3) | 自動 | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6ターン |
@@ -175,7 +175,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 ## Known Issues / Notes
 
 - `plugin-system.js` の `dependencies` フィールドは `source-fetcher` / `css-origin` / `framework-dom-map` の3件のみ設定済み。他のプラグインは `|| []` フォールバックで動作するが、厳密な依存順序は未保証
-- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.3.4`、61ツール
+- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.4.2`、62ツール
 - アダプティブ収集スケジューリング（Proposal D）は **実装済みだがデフォルト無効**。実体は `extension/background/sw.js` の `CollectionScheduler` クラス（two-speed cadence: active/quiescent）。`config.json` の `adaptiveCollection.enabled: true` で有効化する。SW（長寿命）側に置かれているのは、ナビゲーションごとに破棄される MAIN-world の `collector.js` ではタイマーが保持できないため
 
 ## Key Ports & Endpoints

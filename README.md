@@ -1,4 +1,4 @@
-# browser-whiskor v0.4.1
+# browser-whiskor v0.4.2
 
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
@@ -43,7 +43,7 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (61 tools, configurable visibility)                 │
+│  MCP Layer (62 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
@@ -226,15 +226,15 @@ Warning codes:
 
 ---
 
-## MCP Tools (v0.4.1: 61 tools)
+## MCP Tools (v0.4.2: 62 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 61 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
-| **core** (13) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | Always loaded | Never |
+| **core** (14) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | Always loaded | Never |
 | **debug** (+6) | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10 turns |
 | **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
