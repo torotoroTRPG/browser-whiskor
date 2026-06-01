@@ -1,4 +1,4 @@
-# browser-whiskor v0.3.4
+# browser-whiskor v0.3.6
 
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
@@ -117,11 +117,16 @@ browser-whiskor builds a semantic state graph as you browse or run the autonomou
 ### State Hashing
 
 States are identified by a composite hash:
-- **reactHash:** Component tree shape + router path + store keys (FNV32, non-deterministic values filtered)
+- **reactHash:** Component tree shape + router path + store keys (FNV32; non-deterministic prop values filtered — see below)
 - **domHash:** URL pathname + interactive element signatures
 - **compositeHash:** `FNV32(reactHash + domHash)` if React is available, otherwise `domHash`
 
-Non-deterministic values (timestamps, UUIDs, loading flags) are excluded from hash computation to ensure stable state identification.
+Non-deterministic prop values are filtered out so the hash stays stable across volatile changes. The filter is **key-aware** by default (`config.json` → `react.hashFilter.mode`):
+- **`key-aware`** (default): a value is normalized away only when its *key* looks volatile (`createdAt`, `*At`, `timestamp`, `nonce`…) or the value is an unambiguous UUID v4 / ISO-8601 datetime. Legitimate numeric IDs — even 13-digit — survive, so distinct states stay distinct.
+- **`aggressive`**: also strips bare 13-digit numbers and 32+ char random strings regardless of key.
+- **`off`**: no filtering (legacy).
+
+See `docs/v0.3.6-improvements.md` for the rationale and the dual-hash implementation note.
 
 ## Setup
 
@@ -221,7 +226,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v0.3.4: 61 tools)
+## MCP Tools (v0.3.6: 61 tools)
 
 ### Dynamic Tool Profiles
 
@@ -292,7 +297,7 @@ Instead of exposing all 61 tools at once, browser-whiskor uses **dynamic profile
 
 > These work but are not the focus of this project. For serious browser automation, use Playwright/Puppeteer alongside browser-whiskor.
 
-> **`observe` option:** `click`, `type_text`, `press_key`, `hover`, `scroll_page`, `mouse_scroll`, `drag`, `select_option`, `check_box`, and `right_click` accept `observe: true`. After the action, the server watches the page state hash until it settles and returns `_observation: { available, fromHash, toHash, hashChanged, settled, elapsedMs }` — letting you check whether the action changed the UI state without a separate `refresh_data` round-trip. Requires the page to report a composite state hash (state graph / explorer active); otherwise `_observation.available` is `false` and the action still runs normally.
+> **`observe` option:** `click`, `type_text`, `press_key`, `hover`, `scroll_page`, `mouse_scroll`, `drag`, `select_option`, `check_box`, and `right_click` accept `observe: true` (plus optional `observeTimeoutMs`, default 3000). After the action, the server watches the page state hash until it settles and returns `_observation: { available, fromHash, toHash, hashChanged, settled, reads, mode, elapsedMs }` — letting you check whether the action changed the UI state without a separate `refresh_data` round-trip. The settle loop uses **adaptive polling** (fast first reads to catch brief SPA transitions, then back-off) plus a **quiescent window** so a fast A→B→A flip doesn't settle early; tune via `config.json` → `observe`, or set `adaptive: false` for fixed-interval legacy behaviour. Requires the page to report a composite state hash (state graph / explorer active); otherwise `_observation.available` is `false` and the action still runs normally.
 
 | Tool | Description |
 |------|-------------|
@@ -552,16 +557,16 @@ The agent can then say "click element 1" instead of dealing with raw coordinates
 
 ## Testing & Quality
 
-**308 automated tests** covering core logic, server routing, and stress scenarios (273 unit, 20 integration, 11 stress, 4 e2e).
+**262 automated tests** run via `npm test` (237 unit, 20 integration, 5 stress), plus 83 Playwright E2E specs (`npm run test:e2e`).
 
 | Category | Count | Scope |
 |----------|-------|-------|
-| **Unit** | 273 | Server logic, WS messaging, MCP tools, Canvas math |
+| **Unit** | 237 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, Canvas math |
 | **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab |
-| **Stress** | 11 | Large payloads (5000+ words), long sessions |
-| **UI Verification** | 8 | Dashboard rendering, canvas updates, state management |
+| **Stress** | 5 | Large payloads (5000+ words), long sessions |
+| **E2E (Playwright)** | 83 | Dashboard, interactions, MCP tools, resilience, state machine, full pipeline |
 
-> **Note:** The UI verification tests (`tests/e2e/`) confirm that the dashboard renders correctly in a real browser, but they do not simulate the full extension-to-server pipeline. True E2E coverage would require a live extension environment. For now, we rely on robust unit/integration tests for pipeline correctness.
+> **Note:** The Playwright E2E specs (`tests/e2e/`) exercise the dashboard, MCP tools, interactions, resilience, and a full-pipeline scenario in a real browser. They require a live environment and are not part of `npm test`; core pipeline correctness is also covered by the unit/integration suites.
 
 **Pre-push validation:** Run `.\scripts\validate.ps1` to check YAML syntax, shared/ sync status, and file structure before committing.
 
