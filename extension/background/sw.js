@@ -141,47 +141,73 @@ class CollectionScheduler {
 const collectionScheduler = new CollectionScheduler();
 
 
-async function cropImage(dataUrl, rect, padding, format, quality) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const imgW = img.width;
-        const imgH = img.height;
-        const viewW = self.innerWidth || 1920;
-        const dpr = Math.round((imgW / viewW) * 10) / 10 || 1;
+async function cropImage(dataUrl, rect, padding, format, quality, dpr = 1) {
+  // MV3 service workers have no Image/document — decode the captured PNG via
+  // fetch → blob → createImageBitmap instead of `new Image()`.
+  const srcBlob = await (await fetch(dataUrl)).blob();
+  const bitmap = await createImageBitmap(srcBlob);
+  try {
+    const imgW = bitmap.width;
+    const imgH = bitmap.height;
+    // captureVisibleTab renders at CSS-px × devicePixelRatio; getBoundingClientRect
+    // is in CSS px. Scale crop coords by the page's real dpr (passed from the page).
+    const scale = dpr || 1;
 
-        const sx = Math.max(0, Math.round((rect.x - padding) * dpr));
-        const sy = Math.max(0, Math.round((rect.y - padding) * dpr));
-        const sw = Math.min(imgW - sx, Math.round((rect.w + padding * 2) * dpr));
-        const sh = Math.min(imgH - sy, Math.round((rect.h + padding * 2) * dpr));
+    const sx = Math.max(0, Math.round((rect.x - padding) * scale));
+    const sy = Math.max(0, Math.round((rect.y - padding) * scale));
+    const sw = Math.min(imgW - sx, Math.round((rect.w + padding * 2) * scale));
+    const sh = Math.min(imgH - sy, Math.round((rect.h + padding * 2) * scale));
 
-        if (sw <= 0 || sh <= 0) {
-          reject(new Error('Crop region is outside the visible viewport'));
-          return;
-        }
+    if (sw <= 0 || sh <= 0) {
+      throw new Error('Crop region is outside the visible viewport');
+    }
 
-        const canvas = new OffscreenCanvas(sw, sh);
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+    const canvas = new OffscreenCanvas(sw, sh);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
 
-        const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-        const blobOpts = format === 'jpeg'
-          ? { type: mimeType, quality: (quality ?? 85) / 100 }
-          : { type: mimeType };
+    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const blobOpts = format === 'jpeg'
+      ? { type: mimeType, quality: (quality ?? 85) / 100 }
+      : { type: mimeType };
 
-        canvas.convertToBlob(blobOpts).then(blob => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror   = () => reject(new Error('FileReader failed'));
-          reader.readAsDataURL(blob);
-        }).catch(reject);
+    const outBlob = await canvas.convertToBlob(blobOpts);
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror   = () => reject(new Error('FileReader failed'));
+      reader.readAsDataURL(outBlob);
+    });
+  } finally {
+    bitmap.close?.();
+  }
+}
 
-      } catch (e) { reject(e); }
-    };
-    img.onerror = () => reject(new Error('Failed to load screenshot for crop'));
-    img.src = dataUrl;
-  });
+// Downscale a screenshot dataUrl to cap its width, re-encoding in the given format.
+// Service workers have no Image/document, so decode via fetch → blob → createImageBitmap.
+async function downscaleDataUrl(dataUrl, maxWidth, format, quality) {
+  const srcBlob = await (await fetch(dataUrl)).blob();
+  const bitmap = await createImageBitmap(srcBlob);
+  try {
+    if (!maxWidth || bitmap.width <= maxWidth) return dataUrl;
+    const scale = maxWidth / bitmap.width;
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+    const blobOpts = format === 'png' ? { type: mime } : { type: mime, quality: (quality ?? 70) / 100 };
+    const outBlob = await canvas.convertToBlob(blobOpts);
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror   = () => reject(new Error('FileReader failed'));
+      reader.readAsDataURL(outBlob);
+    });
+  } finally {
+    bitmap.close?.();
+  }
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -502,7 +528,18 @@ async function handleServerMessage(msg) {
           }
         }
 
-        const dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, { format: 'png' });
+        const fmt = opts?.format === 'png' ? 'png' : 'jpeg';
+        const captureOpts = fmt === 'jpeg'
+          ? { format: 'jpeg', quality: typeof opts?.quality === 'number' ? opts.quality : 70 }
+          : { format: 'png' };
+        let dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, captureOpts);
+
+        // Optional downscale to cap width — shrinks the base64 payload (and tokens) for
+        // large/full-page screenshots. No-op when the image is already within maxWidth.
+        const maxWidth = typeof opts?.maxWidth === 'number' ? opts.maxWidth : 0;
+        if (maxWidth > 0) {
+          try { dataUrl = await downscaleDataUrl(dataUrl, maxWidth, fmt, captureOpts.quality); } catch (_) {}
+        }
 
         sendToServer({
           type: 'SCREENSHOT_RESULT',
@@ -526,30 +563,43 @@ async function handleServerMessage(msg) {
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
         let rect = null;
+        let dpr = 1;
 
-        if (opts.selector && windowId) {
+        // Fetch the page's real devicePixelRatio (and the element rect, if a selector
+        // was given) in a single MAIN-world call. dpr cannot be read in the SW.
+        if (windowId) {
           try {
             const results = await chrome.scripting.executeScript({
               target: { tabId },
               world: 'MAIN',
               func: (selector) => {
-                const el = document.querySelector(selector);
-                if (!el) return null;
-                const r = el.getBoundingClientRect();
-                return { x: r.left, y: r.top, w: r.width, h: r.height };
+                const out = { dpr: window.devicePixelRatio || 1, rect: null };
+                if (selector) {
+                  const el = document.querySelector(selector);
+                  if (el) {
+                    const r = el.getBoundingClientRect();
+                    out.rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+                  }
+                }
+                return out;
               },
-              args: [opts.selector],
+              args: [opts.selector || null],
             });
-            rect = results?.[0]?.result || null;
+            const res = results?.[0]?.result;
+            if (res) {
+              dpr = res.dpr || 1;
+              if (opts.selector) rect = res.rect;
+            }
           } catch (_) {}
-          if (!rect) {
-            sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId,
-              error: `selector not found: ${opts.selector}` });
-            break;
-          }
-        } else if (opts.rect) {
-          rect = opts.rect;
-        } else {
+        }
+
+        if (opts.selector && !rect) {
+          sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId,
+            error: `selector not found: ${opts.selector}` });
+          break;
+        }
+        if (!rect && opts.rect) rect = opts.rect;
+        if (!rect) {
           sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId,
             error: 'CAPTURE_ELEMENT requires opts.selector or opts.rect' });
           break;
@@ -562,7 +612,7 @@ async function handleServerMessage(msg) {
           quality: format === 'jpeg' ? (opts.quality ?? 85) : undefined,
         });
 
-        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality);
+        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality, dpr);
 
         sendToServer({
           type:       'ELEMENT_CAPTURE_RESULT',
@@ -631,23 +681,48 @@ async function handleServerMessage(msg) {
 function executeInPage(tabId, action) {
   return new Promise((resolve, reject) => {
     const listenerId = crypto.randomUUID();
-    const timeout = setTimeout(() => {
+    let settled = false;
+
+    function finish(ok, value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(listener);
+      try { chrome.webNavigation.onCommitted.removeListener(navListener); } catch (_) {}
       cleanupPageAction(tabId, listenerId);
-      reject(new Error(`Page action timeout: ${action.type}`));
+      if (ok) resolve(value); else reject(value);
+    }
+
+    const timeout = setTimeout(() => {
+      finish(false, new Error(`Page action timeout: ${action.type}`));
     }, PAGE_ACTION_TIMEOUT);
 
     function listener(message) {
       if (message.type === 'ACTION_COMPLETE' && message.listenerId === listenerId) {
-        clearTimeout(timeout);
-        cleanupPageAction(tabId, listenerId);
-        if (message.ok) resolve(message.result);
-        else reject(new Error(message.error || 'Action failed'));
+        if (message.ok) finish(true, message.result);
+        else finish(false, new Error(message.error || 'Action failed'));
       }
+    }
+
+    // A full-page navigation tears down the MAIN-world context before it can post
+    // ACTION_COMPLETE back; without this the promise would hang until PAGE_ACTION_TIMEOUT
+    // and the action (e.g. a click on a link/router target) would be reported as a
+    // failure even though it clearly took effect. Treat an in-flight main-frame
+    // navigation as a soft success. SPA pushState transitions keep the context alive and
+    // reply via ACTION_COMPLETE, so they never reach here (onCommitted = document loads).
+    function navListener(details) {
+      if (details.tabId !== tabId || details.frameId !== 0) return;
+      finish(true, {
+        navigated: true,
+        url: details.url,
+        _note: 'Action triggered a page navigation; the in-page result was not awaited because the page context was replaced.',
+      });
     }
 
     if (!pendingPageActions.has(tabId)) pendingPageActions.set(tabId, []);
     pendingPageActions.get(tabId).push({ listenerId, timeout, reject });
     chrome.runtime.onMessage.addListener(listener);
+    try { chrome.webNavigation.onCommitted.addListener(navListener); } catch (_) {}
 
     chrome.scripting.executeScript({
       target: { tabId },
@@ -657,9 +732,7 @@ function executeInPage(tabId, action) {
       args: [action, listenerId],
       world: 'MAIN',
     }).catch((e) => {
-      clearTimeout(timeout);
-      cleanupPageAction(tabId, listenerId);
-      reject(e);
+      finish(false, e);
     });
   });
 }

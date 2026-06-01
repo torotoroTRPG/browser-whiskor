@@ -237,19 +237,20 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'type_text',
-      description: 'Type text into a form element. Types character-by-character firing keydown/keypress/input/keyup for React synthetic event compatibility. Optionally clears existing content first.',
+      description: 'Type text into a form element (input, textarea, or contenteditable/rich-text editor). Types character-by-character firing keydown/keypress/input/keyup for React/framework compatibility; contenteditable editors are driven via insertText. Optionally clears first and/or presses a submit key afterwards. You can also omit text and send only a submit key (e.g. submit="enter") to submit an already-filled field without loading the press_key profile.',
       inputSchema: {
         type: 'object',
         properties: {
           tabId:      { type: 'number', description: 'Tab ID' },
-          text:       { type: 'string', description: 'Text to type' },
+          text:       { type: 'string', description: 'Text to type. Optional — omit (or pass "") to only send the submit key.' },
           selector:   { type: 'string', description: 'CSS selector of target input (if absent, types into currently focused element)' },
           clear:      { type: 'boolean', description: 'Clear existing content before typing (default: false)' },
-          pressEnter: { type: 'boolean', description: 'Press Enter after typing (default: false)' },
+          submit:     { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'], description: 'Key to press after typing: enter (submit in most chats), shift-enter (newline), ctrl-enter/cmd-enter (submit in Slack/forms/editors), or none (default). Best-effort: synthetic keys may be ignored by editors that require trusted events.' },
+          pressEnter: { type: 'boolean', description: 'Legacy alias for submit="enter". Prefer submit (default: false).' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
         },
-        required: ['tabId', 'text'],
+        required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
@@ -258,6 +259,7 @@ module.exports = function registerWriteTools(registry) {
         text:       args.text,
         selector:   args.selector,
         clear:      args.clear,
+        submit:     args.submit,
         pressEnter: args.pressEnter,
       }, args);
     },

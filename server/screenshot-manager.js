@@ -65,8 +65,10 @@ function handleResult(msg) {
     return;
   }
 
-  // Save to disk
-  const filename = `${p.tabId}-${Date.now()}.png`;
+  // Save to disk (derive extension from the data URL's mime so a jpeg isn't saved as .png)
+  const mimeMatch = /^data:image\/(\w+);base64,/.exec(dataUrl || '');
+  const ext = mimeMatch ? (mimeMatch[1] === 'jpeg' ? 'jpg' : mimeMatch[1]) : 'png';
+  const filename = `${p.tabId}-${Date.now()}.${ext}`;
   const filePath = path.join(SCREENSHOT_DIR, filename);
   try {
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');

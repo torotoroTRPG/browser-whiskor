@@ -595,27 +595,44 @@
 
     if (!target || !preClickFingerprint) return diagnosis;
 
-    // Check what's at the target's position now
+    // If the target is gone from the DOM (or collapsed to a zero-size box) after the
+    // click, that is almost always the click *working*: a React/SPA re-render replaced
+    // or removed the element. Without this guard getBoundingClientRect() collapses to
+    // (0,0) and elementFromPoint() hits whatever sits at the top-left (often the header),
+    // producing a bogus 'click_intercepted'.
     try {
       const rect = target.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const currentTop = document.elementFromPoint(cx, cy);
+      const detached = !document.contains(target);
+      const collapsed = rect.width === 0 && rect.height === 0;
 
-      if (currentTop) {
-        const isTarget = currentTop === target || target.contains(currentTop);
-        diagnosis.clickLanded = isTarget;
-        diagnosis.whatReceivedClick = {
-          selector: computeSelector(currentTop),
-          isTarget,
-        };
+      if (detached || collapsed) {
+        diagnosis.clickLanded = true;
+        diagnosis.targetRemoved = true;
+        diagnosis.stateChanged = true;
+        diagnosis.whatReceivedClick = { selector: detached ? '(removed)' : '(collapsed)', isTarget: true };
+      } else {
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const currentTop = document.elementFromPoint(cx, cy);
 
-        if (!isTarget) {
-          diagnosis.unexpectedBehavior = 'click_intercepted';
+        if (currentTop) {
+          const isTarget = currentTop === target || target.contains(currentTop);
+          diagnosis.clickLanded = isTarget;
+          diagnosis.whatReceivedClick = {
+            selector: computeSelector(currentTop),
+            isTarget,
+          };
+
+          if (!isTarget) {
+            diagnosis.unexpectedBehavior = 'click_intercepted';
+          }
         }
       }
     } catch (_) {
-      // Target may have been removed from DOM
+      // Target was removed from the DOM — treat as a landed click, not interception.
+      diagnosis.clickLanded = true;
+      diagnosis.targetRemoved = true;
+      diagnosis.stateChanged = true;
     }
 
     // Check for new dialogs
@@ -657,6 +674,12 @@
       // This is a best-effort heuristic — we can't track all mutations without MutationObserver
       // For now, if the click landed but nothing visibly changed, report it
       diagnosis.unexpectedBehavior = 'no_state_change';
+    }
+
+    // A click that demonstrably changed page state was not "intercepted" — clear the
+    // false positive that arises when a re-render moves/removes the original target.
+    if (diagnosis.unexpectedBehavior === 'click_intercepted' && diagnosis.stateChanged) {
+      diagnosis.unexpectedBehavior = null;
     }
 
     return diagnosis;

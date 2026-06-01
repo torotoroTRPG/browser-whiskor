@@ -271,6 +271,66 @@ function unloadProfile(sessionId, profileName, allTools) {
 }
 
 /**
+ * Find which profile(s) declare a given tool. Used to auto-enable the owning
+ * profile when an agent calls a tool that exists but isn't currently loaded.
+ * Returns [{ profile, requiresConfig }] (usually a single entry).
+ */
+function findProfilesForTool(toolName) {
+  const profiles = loadProfiles();
+  const owners = [];
+  for (const [name, profile] of Object.entries(profiles)) {
+    if (Array.isArray(profile.tools) && profile.tools.includes(toolName)) {
+      owners.push({ profile: name, requiresConfig: profile.requiresConfig || null });
+    }
+  }
+  return owners;
+}
+
+/**
+ * Ensure a tool is visible for a session, auto-loading its owning profile when
+ * the tool exists but its profile simply isn't loaded yet. This is the common
+ * case that agents previously misread as "tool not implemented".
+ *
+ * It deliberately distinguishes the two reasons a call can be blocked:
+ *   - just-not-loaded  → auto-loads the owning profile, reports { autoLoaded }.
+ *   - permission-gated → a profile that requiresConfig (allowExecuteJs /
+ *                        allowAgentConfig) is NOT auto-loaded; the caller gets a
+ *                        precise reason so it can ask the user instead of retrying.
+ *
+ * Returns one of:
+ *   { visible: true }                                       already visible
+ *   { visible: true, autoLoaded: 'profile' }                owning profile loaded now
+ *   { visible: false, reason: 'requires_config', profile, requiresConfig }
+ *   { visible: false, reason: 'no_profile' }                no profile provides it
+ */
+function ensureToolVisible(sessionId, toolName, allTools, config) {
+  const isVisible = () => getVisibleTools(sessionId, allTools, config)
+    .some(t => t.definition.name === toolName);
+
+  if (isVisible()) return { visible: true };
+
+  const owners = findProfilesForTool(toolName);
+  if (owners.length === 0) return { visible: false, reason: 'no_profile' };
+
+  // Prefer an owner without a config gate so genuinely-open tools auto-load.
+  owners.sort((a, b) => (a.requiresConfig ? 1 : 0) - (b.requiresConfig ? 1 : 0));
+
+  for (const owner of owners) {
+    const res = loadProfile(sessionId, owner.profile, allTools, config, true);
+    if (res.success && isVisible()) return { visible: true, autoLoaded: owner.profile };
+  }
+
+  // Every owning profile is permission-gated (requiresConfig not satisfied).
+  const gated = owners.find(o => o.requiresConfig) || owners[0];
+  return {
+    visible: false,
+    reason: 'requires_config',
+    profile: gated.profile,
+    requiresConfig: gated.requiresConfig,
+  };
+}
+
+/**
  * Process a turn: check idle profiles, auto-detect triggers, issue warnings.
  * Returns { autoLoaded?, warnings?, unloaded? }
  */
@@ -440,6 +500,8 @@ module.exports = {
    getVisibleTools,
    loadProfile,
    unloadProfile,
+   ensureToolVisible,
+   findProfilesForTool,
    processTurn,
    searchTools,
    getProfileStatus,

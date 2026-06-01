@@ -29,7 +29,7 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/network/requests.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/network/requests.json');
       if (!raw) return { requests: [], totalRequests: 0, note: 'No network data yet. Trigger refresh_data.' };
 
       let reqs = raw.requests || [];
@@ -72,7 +72,7 @@ module.exports = function registerDataTools(registry) {
       },
       handler: async (args, cb) => {
          const cache = cb.cache;
-         const raw = cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+         const raw = await cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
          if (!raw) return { error: 'UI catalog not available. Trigger refresh_data.' };
 
          // Get session for system messages
@@ -94,7 +94,7 @@ module.exports = function registerDataTools(registry) {
          // Get viewport for inViewport filtering
          let vp = null;
          if (args.inViewport) {
-           const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+           const liveVp = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
            vp = liveVp || raw.viewport || null;
          }
 
@@ -243,7 +243,7 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/accessibility/tree.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/accessibility/tree.json');
       if (!raw) return { error: 'Accessibility tree not available. Trigger refresh_data with plugins: ["accessibility"].' };
 
       let tree = raw;
@@ -292,7 +292,7 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/storage/data.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/storage/data.json');
       if (!raw) return { error: 'Storage data not available. Trigger refresh_data with plugins: ["storage-reader"].' };
 
       if (args.filter) {
@@ -329,7 +329,7 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/console/logs.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/console/logs.json');
       if (!raw) {
         const logs = cache.getConsoleLogs(args.tabId);
         if (!logs.length) return { error: 'No console logs captured yet. Enable console-logger plugin and trigger refresh_data.' };
@@ -371,7 +371,7 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/perf/metrics.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/perf/metrics.json');
       if (!raw) return { error: 'Performance metrics not available. Trigger refresh_data.' };
       return withFreshness(args.tabId, 'perf-analyzer', raw, cache);
     },
@@ -396,13 +396,13 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/css/analysis.json');
       if (!raw) return { error: 'CSS analysis not available.' };
 
       // Get viewport for inViewport filtering
       let vp = null;
       if (args.inViewport) {
-        const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+        const liveVp = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
         vp = liveVp || raw.viewport || null;
       }
 
@@ -436,7 +436,7 @@ module.exports = function registerDataTools(registry) {
 
       const final = await withFreshness(args.tabId, 'css-analyzer', result, cache);
       // Attach css_origin_map from intelligence layer if available
-      const originMap = cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
+      const originMap = await cache.readSessionFile(args.tabId, 'raw/intelligence/css-origin-map.json');
       if (originMap) {
         final.css_origin_map = originMap;
       }
@@ -465,13 +465,13 @@ module.exports = function registerDataTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const raw = cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
+      const raw = await cache.readSessionFile(args.tabId, 'raw/dom/snapshot.json');
       if (!raw) return { error: 'DOM snapshot not available.' };
 
       // Get viewport for inViewport filtering
       let vp = null;
       if (args.inViewport) {
-        const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+        const liveVp = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
         vp = liveVp || raw.viewport || null;
       }
 

@@ -20,9 +20,24 @@
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  // Resolve the combined text of the elements referenced by an IDREF attribute
+  // (aria-labelledby / aria-describedby). Lets us match an icon control by the text
+  // of its associated label/tooltip (e.g. a Material tooltip "送信").
+  function refText(el, attr) {
+    const ids = (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean);
+    let out = '';
+    for (const id of ids) {
+      const ref = document.getElementById(id);
+      if (ref) out += ' ' + (ref.textContent || '');
+    }
+    return out.trim();
+  }
+
   function elementText(el) {
     return (el.textContent || el.value || el.placeholder ||
-            el.getAttribute('aria-label') || el.getAttribute('title') || '')
+            el.getAttribute('aria-label') || refText(el, 'aria-labelledby') ||
+            el.getAttribute('title') || el.getAttribute('alt') ||
+            refText(el, 'aria-describedby') || '')
       .trim().toLowerCase();
   }
 
@@ -110,6 +125,38 @@
   function scrollIntoView(el) {
     try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); }
     catch (_) {}
+  }
+
+  // Resolve the post-type Enter behaviour from an action, honouring the legacy
+  // `pressEnter` boolean. Returns: 'none' | 'enter' | 'shift-enter' | 'ctrl-enter' | 'cmd-enter'.
+  function resolveSubmit(action) {
+    const allowed = ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'];
+    if (typeof action.submit === 'string' && allowed.includes(action.submit)) return action.submit;
+    return action.pressEnter ? 'enter' : 'none';
+  }
+
+  // Dispatch an Enter keystroke (optionally with a modifier) to submit a field or
+  // insert a line break. Submit gestures vary by app: plain Enter (most chats),
+  // Shift+Enter (newline), Ctrl/Cmd+Enter (Slack/forms/editors). Best-effort —
+  // synthetic key events are untrusted, so editors gating on isTrusted may ignore them.
+  function pressEnterCombo(el, submit, fireFormSubmit) {
+    const mods = {
+      'enter':       {},
+      'shift-enter': { shiftKey: true },
+      'ctrl-enter':  { ctrlKey: true },
+      'cmd-enter':   { metaKey: true },
+    }[submit];
+    if (!mods) return false;
+    const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, ...mods };
+    el.dispatchEvent(new KeyboardEvent('keydown',  opts));
+    el.dispatchEvent(new KeyboardEvent('keypress', opts));
+    el.dispatchEvent(new KeyboardEvent('keyup',    opts));
+    // Plain Enter on a form field also emits a best-effort submit so single-input forms
+    // react — matching the legacy pressEnter behaviour.
+    if (fireFormSubmit && submit === 'enter') {
+      el.dispatchEvent(new Event('submit', { bubbles: true }));
+    }
+    return true;
   }
 
   // ── Action handlers ──────────────────────────────────────────────────────────
@@ -291,6 +338,45 @@
 
       el.focus();
 
+      const text = action.text == null ? '' : String(action.text);
+      const submit = resolveSubmit(action);
+
+      // Empty text with no submit key is a focus-only no-op (the element is already
+      // focused above). Allow empty text WITH a submit key — e.g. "just press Enter".
+      if (text === '' && submit === 'none') {
+        return { ok: true, typedLength: 0, note: 'Nothing to type and no submit key — element focused only.' };
+      }
+
+      // contenteditable / rich-text editors (Gemini, Notion, ProseMirror, …) have no
+      // `.value`; the <input>/<textarea> path below would throw on `el.value.length`.
+      // Drive them via execCommand('insertText') so the editor's own beforeinput/input
+      // pipeline fires and the framework state updates.
+      const isContentEditable = el.isContentEditable === true ||
+        (typeof el.value === 'undefined' && el.getAttribute && el.getAttribute('contenteditable') != null);
+
+      if (isContentEditable) {
+        if (action.clear) {
+          try { el.textContent = ''; } catch (_) {}
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        for (const char of text) {
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+          let inserted = false;
+          try { inserted = document.execCommand('insertText', false, char); } catch (_) {}
+          if (!inserted) {
+            // Fallback for editors that ignore execCommand: emit beforeinput, then append.
+            try {
+              el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: char, bubbles: true, cancelable: true }));
+              el.textContent = (el.textContent || '') + char;
+            } catch (_) {}
+          }
+          el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+        }
+        if (submit !== 'none') pressEnterCombo(el, submit, false);
+        return { ok: true, typedLength: text.length, submitted: submit !== 'none' ? submit : undefined, currentValue: el.textContent };
+      }
+
       if (action.clear) {
         el.value = '';
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -298,7 +384,7 @@
       }
 
       // Type character by character for React synthetic event compatibility
-      for (const char of action.text) {
+      for (const char of text) {
         el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, bubbles: true }));
         el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
         const start = el.selectionStart ?? el.value.length;
@@ -312,14 +398,10 @@
         el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
       }
 
-      if (action.pressEnter) {
-        el.dispatchEvent(new KeyboardEvent('keydown',  { key: 'Enter', code: 'Enter', bubbles: true }));
-        el.dispatchEvent(new KeyboardEvent('keyup',    { key: 'Enter', code: 'Enter', bubbles: true }));
-        el.dispatchEvent(new Event('submit', { bubbles: true }));
-      }
+      if (submit !== 'none') pressEnterCombo(el, submit, true);
 
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true, typedLength: action.text.length, currentValue: el.value };
+      return { ok: true, typedLength: text.length, submitted: submit !== 'none' ? submit : undefined, currentValue: el.value };
     },
 
     press_key(action) {

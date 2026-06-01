@@ -4,6 +4,22 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.0] — 2026-06-01
+
+### Added
+
+- **Profile auto-load on tool call** — Calling a tool whose profile isn't loaded now auto-loads the owning profile and proceeds (reported via `_autoLoaded`) instead of bouncing the call back as unavailable — which agents repeatedly misread as "not implemented". Permission-gated profiles (`allowExecuteJs` / `allowAgentConfig`) are **not** auto-loaded and instead return a precise reason so the agent can ask the user. (`tool-manager.ensureToolVisible`, `mcp/registry.js`)
+- **Configurable, token-light screenshots** — `capture_screenshot` no longer inlines the base64 image by default (large token cost); `filePath` is always returned and the image is saved to disk. New `agentControl.screenshot` config (`returnImageByDefault`, `format`, `quality`, `maxWidth`); when returned, the full screenshot is JPEG-encoded and downscaled to `maxWidth`. Per-call overrides: `returnImage` / `format` / `quality` / `maxWidth`. `capture_element_screenshot` is unaffected (already small).
+- **`type_text` submit gestures** — New `submit` option (`enter` / `shift-enter` / `ctrl-enter` / `cmd-enter` / `none`) so the right submit/newline gesture can be chosen per app. `text` is now optional — submit an already-filled field with just `submit:"enter"` without loading the `press_key` profile. `pressEnter` kept as a legacy alias.
+- **Accessible-name search** — `get_ui_catalog` buttons/links now carry a `label` resolved from `aria-label` / `title` / `alt` and the text of `aria-labelledby` / `aria-describedby` targets (e.g. a Material tooltip "送信") **at the element's own coordinates**. `click(text:)` matches the same — so an icon control is found by its label/tooltip rather than the floating tooltip overlay.
+
+### Fixed
+
+- **Proxy-mode read tools** — Read tools now `await` the proxy cache (which returns Promises over HTTP) instead of assuming a synchronous cache. Fixes `cache.freshnessInfo is not a function`, `getSessionList(...).find is not a function`, and `get_framework_state` falsely reporting "Available: none". Added `freshnessInfo` / `getConsoleLogs` proxy shims; the proxy `readSessionFile` now returns `null` for a missing file (404) instead of leaking `"File not found"` (fixes `get_viewport`).
+- **`type_text` on contenteditable** — Rich-text editors (Gemini, Notion, …) have no `.value`; typing crashed with "Cannot read properties of undefined". They are now detected and driven via `execCommand('insertText')`.
+- **`capture_element_screenshot`** — Replaced `new Image()` (undefined in MV3 service workers → "Image is not defined") with `createImageBitmap`; the crop now scales by the page's real `devicePixelRatio`.
+- **Click diagnostics** — A click that triggers a full-page navigation no longer times out (the service worker reports soft success on main-frame `webNavigation.onCommitted`). A click whose target is removed/replaced by a re-render is no longer mislabeled `click_intercepted`.
+
 ## [0.3.4] — 2026-05-27
 
 ### Added

@@ -100,16 +100,27 @@ async function callTool(name, args) {
     return { error: `Tool "${name}" is disabled by configuration.` };
   }
 
-  // Check tool manager visibility
+  // Check tool manager visibility. If the tool exists but its profile simply
+  // isn't loaded, auto-load the owning profile and continue, instead of bouncing
+  // the call back as if the tool were unavailable (which agents misread as "not
+  // implemented"). Permission-gated profiles (allowExecuteJs / allowAgentConfig)
+  // are NOT auto-loaded — those return a precise reason so the agent asks the user.
+  let autoEnabledProfile = null;
   if (_toolManager && _sessionId) {
-    const visible = _toolManager.getVisibleTools(_sessionId, getAllTools(), _serverConfig);
-    const isVisible = visible.some(t => t.definition.name === name);
-    if (!isVisible) {
+    const ensured = _toolManager.ensureToolVisible(_sessionId, name, getAllTools(), _serverConfig);
+    if (!ensured.visible) {
+      if (ensured.reason === 'requires_config') {
+        return {
+          error: `Tool "${name}" is gated by configuration: it needs "${ensured.requiresConfig}" enabled (profile "${ensured.profile}").`,
+          hint: `This is an intentional permission gate, not a missing tool. Ask the user to enable ${ensured.requiresConfig} in config.json${ensured.requiresConfig === 'allowAgentConfig' ? '' : ' (or via set_config when allowAgentConfig is on)'}.`,
+        };
+      }
       return {
-        error: `Tool "${name}" is not currently loaded.`,
-        hint: `Use load_profile to enable this tool's category, or search_tools("${name}") to find alternatives.`,
+        error: `Tool "${name}" is not provided by any profile.`,
+        hint: `Use search_tools("${name}") to find the right tool.`,
       };
     }
+    autoEnabledProfile = ensured.autoLoaded || null;
 
     // Process turn for auto-load/unload/warnings
     const turnResult = _toolManager.processTurn(_sessionId, { name, args }, getAllTools(), _serverConfig);
@@ -119,6 +130,9 @@ async function callTool(name, args) {
     }
     if (turnResult.autoLoaded?.length) {
       responseExtras._autoLoaded = turnResult.autoLoaded;
+    }
+    if (autoEnabledProfile) {
+      responseExtras._autoLoaded = [...new Set([...(responseExtras._autoLoaded || []), autoEnabledProfile])];
     }
     if (turnResult.unloaded?.length) {
       responseExtras._autoUnloaded = turnResult.unloaded;

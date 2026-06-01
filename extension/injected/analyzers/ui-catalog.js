@@ -14,6 +14,31 @@
     } catch (_) { return null; }
   }
 
+  function refText(el, attr) {
+    const ids = (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean);
+    let out = '';
+    for (const id of ids) {
+      const ref = document.getElementById(id);
+      if (ref) out += ' ' + (ref.textContent || '');
+    }
+    return out.trim();
+  }
+
+  // Accessible name for icon-only / labelled controls: surfaces aria-label, title,
+  // alt, and the text of aria-labelledby / aria-describedby targets (e.g. a Material
+  // tooltip "送信") AT THE ELEMENT'S OWN coordinates — so searching the catalog finds
+  // the real control, not the floating tooltip overlay.
+  function accessibleName(el) {
+    const parts = [
+      el.getAttribute('aria-label'),
+      refText(el, 'aria-labelledby'),
+      el.getAttribute('title'),
+      el.getAttribute('alt'),
+      refText(el, 'aria-describedby'),
+    ];
+    return parts.map(s => (s || '').trim()).filter(Boolean).join(' ').slice(0, 80) || null;
+  }
+
   registry.register({
     id: 'ui-catalog', name: 'UI Element Catalog', version: '1.0.0',
     runAt: 'DOMContentLoaded', realtime: false, priority: 15,
@@ -36,6 +61,7 @@
       const buttons = [...document.querySelectorAll('button,[role=button],[type=button],[type=submit]')]
         .slice(0, 200).map(el => ({
           text: el.textContent.trim().slice(0, 60),
+          label: accessibleName(el),
           type: el.getAttribute('type') || null,
           disabled: el.disabled || null,
           rect: getRect(el),
@@ -54,6 +80,7 @@
       const links = [...document.querySelectorAll('a[href]')]
         .slice(0, 200).map(el => ({
           text: el.textContent.trim().slice(0, 60),
+          label: accessibleName(el),
           href: el.href,
           target: el.target || null,
           rect: getRect(el),

@@ -517,8 +517,23 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     const proxyCache = {
       getSessionList() { return requestServer('GET', '/api/sessions'); },
       getSessionData(tabId) { return requestServer('GET', `/api/sessions/${tabId}`); },
-      readSessionFile(tabId, filename) { return requestServer('GET', `/api/sessions/${tabId}/${filename}`); },
-      getSmartDelta(tabId) { return requestServer('GET', `/api/sessions/${tabId}/raw/delta/smart.json`); }
+      async readSessionFile(tabId, filename) {
+        const res = await requestServer('GET', `/api/sessions/${tabId}/${filename}`);
+        // Standalone readSessionFile returns null for a missing file. Match that
+        // contract instead of leaking the server's 404 body ({error:'File not found'}),
+        // which downstream `if (!raw)` guards would otherwise treat as real data
+        // (surfacing a bogus "File not found" from e.g. get_viewport).
+        if (res && res.error === 'File not found') return null;
+        return res;
+      },
+      getSmartDelta(tabId) { return requestServer('GET', `/api/sessions/${tabId}/raw/delta/smart.json`); },
+      // withFreshness() is synchronous, so it cannot await an HTTP round-trip here.
+      // Skip staleness annotation in proxy mode (return null → no _warnings) instead of
+      // throwing "cache.freshnessInfo is not a function" on every read tool.
+      freshnessInfo() { return null; },
+      // In-memory console buffer is not reachable over HTTP; the persisted
+      // raw/console/logs.json path is read via readSessionFile instead.
+      getConsoleLogs() { return []; }
     };
 
     const proxyAction = async (tabId, action, timeoutMs) => {

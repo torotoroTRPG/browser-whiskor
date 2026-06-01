@@ -276,7 +276,7 @@ module.exports = function registerStateTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const delta = cache.getSmartDelta(args.tabId);
+      const delta = await cache.getSmartDelta(args.tabId);
       if (!delta) return { note: 'No delta data available. Interact with the page and try again.' };
       return delta;
     },

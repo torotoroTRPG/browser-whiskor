@@ -1,4 +1,4 @@
-# browser-whiskor v0.3.6
+# browser-whiskor v0.4.0
 
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
@@ -226,7 +226,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v0.3.6: 61 tools)
+## MCP Tools (v0.4.0: 61 tools)
 
 ### Dynamic Tool Profiles
 

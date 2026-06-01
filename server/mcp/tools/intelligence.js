@@ -84,7 +84,7 @@ module.exports = function registerIntelligenceTools(registry) {
       const sessionDir       = cache.getSessionDir ? cache.getSessionDir(tabId) : null;
       const cssOriginPath    = sessionDir ? require('path').join(sessionDir, 'raw/intelligence/css-origin-map.json')    : null;
       const frameworkMapPath = sessionDir ? require('path').join(sessionDir, 'raw/intelligence/framework-dom-map.json') : null;
-      const cachedHash       = cache.readSessionFile(tabId, 'raw/intelligence/_conclusion-key.json');
+      const cachedHash       = await cache.readSessionFile(tabId, 'raw/intelligence/_conclusion-key.json');
       const invalidationKey  = conclusionCache.buildInvalidationKey(
         cachedHash?.compositeHash,
         conclusionCache.fileContentHash(cssOriginPath),
@@ -104,9 +104,9 @@ module.exports = function registerIntelligenceTools(registry) {
       }
 
       // [2] Read from session cache
-      const cssOriginMap   = cache.readSessionFile(tabId, 'raw/intelligence/css-origin-map.json');
-      const frameworkMap   = cache.readSessionFile(tabId, 'raw/intelligence/framework-dom-map.json');
-      const causalChains   = cache.readSessionFile(tabId, 'raw/intelligence/causal-chains.json');
+      const cssOriginMap   = await cache.readSessionFile(tabId, 'raw/intelligence/css-origin-map.json');
+      const frameworkMap   = await cache.readSessionFile(tabId, 'raw/intelligence/framework-dom-map.json');
+      const causalChains   = await cache.readSessionFile(tabId, 'raw/intelligence/causal-chains.json');
 
       // [3] Filter CSS origin data for our selector
       let styles = [];
@@ -250,7 +250,7 @@ module.exports = function registerIntelligenceTools(registry) {
       }
 
       // From persisted causal-chains.json
-      const persisted = cache.readSessionFile(args.tabId, 'raw/intelligence/causal-chains.json');
+      const persisted = await cache.readSessionFile(args.tabId, 'raw/intelligence/causal-chains.json');
       if (Array.isArray(persisted)) {
         const cutoff = Date.now() - sinceMs;
         const filtered = persisted.filter(c =>
@@ -374,7 +374,7 @@ module.exports = function registerIntelligenceTools(registry) {
       // Also check persisted SOURCE_CHANGED events in the session cache
       const cache = cb.cache;
       if (cache && args.tabId) {
-        const persisted = cache.readSessionFile(args.tabId, 'raw/intelligence/source-changes.json');
+        const persisted = await cache.readSessionFile(args.tabId, 'raw/intelligence/source-changes.json');
         if (Array.isArray(persisted)) {
           const cutoff = Date.now() - sinceMs;
           const extra  = persisted.filter(e => e.detectedAt >= cutoff && (kind === 'all' || e.kind === kind));
@@ -440,17 +440,17 @@ async function _waitForCollectEvent(cache, tabId, filePath, timeoutMs, cb) {
   const start = Date.now();
 
   // Check immediately
-  const immediate = cache.readSessionFile(tabId, filePath);
+  const immediate = await cache.readSessionFile(tabId, filePath);
   if (immediate) return immediate;
 
   // Event-driven: wait for collect to complete (via typed callback)
   if (cb._onCollectComplete) {
     const eventResult = await new Promise((resolve) => {
       const timer = setTimeout(() => resolve(null), timeoutMs);
-      const unsub = cb._onCollectComplete(tabId, () => {
+      const unsub = cb._onCollectComplete(tabId, async () => {
         clearTimeout(timer);
         unsub();
-        const data = cache.readSessionFile(tabId, filePath);
+        const data = await cache.readSessionFile(tabId, filePath);
         resolve(data);
       });
     });
@@ -464,7 +464,7 @@ async function _waitForCollectEvent(cache, tabId, filePath, timeoutMs, cb) {
     if (remaining <= 0) break;
     const interval = remaining > 2000 ? 500 : 200;
     await new Promise(r => setTimeout(r, interval));
-    const data = cache.readSessionFile(tabId, filePath);
+    const data = await cache.readSessionFile(tabId, filePath);
     if (data) return data;
   }
   return null;

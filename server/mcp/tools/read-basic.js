@@ -49,7 +49,7 @@ module.exports = function registerBasicTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      const data = cb.cache.getSessionData(args.tabId);
+      const data = await cb.cache.getSessionData(args.tabId);
       if (!data) return { error: `No session for tabId ${args.tabId}. Call get_sessions first.` };
       return data;
     },
@@ -78,7 +78,7 @@ module.exports = function registerBasicTools(registry) {
      },
      handler: async (args, cb) => {
         const cache = cb.cache;
-        const raw = cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
+        const raw = await cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
         if (!raw) return { error: 'TEXT_COORDS not available. Trigger refresh_data first.' };
 
         const level      = args.level || 'words';
@@ -116,7 +116,7 @@ module.exports = function registerBasicTools(registry) {
 
         let vp = null;
         if (inViewport) {
-          const liveVp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+          const liveVp = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
           vp = liveVp || raw.viewport || null;
         }
 
@@ -346,9 +346,9 @@ module.exports = function registerBasicTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const vp = cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+      const vp = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
       if (!vp) {
-        const raw = cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
+        const raw = await cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
         if (raw?.viewport) return withFreshness(args.tabId, 'text-coords', { viewport: raw.viewport, note: 'Viewport from last text-coords snapshot. Scroll position may be stale.' }, cache);
         return { error: 'Viewport data not available. Ensure the tab has the extension loaded and trigger refresh_data.' };
       }
@@ -372,7 +372,7 @@ module.exports = function registerBasicTools(registry) {
     },
     handler: async (args, cb) => {
       const cache = cb.cache;
-      const index = cache.getSessionData(args.tabId);
+      const index = await cache.getSessionData(args.tabId);
       if (!index) return { error: `No session for tabId ${args.tabId}` };
 
       const fw = args.framework || 'auto';
@@ -409,7 +409,7 @@ module.exports = function registerBasicTools(registry) {
       }
 
       if (!targetFile) return { error: `Framework '${fw}' not detected. Available: ${Object.keys(fwFileMap).filter(k => fwFileMap[k]).join(', ') || 'none'}` };
-      const data = cache.readSessionFile(args.tabId, targetFile);
+      const data = await cache.readSessionFile(args.tabId, targetFile);
       if (!data) return { error: `File ${targetFile} not readable.` };
       return withFreshness(args.tabId, fwPluginMap[targetFw] || targetFw, data, cache);
     },

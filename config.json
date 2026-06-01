@@ -347,6 +347,13 @@
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,
     "screenshotMarks":      false,
+    "screenshot": {
+      "_comment_ja": "capture_screenshot(フル画面)の既定。returnImageByDefault=false で base64 を返さず filePath のみ（トークン節約）。返す場合は format/quality/maxWidth を適用。capture_element は対象外（小サイズ前提）",
+      "returnImageByDefault": false,
+      "format": "jpeg",
+      "quality": 70,
+      "maxWidth": 1280
+    },
     "duplicateDetection": {
       "_comment_ja": "同じ操作の繰り返し検出と警告の設定",
       "enabled": true,
