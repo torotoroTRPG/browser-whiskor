@@ -179,6 +179,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 - `agentControl.argTriggerDetection`: デフォルト `true`。プロファイル自動ロードのトリガー判定でツール引数のテキストも走査するか（whole-wordマッチ）。`false` でツール名のみ判定に戻す
 - `adaptiveCollection.enabled`: デフォルト `false`。アダプティブ収集スケジューラ（SW側 `CollectionScheduler`）の有効化
 - `intelligence.miniLM.downloadOnStart`: 起動時のモデル自動DL (初回のみ、~50MB)
+- `identity.instanceId` / `identity.name`: インスタンスの説明的ラベル（**セキュリティではない**）。`GET /health` と MCP `serverInfo` で公開。狙いは「自前のブラウザ自動化ツールに whiskor を**組み込んでもグローバルを汚染しない**」こと＝埋め込み側が自分の whiskor を他の（グローバルな）whiskor と取り違えずに済む。`instanceId` が `null` のとき `whiskor-<hostname>-<httpPort>` に自動導出（host:port単位で一意＝共有デフォルト衝突なし。埋め込み時は専用ポート＋`WHISKOR_IDENTITY_INSTANCEID` 推奨）。タブ単位の実分離が要るなら `appIsolation` を併用。実体は `server/index.js` の `IDENTITY` 構築 → `core.js`(/health) と `mcp/transport.js`(serverInfo)
 
 ## Coding Style
 

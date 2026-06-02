@@ -16,6 +16,7 @@
 const http  = require('http');
 const fs    = require('fs');
 const path  = require('path');
+const os    = require('os');
 const { WebSocketServer } = require('ws');
 
 const cache      = require('./cache-writer');
@@ -58,6 +59,16 @@ const SECURITY = {
   executeJsTimeoutMs: _cfg.security?.executeJsTimeoutMs ?? 15000,
   actionTimeoutMs:    _cfg.security?.actionTimeoutMs    ?? 15000,
   allowedMcpOrigins:  _cfg.security?.allowedMcpOrigins  ?? ['*'],
+};
+
+// Descriptive instance identity (label, not security) surfaced on /health and MCP
+// serverInfo so multiple whiskor servers on different ports/machines are tellable
+// apart. instanceId auto-derives to whiskor-<hostname>-<httpPort> when unset —
+// unique per host:port, so no shared-default collision. See config.json identity.
+const _sanitizeIdentity = (s) => String(s).replace(/[^A-Za-z0-9_.:-]/g, '-').slice(0, 64) || 'whiskor';
+const IDENTITY = {
+  instanceId: _sanitizeIdentity(_cfg.identity?.instanceId || `whiskor-${os.hostname()}-${HTTP_PORT}`),
+  name:       _cfg.identity?.name || 'whiskor',
 };
 
 // Check if Whiskor server is already running on HTTP_PORT
@@ -197,6 +208,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       sourceStore,
       conclusionCache,
       appRegistry,
+      identity: IDENTITY,
       initialConfig: {
         mode: 'always_on',
         plugins: _cfg.plugins || {},
@@ -671,6 +683,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
   }
 
   mcp.setConfig(_cfg);
+  mcp.setIdentity(IDENTITY);
+  log('info', `[identity] instance=${IDENTITY.instanceId} name=${IDENTITY.name}${PROXY_MODE ? ' (proxy)' : ''}`);
 
   {
     const toolManager = require('./tool-manager');

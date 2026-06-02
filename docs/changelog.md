@@ -4,6 +4,16 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.6.0] — 2026-06-03
+
+### Added
+
+- **Instance identity** — a new `identity` config section gives each server a descriptive label (not security), surfaced on `GET /health` (`identity: {instanceId, name}`) and in MCP `serverInfo` (`instanceId` / `instanceName`). It exists for one job: telling multiple whiskor servers apart when several run on different ports/machines (e.g. a per-project whiskor alongside another). A single default instance needs no setup — `instanceId` auto-derives to `whiskor-<hostname>-<httpPort>` when unset, which is unique per host:port (two servers can't share a port), so there is no shared-default collision. Override via `config.json` → `identity` or `WHISKOR_IDENTITY_INSTANCEID` / `WHISKOR_IDENTITY_NAME`. Deliberately *not* encryption/auth — local loopback needs none; `appIsolation` tokens remain the tool for LAN exposure.
+
+### Fixed
+
+- **Stale MCP `serverInfo` version** — `serverInfo.version` was hardcoded `3.0.0`; it now reports the real `package.json` version (`server/mcp/transport.js`), consistent with the rest of the project's single-source-of-truth versioning.
+
 ## [0.5.4] — 2026-06-02
 
 ### Fixed

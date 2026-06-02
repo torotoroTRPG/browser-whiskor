@@ -42,6 +42,7 @@ class WhiskorCore extends EventEmitter {
     this.sourceStore      = opts.sourceStore      || null;
     this._conclusionCache = opts.conclusionCache  || null;
     this.appRegistry      = opts.appRegistry      || null;
+    this.identity         = opts.identity         || null;
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',
@@ -438,7 +439,7 @@ class WhiskorCore extends EventEmitter {
     const appRegistry  = this.appRegistry;
 
     if (method === 'GET' && p === '/health') {
-      return { status: 200, body: { ok: true, wsConnections: this.swSockets.size, sessions: this.cache.getSessionList().length, pendingActions: this.actions.pendingCount() } };
+      return { status: 200, body: { ok: true, identity: this.identity || null, wsConnections: this.swSockets.size, sessions: this.cache.getSessionList().length, pendingActions: this.actions.pendingCount() } };
     }
 
     if (method === 'GET' && p === '/api/config') {

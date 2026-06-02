@@ -10,6 +10,10 @@
 const readline = require('readline');
 const registry = require('./registry');
 
+// package.json is the single source of truth for the version (no hardcoding).
+let PKG_VERSION = '0.0.0';
+try { PKG_VERSION = require('../../package.json').version || PKG_VERSION; } catch { /* fall back */ }
+
 /**
  * ツールハンドラの返り値を MCP content blocks に変換する。
  *
@@ -34,7 +38,10 @@ function toContentBlocks(toolResult) {
 }
 
 // ── MCP stdio transport ───────────────────────────────────────────────────────
-function startMcpServer() {
+// `identity` (optional) = { instanceId, name } from config.json identity section,
+// surfaced in serverInfo so an agent talking to several whiskor servers can tell
+// which instance answered. Falls back to the plain product name when unset.
+function startMcpServer(identity = null) {
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
   rl.on('line', async (line) => {
@@ -54,7 +61,13 @@ function startMcpServer() {
         result = {
           protocolVersion: '2024-11-05',
           capabilities:    { tools: {} },
-          serverInfo:      { name: 'browser-whiskor', version: '3.0.0' },
+          serverInfo:      {
+            name:    'browser-whiskor',
+            version: PKG_VERSION,
+            ...(identity && (identity.instanceId || identity.name)
+              ? { instanceId: identity.instanceId || undefined, instanceName: identity.name || undefined }
+              : {}),
+          },
         };
       } else if (method === 'notifications/initialized') {
         return;

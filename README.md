@@ -192,6 +192,12 @@ The same two-process split that powers Proxy Mode is what makes the restart clea
 
 This covers the common case — the *worker* falling over. The MCP proxy process itself is owned by the agent (Claude/Cursor) and is a thin HTTP forwarder, so it rarely crashes. Start the server (`npm start`) before the agent so the agent's `--mcp` process attaches in Proxy Mode. (The `--mcp` process is intentionally *not* supervised — its lifecycle belongs to the agent.)
 
+### Instance Identity
+
+When you run **several whiskor servers** (e.g. a per-project instance on a different port), a descriptive `identity` lets a client/agent — or a human reading logs — tell them apart. It's surfaced on `GET /health` (`identity: {instanceId, name}`) and MCP `serverInfo` (`instanceId`/`instanceName`).
+
+It's a **label, not security** (local loopback needs no encryption; use `appIsolation` tokens for LAN exposure). A single default instance needs no setup: `instanceId` auto-derives to `whiskor-<hostname>-<httpPort>` when unset — unique per host:port, so no shared-default collision. Override in `config.json` → `identity`, or via `WHISKOR_IDENTITY_INSTANCEID` / `WHISKOR_IDENTITY_NAME`.
+
 ---
 
 ## Explorer — Honest Assessment

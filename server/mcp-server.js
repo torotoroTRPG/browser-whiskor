@@ -40,6 +40,7 @@ for (const t of _replayTools) registry.registerTool(t.definition, t.handler);
 // ── Callbacks from index.js ───────────────────────────────────────────────────
 let _config = {};
 let _sessionId = 'default';
+let _identity = null;
 
 function setCallbacks(pushConfig, triggerCollect, triggerExplorer) {
   registry.setCallbacks({ _pushConfig: pushConfig, _triggerCollect: triggerCollect, _triggerExplorer: triggerExplorer });
@@ -88,6 +89,10 @@ function setSessionId(id) {
   _sessionId = id;
 }
 
+function setIdentity(identity) {
+  _identity = identity || null;
+}
+
 // ── Tool Manager Integration ──────────────────────────────────────────────────
 function initToolManager() {
   toolManager.initSession(_sessionId);
@@ -114,7 +119,7 @@ function applyPreset(presetName) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 function startMcpServer() {
-  transport.startMcpServer();
+  transport.startMcpServer(_identity);
 }
 
 module.exports = {
@@ -131,6 +136,7 @@ module.exports = {
   applyPreset,
   setConfig,
   setSessionId,
+  setIdentity,
   initToolManager,
   processToolCall,
   toolManager,
