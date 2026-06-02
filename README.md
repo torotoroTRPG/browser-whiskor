@@ -1,4 +1,4 @@
-# browser-whiskor v0.4.5
+# browser-whiskor v0.5.0
 
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
@@ -226,7 +226,7 @@ Warning codes:
 
 ---
 
-## MCP Tools (v0.4.5: 62 tools)
+## MCP Tools (v0.5.0: 62 tools)
 
 ### Dynamic Tool Profiles
 
@@ -304,8 +304,8 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `navigate_to` | Navigate to URL |
 | `click` | Click by selector, text, or coordinates |
 | `right_click` | Right-click (context menu) by selector, text, or coordinates |
-| `type_text` | Text input (React synthetic event aware) |
-| `press_key` | Keyboard shortcuts |
+| `type_text` | Text input (React synthetic-event aware; physical `code`/`keyCode` + CJK/IME composition; trusted via CDP when high-fidelity input is enabled) |
+| `press_key` | Keyboard shortcuts (trusted via CDP when high-fidelity input is enabled) |
 | `hover` | Hover (dropdowns, tooltips) |
 | `scroll_page` | Scroll to position or element |
 | `mouse_scroll` | Fire wheel event at specific coordinates |
@@ -316,6 +316,8 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `wait_for_element` | Wait for element |
 | `go_back` / `go_forward` | Browser history |
 | `reload_page` | Reload |
+
+> **Input fidelity:** `click`, `type_text`, and `press_key` default to **synthetic DOM events** (zero-permission, no banner, identical on Chrome/Firefox). Synthetic keys now carry physical-keyboard fields (`code`/`keyCode`/`which`) and emit IME **composition** events for CJK/rich-text editors. For widgets that require *trusted* events or a user gesture (popups, clipboard, file pickers, some payment/OAuth flows), enable **High-Fidelity Input (CDP)** — see below.
 
 ### Tabs
 
@@ -340,7 +342,7 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 
 | Tool | Description |
 |------|-------------|
-| `capture_screenshot` | Screenshot (base64 PNG), optionally with numbered markers (SoM) |
+| `capture_screenshot` | Screenshot — always saved to disk (`filePath`); returns a **viewable image content block** when `returnImage=true` (default off to save tokens, configurable via `agentControl.screenshot.returnImageByDefault`). Optional numbered markers (SoM) |
 | `capture_element_screenshot` | Element-level screenshot by selector or rect with padding |
 | `refresh_data` | Trigger data collection + wait for completion |
 
@@ -354,6 +356,26 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `trigger_explorer` | Start/stop autonomous exploration |
 
 ---
+
+## High-Fidelity Input (CDP)
+
+Browser actions (`click`, `type_text`, `press_key`) use **synthetic DOM events** by default. These are `isTrusted: false`, so widgets gated on trusted input or user activation (popups, clipboard, file pickers, some payment/OAuth flows) may ignore them. To reach those, enable **CDP high-fidelity input**, which drives the mouse/keyboard via the Chrome DevTools Protocol (`chrome.debugger`) to produce `isTrusted: true` events.
+
+Set in `config.json`:
+```json
+{ "agentControl": { "input": { "highFidelity": "fallback" } } }
+```
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` (default) | Synthetic events only |
+| `fallback` | Synthetic first; if a `click` lands but nothing changes (`no_state_change`), retry **that click** via CDP |
+| `always` | Route `click` / `type_text` / `press_key` through CDP every time |
+
+- **Chrome only.** Firefox has no `chrome.debugger`, so it ignores the setting and always uses synthetic events (parity is best-effort).
+- Requires the `debugger` permission (already in the Chrome manifest).
+- **Banner:** while CDP is attached, Chrome shows a "*… is debugging this browser*" notice bar. A short idle keep-alive batches operations to minimise how often it flashes.
+- Any CDP failure (e.g. DevTools already open on the tab) **falls back to the synthetic path**, so the action still does its best.
 
 ## Text Search — Fuzzy Matching
 
@@ -533,11 +555,11 @@ Set in `config.json`:
 }
 ```
 
-Response includes:
+Response includes (the image itself is returned as a viewable image content block when `returnImage=true`; the JSON carries `filePath` + the elements map):
 ```json
 {
   "ok": true,
-  "dataUrl": "data:image/png;base64,...",
+  "filePath": "cache/screenshots/1234-1716000000000.jpg",
   "elements": {
     "1": { "tag": "button", "text": "Sign In", "center": {"x": 450, "y": 320}, "selector": "#login-btn" },
     "2": { "tag": "a", "text": "Forgot password?", "center": {"x": 450, "y": 380}, "selector": "a.forgot-link" },
