@@ -39,7 +39,7 @@ module.exports = function registerCaptureTools(registry) {
           maxWidth: typeof args.maxWidth === 'number' ? args.maxWidth : (typeof sc.maxWidth === 'number' ? sc.maxWidth : 0),
         };
         const result = await cb._captureScreenshot(args.tabId, opts);
-        if (!result.ok) return { ok: false, error: result.error };
+        if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
         const response = {
           ok: true,
           capturedAt:  result.capturedAt,

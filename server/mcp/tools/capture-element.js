@@ -100,7 +100,7 @@ module.exports = function registerElementCaptureTools(registry) {
           result = await captureAndCropFallback(args.tabId, opts, cb);
         }
 
-        if (!result.ok) return { ok: false, error: result.error };
+        if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
 
         const response = {
           ok:         true,

@@ -9,6 +9,50 @@
   if (window.__SI_EXECUTOR_INIT__) return;
   window.__SI_EXECUTOR_INIT__ = true;
 
+  // ── Native dialog guard ───────────────────────────────────────────────────────
+  // Native alert/confirm/prompt BLOCK the page's event loop, which freezes our action
+  // handlers and times the action out (the classic "click hangs because a modal popped").
+  // Override them so they never block: capture the message, auto-respond per policy, and
+  // record each with causal attribution to the in-flight action — so the agent learns
+  // "your click triggered this alert" instead of just timing out.
+  const DIALOG_LOG = [];
+  let ACTION_CTX = null;            // { id, label, startedAt } while an action runs
+  let _lastAction = null;          // { id, label, endedAt } for indirect attribution
+  const DIALOG_POLICY = { confirm: true, prompt: null }; // defaults; per-action override via act.dialog
+
+  function recordDialog(type, message, defaultValue, response) {
+    const now = Date.now();
+    let causality = 'none', action = null;
+    if (ACTION_CTX) {
+      causality = 'direct'; action = { id: ACTION_CTX.id, label: ACTION_CTX.label };
+    } else if (_lastAction && now - _lastAction.endedAt < 1500) {
+      causality = 'indirect'; action = { id: _lastAction.id, label: _lastAction.label };
+    }
+    const entry = {
+      type,
+      message: String(message == null ? '' : message).slice(0, 500),
+      ...(defaultValue != null ? { defaultValue: String(defaultValue).slice(0, 200) } : {}),
+      response,
+      causality,
+      action,
+      ts: now,
+    };
+    DIALOG_LOG.push(entry);
+    if (DIALOG_LOG.length > 50) DIALOG_LOG.shift();
+    return entry;
+  }
+
+  (function installDialogGuard() {
+    if (window.__SI_DIALOG_GUARD__) return;
+    window.__SI_DIALOG_GUARD__ = true;
+    try {
+      window.alert   = function (msg)      { recordDialog('alert', msg, undefined, 'dismissed'); };
+      window.confirm = function (msg)      { const r = DIALOG_POLICY.confirm !== false; recordDialog('confirm', msg, undefined, r); return r; };
+      window.prompt  = function (msg, def) { const r = DIALOG_POLICY.prompt ?? null;   recordDialog('prompt', msg, def, r); return r; };
+    } catch (_) { /* some pages freeze these props — best effort */ }
+    try { window.__SI_DIALOGS__ = () => DIALOG_LOG.slice(); } catch (_) {}
+  })();
+
   // ── Element finders ──────────────────────────────────────────────────────────
 
   function findBySelector(selector) {
@@ -797,6 +841,16 @@
     const { payload: act, listenerId } = event.data;
     const handler = handlers[act.type];
 
+    // Scope native dialogs to this action (direct causality) and honour a per-call
+    // dialog policy override: act.dialog = { confirm: boolean, prompt: string|null }.
+    const prevPolicy = { confirm: DIALOG_POLICY.confirm, prompt: DIALOG_POLICY.prompt };
+    if (act.dialog && typeof act.dialog === 'object') {
+      if ('confirm' in act.dialog) DIALOG_POLICY.confirm = act.dialog.confirm;
+      if ('prompt' in act.dialog)  DIALOG_POLICY.prompt  = act.dialog.prompt;
+    }
+    const dialogStart = DIALOG_LOG.length;
+    ACTION_CTX = { id: listenerId, label: act.type, startedAt: Date.now() };
+
     let result;
     if (!handler) {
       result = { ok: false, error: `Unknown action type: ${act.type}` };
@@ -806,6 +860,17 @@
       } catch (e) {
         result = { ok: false, error: e.message };
       }
+    }
+
+    // Detach dialog scope and attach any dialogs that fired during this action so the
+    // agent sees what its action triggered (auto-handled — no page block / timeout).
+    const firedDialogs = DIALOG_LOG.slice(dialogStart);
+    ACTION_CTX = null;
+    _lastAction = { id: listenerId, label: act.type, endedAt: Date.now() };
+    DIALOG_POLICY.confirm = prevPolicy.confirm;
+    DIALOG_POLICY.prompt  = prevPolicy.prompt;
+    if (result && typeof result === 'object' && firedDialogs.length) {
+      result.dialogs = firedDialogs;
     }
 
     // Send result back to SW via bridge (ISOLATED world)
@@ -819,6 +884,7 @@
         ok: result.ok !== false,
         result: result.ok !== false ? result : undefined,
         error: result.ok === false ? result.error : undefined,
+        ...(firedDialogs.length ? { dialogs: firedDialogs } : {}),
       },
     }, '*');
   });

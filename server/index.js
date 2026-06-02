@@ -169,8 +169,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     });
 
     // Inject broadcast functions into action/screenshot modules
-    actions.setBroadcast((msg) => core.broadcast(msg));
-    screenshots.setBroadcast((msg) => core.broadcast(msg));
+    actions.setBroadcast((msg) => core.sendToTab(msg));
+    screenshots.setBroadcast((msg) => core.sendToTab(msg));
 
     // Forward core events for logging
     core.on('sw:connect', () => log('info', `[ws] Extension connected (${core.swSockets.size} total)`));

@@ -4,6 +4,17 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.5] — 2026-06-02
+
+### Added
+
+- **Native dialog guard** — `window.alert/confirm/prompt` are overridden in the page (MAIN world) so a native dialog never blocks the event loop — which previously froze the click handler and timed the action out (the classic "click hangs because a modal popped"). The dialog's content is captured, auto-answered (alert dismissed; confirm/prompt per policy, overridable per call via a `dialog: {confirm, prompt}` option on `click`/`type_text`), and returned in `result.dialogs` with causal attribution (`direct` / `indirect` / `none`) to the triggering action.
+
+### Fixed
+
+- **Multi-browser action routing** — Actions and screenshots are now sent only to the service worker that owns the target tab (`core.sendToTab`) instead of being broadcast to every connected browser. Previously, when more than one browser ran the extension, a browser lacking the tab could answer "No tab with id" first and win the result race — causing flaky failures and hangs. Falls back to broadcast only when no connected SW is known to own the tab.
+- **Tab-gone recovery** — When an action or capture targets a tab that was closed or reloaded into a new id, the service worker now returns a structured `tabGone` error with a `liveTabs` list (id/url/title) so the agent can retarget by URL or use `list_tabs` / `switch_tab`, instead of the raw Chrome "No tab with id". Capture also fails fast rather than silently grabbing the active tab.
+
 ## [0.4.4] — 2026-06-02
 
 ### Added

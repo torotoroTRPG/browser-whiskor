@@ -55,7 +55,7 @@ function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
  * Called by index.js when ACTION_RESULT arrives via WebSocket.
  */
 function handleResult(msg) {
-  const { actionId, ok, result, error } = msg;
+  const { actionId, ok, result, error, tabGone, liveTabs } = msg;
   const p = pending.get(actionId);
   if (!p) return; // timed out or unknown
   clearTimeout(p.timer);
@@ -64,7 +64,7 @@ function handleResult(msg) {
   if (ok) {
     p.resolve({ ok: true, result: result || null, durationMs: Date.now() - p.startedAt });
   } else {
-    p.resolve({ ok: false, error: error || 'Unknown error', durationMs: Date.now() - p.startedAt });
+    p.resolve({ ok: false, error: error || 'Unknown error', ...(tabGone ? { tabGone: true, liveTabs: liveTabs || [] } : {}), durationMs: Date.now() - p.startedAt });
   }
 }
 

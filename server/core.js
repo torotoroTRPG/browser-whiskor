@@ -63,6 +63,25 @@ class WhiskorCore extends EventEmitter {
     }
   }
 
+  // Send a tab-scoped message (actions / screenshots) only to the SW that owns
+  // msg.tabId. Without this, actions are broadcast to every connected browser, and a
+  // browser that lacks the tab answers "No tab with id" and can win the result race
+  // (the cause of flaky "No tab" / hangs when multiple browsers run the extension).
+  // Falls back to broadcast when no connected SW is known to own the tab.
+  sendToTab(msg) {
+    const tabId = msg && msg.tabId;
+    if (tabId != null) {
+      for (const [ws, tabs] of this._wsToTabs) {
+        if (tabs.has(tabId) && this.swSockets.has(ws) && ws.readyState === 1) {
+          try { ws.send(JSON.stringify(msg)); } catch (_) {}
+          return true;
+        }
+      }
+    }
+    this.broadcast(msg);
+    return false;
+  }
+
   broadcastToDashboard(msg) {
     const raw = JSON.stringify(msg);
     for (const ws of this.dashboardSockets) {

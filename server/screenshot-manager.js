@@ -54,14 +54,14 @@ function capture(tabId, opts = {}) {
  * Called by index.js when SCREENSHOT_RESULT arrives.
  */
 function handleResult(msg) {
-  const { reqId, dataUrl, width, height, error, elements } = msg;
+  const { reqId, dataUrl, width, height, error, elements, tabGone, liveTabs } = msg;
   const p = pending.get(reqId);
   if (!p) return;
   clearTimeout(p.timer);
   pending.delete(reqId);
 
   if (error) {
-    p.resolve({ ok: false, error });
+    p.resolve({ ok: false, error, ...(tabGone ? { tabGone: true, liveTabs: liveTabs || [] } : {}) });
     return;
   }
 

@@ -184,6 +184,7 @@ module.exports = function registerWriteTools(registry) {
           y:        { type: 'number', description: 'Absolute Y coordinate (pixels).' },
           double:   { type: 'boolean', description: 'Double-click instead of single click (default: false)' },
           button:   { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button (default: left)' },
+          dialog:   { type: 'object', description: 'How to auto-answer native dialogs this action triggers (they never block the page): { confirm: boolean (default true = OK), prompt: string|null (default null = Cancel) }. alert is always auto-dismissed. Any dialog that fires is returned in result.dialogs with its content, response, and causality (direct/indirect/none).' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
         },
@@ -199,6 +200,7 @@ module.exports = function registerWriteTools(registry) {
         y:        args.y,
         double:   args.double,
         button:   args.button,
+        dialog:   args.dialog,
       }, args);
     },
   });
@@ -248,6 +250,7 @@ module.exports = function registerWriteTools(registry) {
           submit:     { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter', 'auto'], description: 'Key to press after typing: enter (submit in most chats), shift-enter (newline), ctrl-enter/cmd-enter (submit in Slack/forms/editors), none (default), or auto (infer from enterkeyhint / native form / hint text). Best-effort: synthetic keys may be ignored by editors that require trusted events. With auto, the response includes submitInference {key, confidence, evidence}; key=null means it could not be inferred (no guess is made).' },
           onFail:     { type: 'string', enum: ['type-only', 'abort'], description: 'When submit="auto" cannot infer a key: type-only (default) types the text and skips submit; abort types nothing and returns. Defaults to agentControl.submitInference.onFail.' },
           pressEnter: { type: 'boolean', description: 'Legacy alias for submit="enter". Prefer submit (default: false).' },
+          dialog:     { type: 'object', description: 'How to auto-answer native dialogs this action triggers (they never block the page): { confirm: boolean (default true), prompt: string|null }. alert is always auto-dismissed. Triggered dialogs are returned in result.dialogs with content and causality.' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
         },
@@ -264,6 +267,7 @@ module.exports = function registerWriteTools(registry) {
         submit:       args.submit,
         submitOnFail: onFail,
         pressEnter:   args.pressEnter,
+        dialog:       args.dialog,
       }, args);
     },
   });

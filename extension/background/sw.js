@@ -492,7 +492,11 @@ async function handleServerMessage(msg) {
 
         sendToServer({ type: 'ACTION_RESULT', actionId, ok: true, result });
       } catch (e) {
-        sendToServer({ type: 'ACTION_RESULT', actionId, ok: false, error: e.message });
+        if (isTabGone(e)) {
+          sendToServer({ type: 'ACTION_RESULT', actionId, ...(await tabGoneInfo(tabId)) });
+        } else {
+          sendToServer({ type: 'ACTION_RESULT', actionId, ok: false, error: e.message });
+        }
       }
       break;
     }
@@ -502,6 +506,10 @@ async function handleServerMessage(msg) {
       try {
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
+        if (windowId == null) {
+          sendToServer({ type: 'SCREENSHOT_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+          break;
+        }
 
         let elements = null, vpWidth = null, vpHeight = null;
         if (opts?.marks && windowId) {
@@ -551,7 +559,11 @@ async function handleServerMessage(msg) {
           capturedAt: Date.now(),
         });
       } catch (e) {
-        sendToServer({ type: 'SCREENSHOT_RESULT', reqId, error: e.message });
+        if (isTabGone(e)) {
+          sendToServer({ type: 'SCREENSHOT_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+        } else {
+          sendToServer({ type: 'SCREENSHOT_RESULT', reqId, error: e.message });
+        }
       }
       break;
     }
@@ -562,6 +574,10 @@ async function handleServerMessage(msg) {
       try {
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
+        if (windowId == null) {
+          sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+          break;
+        }
         let rect = null;
         let dpr = 1;
 
@@ -624,7 +640,11 @@ async function handleServerMessage(msg) {
         });
 
       } catch (e) {
-        sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId, error: e.message });
+        if (isTabGone(e)) {
+          sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+        } else {
+          sendToServer({ type: 'ELEMENT_CAPTURE_RESULT', reqId, error: e.message });
+        }
       }
       break;
     }
@@ -756,6 +776,33 @@ function cleanupTabActions(tabId) {
     a.reject(new Error('Tab closed before action completed'));
   }
   pendingPageActions.delete(tabId);
+}
+
+// ── Tab-gone recovery ─────────────────────────────────────────────────────────
+// Action/capture handlers target a tab by id via chrome.tabs.*; if that tab was closed
+// or reloaded into a new id, Chrome throws "No tab with id: N". Turn that into an
+// actionable result that lists the currently open tabs (with URLs) so the agent can
+// retarget — match the URL you were on, then retry / switch_tab.
+function isTabGone(e) {
+  const m = (e && e.message) || String(e || '');
+  return /no tab with id|no frame with id|frame .* was removed|no window with id|cannot access contents|the tab was closed/i.test(m);
+}
+
+async function tabGoneInfo(tabId) {
+  let liveTabs = [];
+  try {
+    const tabs = await chrome.tabs.query({});
+    liveTabs = tabs
+      .filter(t => typeof t.id === 'number')
+      .map(t => ({ tabId: t.id, url: t.url || t.pendingUrl || '', title: t.title || '', active: !!t.active }))
+      .slice(0, 40);
+  } catch (_) {}
+  return {
+    ok: false,
+    tabGone: true,
+    error: `Tab ${tabId} is no longer open (it was closed or reloaded and now has a different id). Pick the matching tab from liveTabs (compare the URL) and retry with that tabId, or use list_tabs / switch_tab.`,
+    liveTabs,
+  };
 }
 
 connectWs();
