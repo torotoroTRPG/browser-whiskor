@@ -1,6 +1,6 @@
 {
   "name": "browser-whiskor",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Agent-grade browser instrumentation with MCP server",
   "main": "server/index.js",
   "scripts": {
