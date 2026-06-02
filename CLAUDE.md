@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**browser-whiskor** (v0.4.5) はAIエージェントにブラウザの「知覚能力」を与えるChrome/Firefox拡張機能 + Node.jsサーバー。拡張側がページ内のDOM・フレームワーク状態・ネットワーク・テキスト座標などを収集し、サーバーがHTTP APIとMCP (Model Context Protocol) stdioの両方でAIエージェントに公開する。
+**browser-whiskor** はAIエージェントにブラウザの「知覚能力」を与えるChrome/Firefox拡張機能 + Node.jsサーバー（バージョンは `package.json` が真実）。拡張側がページ内のDOM・フレームワーク状態・ネットワーク・テキスト座標などを収集し、サーバーがHTTP APIとMCP (Model Context Protocol) stdioの両方でAIエージェントに公開する。
 
 ## Commands
 

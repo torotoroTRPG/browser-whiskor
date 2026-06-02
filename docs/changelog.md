@@ -4,6 +4,39 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.5.2] — 2026-06-02
+
+### Added
+
+- **Related-input detection** — `analyze_click` and `get_ui_catalog` now surface `relatedInputs` (+ a `relatedInputsTip`) for action buttons: the input fields a button likely depends on (e.g. a code field that must be filled before a "join" button works), so the agent fills them first instead of hitting a validation alert. Association is layered — shared `<form>` / ARIA `aria-controls`|`aria-describedby` (confidence `high`) and a bounded nearest-common-container heuristic (confidence `low`). `confidence` is evidence-tiered with the `basis` exposed (not a fabricated number), and the tip hedges for low-confidence matches.
+
+### Fixed
+
+- **Stale version strings** — `start.ps1` banner now reads the version from `package.json`; `mcp-server.js` header and the README/CLAUDE.md titles no longer hardcode a version (which kept drifting each release).
+
+### Docs
+
+- Clarified that `shared/injected/` is **partial** coverage: 7 analyzers (`text-coords`, `network`, `css-origin`, `source-fetcher`, `ui-catalog`, `framework-dom-map`, `clickability`) plus `plugin-system.js` and `bridge.js` live outside `shared/` and must be edited in both `extension/` and `firefox-mv2/`. `sync-shared.ps1` only touches files present in `shared/`, so it does not overwrite those.
+
+## [0.5.1] — 2026-06-02
+
+### Fixed
+
+- **Manual collect re-runs analyzers** — `MANUAL_COLLECT` with no plugin list called `registry.runAt('manual')`, which matched zero plugins (all register at `DOMContentLoaded`/`load`). The DevTools panel's Collect button, `refresh_data`, `trigger_collect`, and the adaptive scheduler therefore re-collected nothing but storage. It now re-runs the `DOMContentLoaded`+`load` phases.
+- **Set-of-Marks marker drift** — Dashboard SoM markers drifted because the marks layer covers the preview container while the screenshot `<img>` is centred inside it (`margin:0 auto`); markers are now anchored to the image's rendered offset so they line up regardless of the target viewport's aspect ratio.
+
+### Added
+
+- **`GET /export`** — Downloads the session cache as a ZIP (optional `?tabId=` scopes to one session), fixing the panel's "ZIP" button which pointed at a nonexistent route. Uses a dependency-free `server/zip-writer.js` (zlib deflate + CRC32).
+
+## [0.5.0] — 2026-06-02
+
+### Added
+
+- **CDP high-fidelity input** — `agentControl.input.highFidelity` (`off` | `fallback` | `always`) routes `click`/`type_text`/`press_key` through the Chrome DevTools Protocol (`chrome.debugger`) so events are `isTrusted:true`, reaching widgets gated on trusted input or user activation (popups, clipboard, file pickers, some payment/OAuth). Synthetic events stay the default; Chrome only (Firefox ignores the setting and stays synthetic). Requires the `debugger` permission (Chrome manifest).
+- **Physical-fidelity synthetic input** — Synthetic keys now carry `code`/`keyCode`/`which` (pages gating on those no longer ignore the keystroke) and emit IME `composition` events for CJK / rich-text editors; typing uses `InputEvent` (`beforeinput`/`input`).
+- **Screenshots as MCP image blocks** — `capture_screenshot` / `capture_element_screenshot` return the image as a viewable MCP image content block (not base64 inside JSON text) when `returnImage=true`; the default omits it (`filePath` only) to save tokens.
+
 ## [0.4.5] — 2026-06-02
 
 ### Added
