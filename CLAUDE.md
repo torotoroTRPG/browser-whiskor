@@ -163,6 +163,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 - `security.allowExecuteJs`: デフォルト `false`。`execute_js` ツールを使うには `true` が必要
 - `agentControl.allowAgentConfig`: デフォルト `false`。AIエージェントによる `set_config` 呼び出しを許可するか
 - `agentControl.screenshotMarks`: Set-of-Marks (要素番号オーバーレイ) の有効化
+- `agentControl.input.highFidelity`: デフォルト `off`。`click`/`type_text`/`press_key` を CDP (`chrome.debugger`) 経由の trusted 入力にする。`off`=synthetic（従来）/ `fallback`=synthetic を試し `no_state_change` の click だけ CDP 再試行 / `always`=常に CDP。**Chrome専用**（Firefox は `inputMode` を無視し常に synthetic）。CDP アタッチ中は「デバッグしています」バナーが出る。実体は `extension/background/sw.js` の `executeHighFidelity`、manifest に `debugger` 権限（Chrome のみ追加済み）
 - `agentControl.argTriggerDetection`: デフォルト `true`。プロファイル自動ロードのトリガー判定でツール引数のテキストも走査するか（whole-wordマッチ）。`false` でツール名のみ判定に戻す
 - `adaptiveCollection.enabled`: デフォルト `false`。アダプティブ収集スケジューラ（SW側 `CollectionScheduler`）の有効化
 - `intelligence.miniLM.downloadOnStart`: 起動時のモデル自動DL (初回のみ、~50MB)

@@ -281,6 +281,60 @@
     return true;
   }
 
+  // ── Keyboard fidelity helpers ──────────────────────────────────────────────────
+  // The old typing path set only `key` on KeyboardEvents, so pages that gate on
+  // `e.code` or `e.keyCode` (shortcut handlers, games, some rich editors) saw empty
+  // values and ignored the keystroke. These helpers fill in physical-keyboard fields
+  // (code/keyCode/which/location) so synthetic keys look like real ones.
+  const NAMED_KEYS = {
+    'Enter':      { code: 'Enter',      keyCode: 13 },
+    'Tab':        { code: 'Tab',        keyCode: 9  },
+    'Backspace':  { code: 'Backspace',  keyCode: 8  },
+    'Delete':     { code: 'Delete',     keyCode: 46 },
+    'Escape':     { code: 'Escape',     keyCode: 27 },
+    'Esc':        { code: 'Escape',     keyCode: 27, key: 'Escape' },
+    'Space':      { code: 'Space',      keyCode: 32, key: ' ' },
+    ' ':          { code: 'Space',      keyCode: 32 },
+    'ArrowUp':    { code: 'ArrowUp',    keyCode: 38 },
+    'ArrowDown':  { code: 'ArrowDown',  keyCode: 40 },
+    'ArrowLeft':  { code: 'ArrowLeft',  keyCode: 37 },
+    'ArrowRight': { code: 'ArrowRight', keyCode: 39 },
+    'Home':       { code: 'Home',       keyCode: 36 },
+    'End':        { code: 'End',        keyCode: 35 },
+    'PageUp':     { code: 'PageUp',     keyCode: 33 },
+    'PageDown':   { code: 'PageDown',   keyCode: 34 },
+  };
+  const PUNCT_CODE = {
+    '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight',
+    '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', '`': 'Backquote',
+    ',': 'Comma', '.': 'Period', '/': 'Slash',
+  };
+
+  // Map a character or named key → KeyboardEvent init fields with physical fidelity.
+  function keyInfo(ch) {
+    const named = NAMED_KEYS[ch];
+    if (named) return { key: named.key || ch, code: named.code, keyCode: named.keyCode, which: named.keyCode, location: 0 };
+    let code = '', keyCode = ch ? ch.charCodeAt(0) : 0;
+    if (/^[a-zA-Z]$/.test(ch))   { code = 'Key' + ch.toUpperCase(); keyCode = ch.toUpperCase().charCodeAt(0); }
+    else if (/^[0-9]$/.test(ch)) { code = 'Digit' + ch;            keyCode = ch.charCodeAt(0); }
+    else if (PUNCT_CODE[ch])     { code = PUNCT_CODE[ch]; }
+    return { key: ch, code, keyCode, which: keyCode, location: 0 };
+  }
+
+  // Dispatch one keyboard event for a character/key, carrying any held modifiers.
+  function fireKey(el, type, ch, mods) {
+    const m = mods || {};
+    return el.dispatchEvent(new KeyboardEvent(type, {
+      ...keyInfo(ch), bubbles: true, cancelable: true,
+      ctrlKey: !!m.ctrlKey, metaKey: !!m.metaKey, shiftKey: !!m.shiftKey, altKey: !!m.altKey,
+    }));
+  }
+
+  // Characters an IME typically composes (CJK). When present we wrap typing in a
+  // composition sequence so IME-aware editors (CJK input fields, ProseMirror, Gemini)
+  // register the text instead of dropping keystrokes they expect to arrive via IME.
+  const CJK_RE = /[　-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ가-힯]/;
+
   // ── Action handlers ──────────────────────────────────────────────────────────
 
   const handlers = {
@@ -495,23 +549,46 @@
           try { el.textContent = ''; } catch (_) {}
           el.dispatchEvent(new Event('input', { bubbles: true }));
         }
+        // Wrap CJK (or explicit action.composition) in an IME composition sequence so
+        // editors that only commit text on compositionend register the input.
+        const useComposition = action.composition === true ||
+          (action.composition !== false && CJK_RE.test(text));
+        if (useComposition && text) {
+          el.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
+        }
+        let composed = '';
         for (const char of text) {
-          el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+          fireKey(el, 'keydown', char);
+          if (useComposition) {
+            composed += char;
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { data: composed, bubbles: true }));
+          }
           let inserted = false;
           try { inserted = document.execCommand('insertText', false, char); } catch (_) {}
           if (!inserted) {
             // Fallback for editors that ignore execCommand: emit beforeinput, then append.
             try {
-              el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: char, bubbles: true, cancelable: true }));
+              el.dispatchEvent(new InputEvent('beforeinput', {
+                inputType: useComposition ? 'insertCompositionText' : 'insertText',
+                data: useComposition ? composed : char, bubbles: true, cancelable: true,
+              }));
               el.textContent = (el.textContent || '') + char;
             } catch (_) {}
           }
-          el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+          el.dispatchEvent(new InputEvent('input', {
+            inputType: useComposition ? 'insertCompositionText' : 'insertText',
+            data: useComposition ? composed : char, bubbles: true,
+          }));
+          fireKey(el, 'keyup', char);
+        }
+        if (useComposition && text) {
+          el.dispatchEvent(new CompositionEvent('compositionend', { data: composed, bubbles: true }));
+          el.dispatchEvent(new InputEvent('input', { inputType: 'insertCompositionText', data: composed, bubbles: true }));
         }
         if (effectiveSubmit !== 'none') pressEnterCombo(el, effectiveSubmit, false);
         return { ok: true, typedLength: text.length, submitted: effectiveSubmit !== 'none' ? effectiveSubmit : undefined,
-                 ...(submitInference ? { submitInference } : {}), target: describeTarget(el), currentValue: el.textContent };
+                 ...(submitInference ? { submitInference } : {}), ...(useComposition ? { composition: true } : {}),
+                 target: describeTarget(el), currentValue: el.textContent };
       }
 
       if (action.clear) {
@@ -520,19 +597,23 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
-      // Type character by character for React synthetic event compatibility
+      // Type character by character for React synthetic event compatibility.
+      // Use the prototype's native value setter so React's onChange sees the update,
+      // and emit beforeinput/input (InputEvent with inputType+data) like a real keypress.
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+                                     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
       for (const char of text) {
-        el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, bubbles: true }));
-        el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
+        fireKey(el, 'keydown',  char);
+        fireKey(el, 'keypress', char);
         const start = el.selectionStart ?? el.value.length;
-        el.value = el.value.slice(0, start) + char + el.value.slice(el.selectionEnd ?? start);
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
-                                       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-        if (nativeInputValueSetter) {
-          try { nativeInputValueSetter.call(el, el.value); } catch (_) {}
-        }
-        el.dispatchEvent(new Event('input',  { bubbles: true }));
-        el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+        const end   = el.selectionEnd ?? start;
+        el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: char, bubbles: true, cancelable: true }));
+        const next = el.value.slice(0, start) + char + el.value.slice(end);
+        if (nativeInputValueSetter) { try { nativeInputValueSetter.call(el, next); } catch (_) { el.value = next; } }
+        else el.value = next;
+        try { el.selectionStart = el.selectionEnd = start + char.length; } catch (_) {}
+        el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
+        fireKey(el, 'keyup', char);
       }
 
       if (effectiveSubmit !== 'none') pressEnterCombo(el, effectiveSubmit, true);
@@ -550,7 +631,7 @@
       const meta  = parts.includes('Meta') || parts.includes('Command');
       const shift = parts.includes('Shift');
       const alt   = parts.includes('Alt');
-      const opts  = { key, bubbles: true, cancelable: true, ctrlKey: ctrl, metaKey: meta, shiftKey: shift, altKey: alt };
+      const opts  = { ...keyInfo(key), key, bubbles: true, cancelable: true, ctrlKey: ctrl, metaKey: meta, shiftKey: shift, altKey: alt };
       focused.dispatchEvent(new KeyboardEvent('keydown',  opts));
       focused.dispatchEvent(new KeyboardEvent('keypress', opts));
       focused.dispatchEvent(new KeyboardEvent('keyup',    opts));

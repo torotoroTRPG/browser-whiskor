@@ -75,7 +75,8 @@
     "scripting",
     "storage",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>",

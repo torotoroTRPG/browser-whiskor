@@ -52,6 +52,14 @@ function _observeOpts(cb) {
   };
 }
 
+// High-fidelity input mode from config (agentControl.input.highFidelity).
+// 'off' | 'fallback' | 'always'. Travels on the action so the SW (where
+// chrome.debugger lives) can route click/type/press_key through CDP. Firefox
+// ignores the field and stays synthetic.
+function _inputMode(cb) {
+  return cb._config?.agentControl?.input?.highFidelity || 'off';
+}
+
 async function observeAction(cb, tabId, action, args) {
   if (args.observe !== true) {
     return cb._callAction(tabId, action, args.timeoutMs);
@@ -201,6 +209,7 @@ module.exports = function registerWriteTools(registry) {
         double:   args.double,
         button:   args.button,
         dialog:   args.dialog,
+        inputMode: _inputMode(cb),
       }, args);
     },
   });
@@ -268,6 +277,7 @@ module.exports = function registerWriteTools(registry) {
         submitOnFail: onFail,
         pressEnter:   args.pressEnter,
         dialog:       args.dialog,
+        inputMode:    _inputMode(cb),
       }, args);
     },
   });
@@ -289,7 +299,7 @@ module.exports = function registerWriteTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      return observeAction(cb, args.tabId, { type: 'press_key', key: args.key }, args);
+      return observeAction(cb, args.tabId, { type: 'press_key', key: args.key, inputMode: _inputMode(cb) }, args);
     },
   });
 

@@ -27,7 +27,7 @@ module.exports = function registerElementCaptureTools(registry) {
         'Capture a screenshot cropped to a specific DOM element or bounding rect.',
         'Far smaller than a full screenshot — ideal for inspecting individual UI components.',
         'Supply either `selector` (CSS selector) or `rect` (x/y/w/h in CSS px).',
-        'The response includes the cropped base64 PNG and the resolved rect.',
+        'When returnImage is on, the cropped image is returned as a viewable image block (not base64 text) alongside the resolved rect.',
         'Tip: pass selector="body" or selector=":root" to capture the full page without marks overhead.',
         'Tip: rect values from get_ui_catalog and get_text_coords can be passed directly.',
       ].join(' '),
@@ -114,8 +114,10 @@ module.exports = function registerElementCaptureTools(registry) {
         }
 
         if (args.returnImage !== false && result.dataUrl) {
-          response.dataUrl = result.dataUrl;
           const b64 = result.dataUrl.split(',')[1] || '';
+          const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl);
+          // base64 は MCP の image ブロックとして返す（transport が変換）。
+          response._mcpImage = { data: b64, mimeType: mimeMatch ? mimeMatch[1] : 'image/png' };
           response.sizeBytes = Math.round(b64.length * 0.75);
         }
 

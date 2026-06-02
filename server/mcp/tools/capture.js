@@ -13,7 +13,7 @@ module.exports = function registerCaptureTools(registry) {
   tools.push({
     definition: {
       name: 'capture_screenshot',
-      description: 'Capture a screenshot of the visible tab area. The image is always saved to disk (filePath is returned) and viewable on the dashboard. By default the base64 image is NOT inlined in the response to save tokens (configurable via agentControl.screenshot.returnImageByDefault) — set returnImage=true to include it. When returned, the image is encoded per the configured format/quality and downscaled to maxWidth. Use marks=true to overlay numbered markers on interactive elements (Set-of-Marks approach) — the response includes an elements map so you can reference elements by number instead of coordinates.',
+      description: 'Capture a screenshot of the visible tab area. The image is always saved to disk (filePath is returned) and viewable on the dashboard. By default the image is NOT returned, to save tokens (configurable via agentControl.screenshot.returnImageByDefault) — set returnImage=true to include it. When returned, it comes back as a viewable image block (not base64 text), encoded per the configured format/quality and downscaled to maxWidth. Use marks=true to overlay numbered markers on interactive elements (Set-of-Marks approach) — the response includes an elements map so you can reference elements by number instead of coordinates.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -48,8 +48,11 @@ module.exports = function registerCaptureTools(registry) {
           height:      result.height,
         };
         if (wantImage) {
-          response.dataUrl = result.dataUrl;
           const b64 = (result.dataUrl || '').split(',')[1] || '';
+          const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
+          // base64 は MCP の image ブロックとして返す（transport が変換）。
+          // JSON(text) には埋め込まない — トークン浪費＆非視覚化を避けるため。
+          response._mcpImage = { data: b64, mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg' };
           response.sizeBytes = Math.round(b64.length * 0.75);
         } else {
           response._note = 'Image saved to disk (filePath). base64 omitted to save tokens — pass returnImage:true to include it.';

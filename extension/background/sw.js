@@ -486,8 +486,14 @@ async function handleServerMessage(msg) {
           }
 
           default:
-            // Delegate to injected executor.js
-            result = await executeInPage(tabId, action);
+            if (CDP_AVAILABLE && action.inputMode && action.inputMode !== 'off' &&
+                (action.type === 'click' || action.type === 'type' || action.type === 'press_key')) {
+              // High-fidelity (CDP) input path — see executeHighFidelity.
+              result = await executeHighFidelity(tabId, action);
+            } else {
+              // Delegate to injected executor.js (synthetic events)
+              result = await executeInPage(tabId, action);
+            }
         }
 
         sendToServer({ type: 'ACTION_RESULT', actionId, ok: true, result });
@@ -694,6 +700,236 @@ async function handleServerMessage(msg) {
       }).catch(() => {});
       break;
     }
+  }
+}
+
+// ── CDP high-fidelity input (Chromium only) ───────────────────────────────────
+// Drives mouse/keyboard via the DevTools Protocol so events are isTrusted:true —
+// the only way to reach widgets that gate on trusted input or user activation
+// (popups, clipboard, file pickers, some payment/OAuth flows). Synthetic events
+// (executor.js) stay the default; this is opt-in via config agentControl.input.
+// highFidelity = 'off' | 'fallback' | 'always'. A short idle keep-alive reuses one
+// attach across a burst so the "is debugging this browser" banner flashes minimally.
+const CDP_AVAILABLE = typeof chrome !== 'undefined' && !!(chrome.debugger && chrome.debugger.attach);
+const cdpAttached = new Set();       // tabId currently attached
+const cdpDetachTimers = new Map();   // tabId → idle-detach timer
+const CDP_IDLE_DETACH_MS = 1200;
+
+function cdpSend(tabId, method, params) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand({ tabId }, method, params || {}, (res) => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message)); else resolve(res);
+    });
+  });
+}
+function cdpAttach(tabId) {
+  if (cdpAttached.has(tabId)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      const err = chrome.runtime.lastError;
+      if (err) { reject(new Error(err.message)); return; }
+      cdpAttached.add(tabId);
+      resolve();
+    });
+  });
+}
+function cdpDetach(tabId) {
+  if (!cdpAttached.has(tabId)) return;
+  try { chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; }); } catch (_) {}
+  cdpAttached.delete(tabId);
+}
+// Defer detach so a burst of CDP ops on the same tab reuses one attach.
+function cdpKeepAlive(tabId) {
+  const prev = cdpDetachTimers.get(tabId);
+  if (prev) clearTimeout(prev);
+  cdpDetachTimers.set(tabId, setTimeout(() => {
+    cdpDetachTimers.delete(tabId);
+    cdpDetach(tabId);
+  }, CDP_IDLE_DETACH_MS));
+}
+if (CDP_AVAILABLE) {
+  // If Chrome detaches us (e.g. the user opens DevTools on the tab), forget our state.
+  chrome.debugger.onDetach.addListener((source) => {
+    if (source && typeof source.tabId === 'number') {
+      cdpAttached.delete(source.tabId);
+      const t = cdpDetachTimers.get(source.tabId);
+      if (t) { clearTimeout(t); cdpDetachTimers.delete(source.tabId); }
+    }
+  });
+}
+
+// Trusted mouse click at viewport coordinates (CSS px).
+async function cdpMouseClick(tabId, x, y, opts = {}) {
+  const button = opts.button === 'right' ? 'right' : opts.button === 'middle' ? 'middle' : 'left';
+  const mask   = button === 'left' ? 1 : button === 'right' ? 2 : 4;
+  const clicks = opts.double ? 2 : 1;
+  await cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 });
+  for (let i = 1; i <= clicks; i++) {
+    await cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed',  x, y, button, buttons: mask, clickCount: i });
+    await cdpSend(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0,    clickCount: i });
+  }
+}
+
+// Named-key descriptors for Input.dispatchKeyEvent (windowsVirtualKeyCode + code/key).
+const CDP_KEYS = {
+  Enter:      { code: 'Enter',      key: 'Enter',      keyCode: 13, text: '\r' },
+  Tab:        { code: 'Tab',        key: 'Tab',        keyCode: 9  },
+  Backspace:  { code: 'Backspace',  key: 'Backspace',  keyCode: 8  },
+  Delete:     { code: 'Delete',     key: 'Delete',     keyCode: 46 },
+  Escape:     { code: 'Escape',     key: 'Escape',     keyCode: 27 },
+  ArrowUp:    { code: 'ArrowUp',    key: 'ArrowUp',    keyCode: 38 },
+  ArrowDown:  { code: 'ArrowDown',  key: 'ArrowDown',  keyCode: 40 },
+  ArrowLeft:  { code: 'ArrowLeft',  key: 'ArrowLeft',  keyCode: 37 },
+  ArrowRight: { code: 'ArrowRight', key: 'ArrowRight', keyCode: 39 },
+  Home:       { code: 'Home',       key: 'Home',       keyCode: 36 },
+  End:        { code: 'End',        key: 'End',        keyCode: 35 },
+  PageUp:     { code: 'PageUp',     key: 'PageUp',     keyCode: 33 },
+  PageDown:   { code: 'PageDown',   key: 'PageDown',   keyCode: 34 },
+  Space:      { code: 'Space',      key: ' ',          keyCode: 32, text: ' ' },
+};
+// Send a trusted key (or modifier combo like "Control+a", "Shift+Tab").
+async function cdpPressKey(tabId, combo) {
+  const parts   = String(combo).split('+');
+  const keyName = parts.pop();
+  let modifiers = 0;
+  if (parts.includes('Alt'))                                modifiers |= 1;
+  if (parts.includes('Control') || parts.includes('Ctrl')) modifiers |= 2;
+  if (parts.includes('Meta')    || parts.includes('Command')) modifiers |= 4;
+  if (parts.includes('Shift'))                              modifiers |= 8;
+
+  let base;
+  if (CDP_KEYS[keyName]) base = { ...CDP_KEYS[keyName] };
+  else if (keyName.length === 1) {
+    base = {
+      key: keyName,
+      code: /[a-zA-Z]/.test(keyName) ? 'Key' + keyName.toUpperCase() : undefined,
+      keyCode: keyName.toUpperCase().charCodeAt(0),
+      // Only treat as text-producing when no non-shift modifier is held (so Ctrl+A is a shortcut, not "a").
+      text: (modifiers & ~8) ? undefined : keyName,
+    };
+  } else base = { key: keyName };
+
+  const common = { modifiers, windowsVirtualKeyCode: base.keyCode, code: base.code, key: base.key };
+  await cdpSend(tabId, 'Input.dispatchKeyEvent', { type: base.text ? 'keyDown' : 'rawKeyDown', ...common, text: base.text });
+  await cdpSend(tabId, 'Input.dispatchKeyEvent', { type: 'keyUp', ...common });
+}
+
+// Resolve the submit gesture for CDP. 'auto' inference is page-side only, so for
+// CDP it degrades to no submit (the caller is told to specify explicitly).
+function cdpSubmitKey(action) {
+  const s = typeof action.submit === 'string' ? action.submit : (action.pressEnter ? 'enter' : 'none');
+  if (s === 'auto' || s === 'none') return null;
+  return { 'enter': 'Enter', 'shift-enter': 'Shift+Enter', 'ctrl-enter': 'Control+Enter', 'cmd-enter': 'Meta+Enter' }[s] || null;
+}
+
+// Resolve a click point (viewport CSS px) for a selector / text / absolute coords.
+async function cdpResolvePoint(tabId, action) {
+  try {
+    const res = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: (sel, txt, ax, ay) => {
+        let el = null;
+        if (sel) { try { el = document.querySelector(sel); } catch (_) {} }
+        if (!el && txt) {
+          const low = String(txt).toLowerCase();
+          for (const n of document.querySelectorAll('button,a,input,summary,label,[role=button],[onclick],div,span,li,td,th')) {
+            if (n.children.length <= 2 && (n.textContent || '').trim().toLowerCase().includes(low)) { el = n; break; }
+          }
+        }
+        if (el) {
+          try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+          const r = el.getBoundingClientRect();
+          return { ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        if (ax != null && ay != null) return { ok: true, x: ax - window.scrollX, y: ay - window.scrollY };
+        return { ok: false, error: 'Element not found for CDP click' };
+      },
+      args: [action.selector || null, action.text || null,
+             action.x != null ? action.x : null, action.y != null ? action.y : null],
+    });
+    return (res && res[0] && res[0].result) || { ok: false, error: 'No result resolving CDP point' };
+  } catch (e) {
+    if (isTabGone(e)) throw e;
+    return { ok: false, error: e.message };
+  }
+}
+
+// Route click/type/press_key through CDP per action.inputMode ('fallback' | 'always').
+// Any CDP failure degrades to the synthetic path so the action still does its best.
+async function executeHighFidelity(tabId, action) {
+  const mode = action.inputMode;
+  try {
+    if (action.type === 'click') {
+      if (mode === 'always') {
+        const pt = await cdpResolvePoint(tabId, action);
+        if (!pt.ok) return pt;
+        await cdpAttach(tabId);
+        await cdpMouseClick(tabId, pt.x, pt.y, { button: action.button, double: action.double });
+        cdpKeepAlive(tabId);
+        return { ok: true, via: 'cdp', trusted: true, at: { x: pt.x, y: pt.y }, _note: 'Clicked via CDP (isTrusted event).' };
+      }
+      // fallback: synthetic first; escalate only when it landed but nothing changed.
+      const syn = await executeInPage(tabId, action);
+      if (syn && syn.diagnosis && syn.diagnosis.unexpectedBehavior === 'no_state_change') {
+        const rect = syn.clickability && syn.clickability.rect;
+        const pt = rect ? { ok: true, x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 } : await cdpResolvePoint(tabId, action);
+        if (pt.ok) {
+          try {
+            await cdpAttach(tabId);
+            await cdpMouseClick(tabId, pt.x, pt.y, { button: action.button, double: action.double });
+            cdpKeepAlive(tabId);
+            return { ...syn, escalatedToCdp: true, cdpAt: { x: pt.x, y: pt.y },
+                     _note: 'Synthetic click produced no state change; retried via CDP (isTrusted event).' };
+          } catch (e) {
+            return { ...syn, escalatedToCdp: false, cdpError: e.message,
+                     _note: `Synthetic click had no effect; CDP escalation failed (${e.message}). Is DevTools open on this tab?` };
+          }
+        }
+      }
+      return syn;
+    }
+
+    if (action.type === 'type') {
+      if (mode === 'always') {
+        if (action.selector) { try { await executeInPage(tabId, { type: 'focus', selector: action.selector }); } catch (_) {} }
+        await cdpAttach(tabId);
+        if (action.clear) { await cdpPressKey(tabId, 'Control+a'); await cdpPressKey(tabId, 'Delete'); }
+        if (action.text) await cdpSend(tabId, 'Input.insertText', { text: String(action.text) });
+        const submitKey = cdpSubmitKey(action);
+        if (submitKey) await cdpPressKey(tabId, submitKey);
+        cdpKeepAlive(tabId);
+        return { ok: true, via: 'cdp', trusted: true, typedLength: (action.text || '').length,
+                 submitted: submitKey || undefined,
+                 ...(typeof action.submit === 'string' && action.submit === 'auto'
+                     ? { _hint: "submit:'auto' is page-side only; CDP did not submit. Pass submit:'enter' (etc.) explicitly." } : {}),
+                 _note: 'Typed via CDP Input.insertText (isTrusted).' };
+      }
+      // fallback: typing has no reliable post-hoc failure signal, so synthetic only.
+      const syn = await executeInPage(tabId, action);
+      return { ...syn, _hint: "type fallback stays synthetic; set agentControl.input.highFidelity='always' for trusted typing." };
+    }
+
+    if (action.type === 'press_key') {
+      if (mode === 'always') {
+        await cdpAttach(tabId);
+        await cdpPressKey(tabId, action.key);
+        cdpKeepAlive(tabId);
+        return { ok: true, via: 'cdp', trusted: true, key: action.key, _note: 'Key sent via CDP (isTrusted).' };
+      }
+      const syn = await executeInPage(tabId, action);
+      return { ...syn, _hint: "press_key fallback stays synthetic; set highFidelity='always' for trusted keys." };
+    }
+
+    // Unhandled type — should not happen (caller gates on type).
+    return executeInPage(tabId, action);
+  } catch (e) {
+    if (isTabGone(e)) throw e;
+    const syn = await executeInPage(tabId, action).catch(() => null);
+    return syn
+      ? { ...syn, cdpError: e.message, _note: `CDP input path failed (${e.message}); used synthetic fallback.` }
+      : { ok: false, error: `High-fidelity input failed: ${e.message}` };
   }
 }
 
@@ -911,6 +1147,11 @@ function broadcastToPanels(msg) {
 chrome.tabs.onRemoved.addListener((tabId) => {
   cleanupTabActions(tabId);
   collectionScheduler.unwatchTab(tabId);
+  if (CDP_AVAILABLE) {
+    const t = cdpDetachTimers.get(tabId);
+    if (t) { clearTimeout(t); cdpDetachTimers.delete(tabId); }
+    cdpAttached.delete(tabId); // debugger auto-detaches with the tab; just drop our state
+  }
   sendToServer({ type: 'TAB_CLOSED', tabId });
 });
 

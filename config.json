@@ -354,6 +354,11 @@
       "quality": 70,
       "maxWidth": 1280
     },
+    "input": {
+      "_comment_en": "Input fidelity. highFidelity routes click/type_text/press_key through CDP (chrome.debugger) so events are isTrusted:true — reaching widgets gated on trusted input / user activation (popups, clipboard, file pickers, some payment/OAuth). Chrome only; Firefox always uses synthetic. NOTE: CDP attach shows the 'is debugging this browser' banner.",
+      "_comment_ja": "入力の忠実度。highFidelity で click/type_text/press_key を CDP(chrome.debugger) 経由にし、isTrusted:true のイベントを出す（trusted/ユーザージェスチャ必須のポップアップ・クリップボード・ファイルピッカー・一部決済OAuthに到達）。Chrome専用、Firefoxは常にsynthetic。注意: CDPアタッチ中はデバッグバナーが出る。'off'=従来synthetic / 'fallback'=syntheticを試し無反応(no_state_change)のclickだけCDP再試行 / 'always'=click/type/press_keyを常にCDP",
+      "highFidelity": "off"
+    },
     "submitInference": {
       "_comment_ja": "type_text(submit:'auto') が送信キーを推論できなかった時の既定動作。type-only=テキストだけ入力し送信は諦めて理由を返す / abort=入力もせず返す。per-call の onFail 引数で上書き可",
       "onFail": "type-only"
