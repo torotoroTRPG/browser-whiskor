@@ -143,6 +143,26 @@
     const attr = (n) => (el.getAttribute && el.getAttribute(n)) || '';
 
     // 1. enterkeyhint — purpose-built hint for the Enter key's action.
+    // aria-keyshortcuts — an authoritative declared shortcut (e.g. "Control+Enter").
+    const aks = attr('aria-keyshortcuts').toLowerCase();
+    if (aks) {
+      if (/(control|ctrl)\s*\+\s*(enter|return)/.test(aks)) return { key: 'ctrl-enter', confidence: 'aria', evidence: `aria-keyshortcuts=${aks}` };
+      if (/(meta|cmd|command|⌘)\s*\+\s*(enter|return)/.test(aks)) return { key: 'cmd-enter', confidence: 'aria', evidence: `aria-keyshortcuts=${aks}` };
+      if (/\b(enter|return)\b/.test(aks)) return { key: 'enter', confidence: 'aria', evidence: `aria-keyshortcuts=${aks}` };
+    }
+    // role=searchbox / type=search → Enter submits.
+    const role = attr('role').toLowerCase();
+    if (role === 'searchbox' || (typeof el.type === 'string' && el.type.toLowerCase() === 'search')) {
+      return { key: 'enter', confidence: 'aria', evidence: role === 'searchbox' ? 'role=searchbox' : 'type=search' };
+    }
+    // role=textbox + aria-multiline disambiguates single-line (submit) vs multiline (newline).
+    if (role === 'textbox') {
+      const ml = attr('aria-multiline').toLowerCase();
+      if (ml === 'false') return { key: 'enter', confidence: 'aria', evidence: 'role=textbox aria-multiline=false' };
+      if (ml === 'true')  return { key: null, confidence: 'aria', evidence: 'role=textbox aria-multiline=true (newline)' };
+    }
+    // Inside a search landmark → Enter submits.
+    try { if (el.closest && el.closest('[role="search"]')) return { key: 'enter', confidence: 'aria', evidence: 'inside role=search' }; } catch (_) {}
     const ekh = attr('enterkeyhint').toLowerCase();
     if (['send', 'go', 'search', 'done'].includes(ekh)) {
       return { key: 'enter', confidence: 'attr', evidence: `enterkeyhint=${ekh}` };

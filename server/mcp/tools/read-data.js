@@ -526,7 +526,7 @@ module.exports = function registerDataTools(registry) {
   tools.push({
     definition: {
       name: 'find_target',
-      description: 'Find the best interactive element(s) for a query. Combines get_ui_catalog (buttons/links/inputs, with accessible-name labels) and get_text_coords, fuzzy-ranks them (MiniLM when available), and returns ranked candidates with click coordinates (center), a selector hint, kind, score, and — for inputs — the inferred enterKey. Each candidate also carries a clickable hint (true/false/null) with obstructedBy when covered. Use this when you know WHAT to interact with ("送信", "search box", "next") but not the exact element. The returned center can be passed straight to click(x,y).',
+      description: 'Find the best interactive element(s) for a query. Combines get_ui_catalog (buttons/links/inputs, with accessible-name labels) and get_text_coords, fuzzy-ranks them (MiniLM when available), and returns ranked candidates with click coordinates (center), a selector hint, kind, score, and — for inputs — the inferred enterKey. Each candidate also carries a clickable hint (true/false/null) with obstructedBy when covered. Use this when you know WHAT to interact with ("送信", "search box", "next") but not the exact element. The returned center can be passed straight to click(x,y). Set verify=true to live-check the top candidate(s) clickability at call time (adds a round-trip; attaches a live{} report).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -536,6 +536,8 @@ module.exports = function registerDataTools(registry) {
           limit:      { type: 'number', description: 'Max candidates to return (default: 5).' },
           inViewport: { type: 'boolean', description: 'Only consider elements currently within the viewport.' },
           minScore:   { type: 'number', description: 'Minimum fuzzy score 0.0-1.0 (default: 0.3).' },
+          verify:     { type: 'boolean', description: 'Re-check the top candidate(s) live (via analyze_click) for up-to-date clickability/obstruction at call time, instead of the collection-time hint. Adds one round-trip per verified candidate; attaches a live{} report and may correct clickable.' },
+          verifyTop:  { type: 'number', description: 'How many top candidates to verify when verify=true (default: 1).' },
         },
         required: ['tabId', 'query'],
       },
@@ -617,6 +619,36 @@ module.exports = function registerDataTools(registry) {
             ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
             : 'click(center.x, center.y) — or click(text)',
         }));
+
+      // Optional live verification: re-run clickability (analyze_click) on the top
+      // candidate(s) so the agent gets call-time obstruction, not the collection-time
+      // hint. Prefer selector/text over coords (elementFromPoint at coords would hit the
+      // overlay, not the target). Bounded to verifyTop to limit round-trips.
+      if (args.verify && cb._callAction && candidates.length) {
+        const n = Math.min(candidates.length, Math.max(1, args.verifyTop || 1));
+        for (let i = 0; i < n; i++) {
+          const c = candidates[i];
+          const action = { type: 'analyze_click' };
+          if (c.selector) action.selector = c.selector;
+          else if (c.text) action.text = c.text;
+          else if (c.center) { action.x = c.center.x; action.y = c.center.y; }
+          else continue;
+          try {
+            const res = await cb._callAction(args.tabId, action, 8000);
+            const rep = res && res.result && res.result.clickability;
+            if (rep) {
+              c.live = {
+                exists: rep.exists,
+                inViewport: rep.inViewport,
+                obstructed: rep.obstructed ?? null,
+                recommendedStrategy: rep.recommendedStrategy ?? null,
+              };
+              if (rep.exists === false || rep.obstructed === true) c.clickable = false;
+              else if (rep.obstructed === false) c.clickable = true;
+            }
+          } catch (_) { /* leave the collection-time hint as-is */ }
+        }
+      }
 
       return {
         query: args.query,

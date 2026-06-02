@@ -4,6 +4,13 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.4.4] — 2026-06-02
+
+### Added
+
+- **WAI-ARIA signals in `submit:"auto"` inference** — Beyond `enterkeyhint`, submit inference now reads `aria-keyshortcuts` (an authoritative declared shortcut, e.g. "Control+Enter"), `role="searchbox"` / `type="search"` (Enter submits), and `role="textbox"` + `aria-multiline` (`false` → single-line submit, `true` → newline), plus a `role="search"` landmark ancestor. Reported with `confidence:"aria"`. This resolves the Enter-vs-newline ambiguity on many contenteditable editors that set no `enterkeyhint`.
+- **`find_target` live verification (`verify`)** — Set `verify:true` to re-check the top candidate(s) clickability live via `analyze_click` at call time instead of relying on the collection-time hint. It attaches a `live{exists,inViewport,obstructed,recommendedStrategy}` report and corrects `clickable` accordingly. Bounded by `verifyTop` (default 1) and prefers selector/text over coordinates so an overlay isn't mistaken for the target.
+
 ## [0.4.3] — 2026-06-02
 
 ### Changed
