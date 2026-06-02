@@ -288,6 +288,50 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       return res.end(fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '<h1>browser-whiskor v3</h1>');
     }
 
+    // Export endpoint — download a ZIP of the session cache (the panel "ZIP" button
+    // opens this). Optional ?tabId= scopes the export to a single session.
+    if (method === 'GET' && p === '/export') {
+      try {
+        const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
+        const wantTab = url.searchParams.get('tabId');
+        const root = wantTab ? path.join(cacheRoot, wantTab) : cacheRoot;
+        if (!fs.existsSync(root)) {
+          return sendJson({ ok: false, error: wantTab ? `No cached session for tabId=${wantTab}.` : 'No cached sessions to export.' }, 404);
+        }
+
+        const { buildZip } = require('./zip-writer');
+        const MAX_BYTES = 50 * 1024 * 1024; // guard against runaway archives
+        const entries = [];
+        let total = 0;
+        const walk = (dir, base) => {
+          for (const name of fs.readdirSync(dir)) {
+            const full = path.join(dir, name);
+            const rel  = base ? `${base}/${name}` : name;
+            const st = fs.statSync(full);
+            if (st.isDirectory()) { walk(full, rel); continue; }
+            total += st.size;
+            if (total > MAX_BYTES) throw new Error('Export exceeds 50MB — scope it with ?tabId=<id>.');
+            entries.push({ name: rel, data: fs.readFileSync(full) });
+          }
+        };
+        const prefix = wantTab ? `session-${wantTab}` : 'sessions';
+        walk(root, prefix);
+        if (!entries.length) return sendJson({ ok: false, error: 'Nothing to export (cache is empty).' }, 404);
+
+        const zip = buildZip(entries);
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="whiskor-${prefix}-${ts}.zip"`,
+          'Content-Length': zip.length,
+        });
+        return res.end(zip);
+      } catch (e) {
+        log('error', `[export] ${e.message}`);
+        return sendJson({ ok: false, error: e.message }, 500);
+      }
+    }
+
     // Collect endpoint — handled early to avoid bodyPromise issues
     if (method === 'POST' && (p === '/api/collect' || p === '/api/gather')) {
       return readBody().then(async b => {

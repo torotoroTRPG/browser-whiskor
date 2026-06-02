@@ -2359,11 +2359,20 @@
         }
         if (retryCount >= maxRetries) { status.textContent = 'render failed'; return; }
 
+        // The marks layer covers the full #cap-scroll box, but the <img> is
+        // horizontally centred inside it (max-width:100% + margin:0 auto). When the
+        // screenshot is narrower than the container the image shifts right by its
+        // offset, so anchor markers to the image's actual rendered box — otherwise
+        // every marker drifts left by that margin (worse the more the target
+        // viewport aspect differs from the preview container's).
+        var offX = img.offsetLeft;
+        var offY = img.offsetTop;
+
         for (var i = 0; i < elements.length; i++) {
           (function(idx) {
             var el = elements[idx];
-            var left = (el.x - el.w / 2) * scaleX;
-            var top  = (el.y - el.h / 2) * scaleY;
+            var left = offX + (el.x - el.w / 2) * scaleX;
+            var top  = offY + (el.y - el.h / 2) * scaleY;
             var w    = el.w * scaleX;
             var h    = el.h * scaleY;
 

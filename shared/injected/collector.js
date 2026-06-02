@@ -57,7 +57,14 @@
             registry.runPlugin(id);
           }
         } else {
-          registry.runAt('manual');
+          // No plugin list → re-run every analyzer/adapter. Plugins register at the
+          // 'DOMContentLoaded' / 'load' phases (none at 'manual'), so re-running those
+          // phases is what actually re-collects — this mirrors the SPA re-collect in
+          // onLoad(). Calling runAt('manual') alone matched zero plugins, which is why
+          // the panel's Collect button, refresh_data, trigger_collect, and the adaptive
+          // scheduler appeared to do nothing but storage.
+          registry.runAt('DOMContentLoaded');
+          registry.runAt('load');
           collectStorage();
         }
         break;

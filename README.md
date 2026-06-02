@@ -468,6 +468,7 @@ POST http://localhost:7892/api/collect        → Manual collection
 POST http://localhost:7892/api/screenshot     → Screenshot
 POST http://localhost:7892/api/action         → Execute action
 GET  http://localhost:7892/api/graphs         → State graph listing
+GET  http://localhost:7892/export             → Download session cache as a ZIP (optional ?tabId= scopes to one session)
 GET  http://localhost:7892/                   → Dashboard
 ```
 

@@ -189,6 +189,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 | `HTTP :7892` | REST API + ダッシュボード |
 | `GET /health` | 接続確認 |
 | `GET /` | ダッシュボード |
+| `GET /export` | セッションキャッシュをZIPでダウンロード（`?tabId=` で単一セッションに限定）。実体は `server/zip-writer.js`（依存ゼロの自前ZIP） |
 | `GET /api/config` | 現在の設定取得 |
 | `POST /api/config` | 設定変更 |
 | `GET /api/sessions` | セッション一覧 |
