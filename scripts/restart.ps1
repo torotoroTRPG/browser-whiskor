@@ -9,14 +9,16 @@
     2. rebuilds the extension into build/ via scripts/build-test.ps1 — but ONLY when that
        script and the extension source exist (skipped automatically on a source-less /
        release layout), and skippable with -NoBuild,
-    3. starts `node server/index.js` in the foreground (Ctrl+C to quit).
+    3. starts the server under the supervisor (auto-restart) in the foreground
+       (Ctrl+C to quit). Use -NoSupervisor to run the raw worker instead.
   Extra args pass through to the server, e.g. `--verbose`.
   Reminder: a rebuild updates build/, but you still reload the extension in the browser.
 .EXAMPLE
   .\scripts\restart.ps1
   .\scripts\restart.ps1 -NoBuild --verbose
+  .\scripts\restart.ps1 -NoSupervisor
 #>
-param([switch]$NoBuild)
+param([switch]$NoBuild, [switch]$NoSupervisor)
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 & "$PSScriptRoot\stop.ps1"
@@ -35,12 +37,14 @@ if (-not $NoBuild -and (Test-Path $buildScript) -and (Test-Path $extSource)) {
     Write-Host "`n(no extension build script/source found — skipping rebuild)" -ForegroundColor DarkGray
 }
 
-Write-Host "`n🚀 Starting fresh: node server/index.js  (Ctrl+C to stop)" -ForegroundColor Green
+$entry = if ($NoSupervisor) { 'server/index.js' } else { 'scripts/supervisor.js' }
+$mode  = if ($NoSupervisor) { 'raw worker' } else { 'supervised (auto-restart)' }
+Write-Host "`n🚀 Starting fresh: node $entry — $mode  (Ctrl+C to stop)" -ForegroundColor Green
 Write-Host "   (reload the browser extension if injected/ changed)`n" -ForegroundColor DarkGray
 
 Push-Location $root
 try {
-    & node server/index.js @args
+    & node $entry @args
 } finally {
     Pop-Location
 }

@@ -4,6 +4,12 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.5.4] — 2026-06-02
+
+### Fixed
+
+- **`stop` / `restart` are now supervisor-aware** — making the supervisor the default in 0.5.3 broke both: `npm run stop` killed only the port-listening worker, which the supervisor (no port, so untouched) immediately restarted; `npm run restart` then double-launched into a port conflict. `stop.ps1` now stops the supervisor (matched by `scripts/supervisor.js` in its command line) *first* so it can't respawn the worker, then stops the worker as before. `restart.ps1` relaunches under the supervisor by default (`-NoSupervisor` for the raw worker). Stopping a raw `start:raw` worker is unaffected.
+
 ## [0.5.3] — 2026-06-02
 
 ### Added
