@@ -8,6 +8,8 @@
     "mcp": "node server/index.js --mcp",
     "verbose": "node server/index.js --verbose",
     "mock": "node server/index.js --mock",
+    "stop": "pwsh -NoProfile -File scripts/stop.ps1",
+    "restart": "pwsh -NoProfile -File scripts/restart.ps1",
     "test": "node --test tests/unit/ tests/integration/ tests/stress/",
     "test:unit": "node --test tests/unit/",
     "test:integration": "node --test tests/integration/",
