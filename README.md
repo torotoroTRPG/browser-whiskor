@@ -270,7 +270,7 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `get_viewport` | Current viewport size and scroll position |
 | `get_framework_state` | Component tree + state for detected framework |
 | `get_network` | Captured HTTP requests/responses |
-| `get_ui_catalog` | Buttons, links, forms listing |
+| `get_ui_catalog` | Buttons, links, forms listing. Action buttons carry `relatedInputs` (+ a `relatedInputsTip`) when the button likely depends on a field being filled first — each related input lists `selector/label/required/empty` and a `confidence`/`basis` (form/aria = high, same-container = low) |
 | `get_accessibility` | ARIA accessibility tree |
 | `get_storage` | localStorage / sessionStorage / Cookies |
 | `get_console_logs` | Console output + unhandled errors |
@@ -334,7 +334,7 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 |------|-------------|
 | `explain_element` | Explain why an element has its current CSS appearance (selector, specificity, cascade, sourcemap) |
 | `why_did_this_change` | Correlate a UI change with network events and framework transitions |
-| `analyze_click` | Analyze a click target's React/Vue event handlers before clicking |
+| `analyze_click` | Analyze a click target's React/Vue event handlers before clicking; also reports `relatedInputs` / `relatedInputsTip` — input fields the action likely depends on (so you fill them first instead of hitting a validation alert) |
 | `get_source_file` | Retrieve source file content by URL or hash |
 | `detect_site_updates` | Cross-session: detect which CSS/JS files have changed |
 

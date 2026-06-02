@@ -118,14 +118,20 @@
     },
 
     collect(api) {
+      // Surface inputs an action button depends on (e.g. a code field that must be
+      // filled before "join" works), reusing the clickability analyzer's detector.
+      const _click = window.__SI_CLICKABILITY__;
       const buttons = [...document.querySelectorAll('button,[role=button],[type=button],[type=submit]')]
-        .slice(0, 200).map(el => { const h = clickHint(el); return {
+        .slice(0, 200).map(el => { const h = clickHint(el);
+          const rel = (_click && _click.findRelatedInputs) ? _click.findRelatedInputs(el) : [];
+          return {
           text: el.textContent.trim().slice(0, 60),
           label: accessibleName(el),
           type: el.getAttribute('type') || null,
           disabled: el.disabled || null,
           clickable: h ? h.clickable : null,
           ...(h && h.by ? { obstructedBy: h.by } : {}),
+          ...(rel.length ? { relatedInputs: rel, relatedInputsTip: _click.relatedInputTip(rel) } : {}),
           rect: getRect(el),
           classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 80),
         }; });

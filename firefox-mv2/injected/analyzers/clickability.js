@@ -369,6 +369,8 @@
       recommendedStrategy: 'none',
       strategyUsed: null,
       diagnosis: null,
+      relatedInputs: [],
+      relatedInputsTip: null,
     };
 
     // ── Check 1: Existence ──
@@ -416,6 +418,10 @@
 
     // ── Strategy selection ──
     report.recommendedStrategy = selectStrategy(report);
+
+    // ── Related inputs (action that depends on a field being filled first) ──
+    const _rel = findRelatedInputs(el);
+    if (_rel.length) { report.relatedInputs = _rel; report.relatedInputsTip = relatedInputTip(_rel); }
 
     return report;
   }
@@ -693,6 +699,97 @@
     return clean;
   }
 
+  // ── Related-input detection ───────────────────────────────────────────────
+  // An action button often fails (validation alert, silent no-op) unless a related
+  // input is filled first — e.g. a "join room" button next to a room-code field.
+  // Surface those inputs so the agent fills them before clicking. Association is
+  // layered, and `confidence` is NOT a fabricated number (a score that isn't itself
+  // trustworthy is worse than none) — it is a direct, inspectable function of WHICH
+  // evidence matched, and `basis` is exposed so it can be judged:
+  //   1. shared <form>                         → basis 'form'      (confidence high)
+  //   2. ARIA aria-controls / aria-describedby → basis 'aria'      (confidence high)
+  //   3. bounded nearest common container      → basis 'container' (confidence low)
+  //      (the "same parent box", depth/size-capped so we don't grab the whole page)
+  const INPUT_SEL = 'input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]';
+  const _CONF = { form: 'high', aria: 'high', container: 'low' };
+
+  function _isValueInput(n) {
+    const tag = (n.tagName || '').toLowerCase();
+    if (tag === 'input') {
+      const t = (n.getAttribute('type') || 'text').toLowerCase();
+      return !['button', 'submit', 'reset', 'image', 'hidden', 'checkbox', 'radio', 'file'].includes(t);
+    }
+    return tag === 'textarea' || tag === 'select' || n.isContentEditable ||
+           (n.getAttribute && n.getAttribute('role') === 'textbox');
+  }
+
+  function _inputState(n, basis) {
+    const val = n.isContentEditable ? (n.textContent || '').trim()
+              : (n.value != null ? String(n.value).trim() : '');
+    const label = (n.getAttribute && (n.getAttribute('aria-label') || n.getAttribute('placeholder'))) ||
+                  n.name || n.id || (n.getAttribute && n.getAttribute('data-placeholder')) || null;
+    return {
+      selector: computeSelector(n),
+      label: label ? String(label).slice(0, 60) : null,
+      required: !!(n.required || (n.getAttribute && n.getAttribute('aria-required') === 'true')) || null,
+      empty: val === '',
+      basis,
+      confidence: _CONF[basis] || 'low',
+    };
+  }
+
+  function findRelatedInputs(el) {
+    if (!el || _isValueInput(el)) return []; // inputs themselves have no "related inputs"
+    const seen = new Set();
+    const out = [];
+    const add = (n, basis) => {
+      if (!n || !_isValueInput(n)) return;
+      const st = _inputState(n, basis);
+      if (seen.has(st.selector)) return;
+      seen.add(st.selector);
+      out.push(st);
+    };
+
+    let form = null;
+    try { form = el.form || (el.closest && el.closest('form')); } catch (_) {}
+    if (form) { for (const n of form.querySelectorAll(INPUT_SEL)) add(n, 'form'); }
+
+    for (const attr of ['aria-controls', 'aria-describedby']) {
+      const ids = ((el.getAttribute && el.getAttribute(attr)) || '').split(/\s+/).filter(Boolean);
+      for (const id of ids) { const ref = document.getElementById(id); if (ref) add(ref, 'aria'); }
+    }
+
+    if (!out.length) {
+      const MAX_LEVELS = 4, MAX_INPUTS = 4, MAX_ELEMENTS = 60;
+      let cur = el.parentElement, level = 0;
+      while (cur && level++ < MAX_LEVELS) {
+        const ins = cur.querySelectorAll(INPUT_SEL);
+        if (ins.length) {
+          if (ins.length <= MAX_INPUTS && cur.querySelectorAll('*').length <= MAX_ELEMENTS) {
+            for (const n of ins) add(n, 'container');
+          }
+          break; // stop at the first ancestor holding inputs — don't widen further
+        }
+        cur = cur.parentElement;
+      }
+    }
+    return out.slice(0, 6);
+  }
+
+  function relatedInputTip(rels) {
+    if (!rels || !rels.length) return null;
+    const blockers = rels.filter(r => r.empty || r.required);
+    const target = blockers.length ? blockers : rels;
+    const allLow = target.every(r => r.confidence === 'low');
+    const names = target.slice(0, 3).map(r =>
+      r.selector + (r.empty ? ' (empty)' : '') + (r.required && !r.empty ? ' (required)' : ''));
+    const plural = target.length > 1;
+    const hedge = allLow ? ' [low confidence: inferred only from the same container — verify]' : '';
+    return `This action ${allLow ? 'may depend on' : 'likely depends on'} input${plural ? 's' : ''} ` +
+           names.join(', ') + (target.length > 3 ? `, +${target.length - 3} more` : '') +
+           `. Fill ${plural ? 'them' : 'it'} before clicking, or it may trigger a validation alert / no-op.${hedge}`;
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
 
   window.__SI_CLICKABILITY__ = {
@@ -700,6 +797,8 @@
     autoUnblockPipeline,
     diagnoseClickResult,
     capturePreClickFingerprint,
+    findRelatedInputs,
+    relatedInputTip,
     cleanReport,
     // Exposed for testing and dry-run tool
     _internal: {
