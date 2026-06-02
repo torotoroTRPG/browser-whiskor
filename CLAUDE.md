@@ -110,12 +110,12 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 ### 重要: shared/injected/ の役割
 
-`shared/injected/` が **injectedスクリプトの正規ソース**。Chrome・Firefoxの両ビルドに同じファイルをコピーして使う。
+`shared/injected/` が **injectedスクリプトの正規ソース**。ただし**カバレッジは部分的**で、`shared/` にあるファイルだけを Chrome・Firefoxの両ビルドへコピーする。
 
-- **injectedスクリプトを変更するときは必ず `shared/injected/` を編集する**
-- 変更後に `.\scripts\sync-shared.ps1` を実行して両拡張機能に反映する
-- `extension/injected/` と `firefox-mv2/injected/` を直接編集しても `sync-shared.ps1` で上書きされる
-- `.\scripts\validate.ps1` が同期ズレを検出する
+- **`shared/` にあるファイルを変更するときは必ず `shared/injected/` を編集する**（collector / executor / explorer / state-reporter / 全 adapters / 8 analyzers: accessibility・console-logger・css・dom-mutations・dom-snapshot・perf・shadow-dom・storage-reader / lib）
+- 変更後に `.\scripts\sync-shared.ps1` を実行して両拡張機能に反映する。`sync-shared.ps1` は **`shared/` に存在するファイルのみ**を両拡張へコピーする（下記の shared 外ファイルは認識せず、上書きも削除もしない＝破壊しない）
+- **shared 外のファイルは `extension/injected/` と `firefox-mv2/injected/` を直接・両方編集する**必要がある：7 analyzers（`text-coords` / `network` / `css-origin` / `source-fetcher` / `ui-catalog` / `framework-dom-map` / `clickability`）と `plugin-system.js` / `bridge.js`。これらは Chrome/Firefox 間で既存実装が乖離している箇所もあるため、編集前に両者を確認すること
+- `.\scripts\validate.ps1` が（shared 対象ファイルの）同期ズレを検出する
 
 ### サーバーの2モード
 
@@ -178,7 +178,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 ## Known Issues / Notes
 
 - `plugin-system.js` の `dependencies` フィールドは `source-fetcher` / `css-origin` / `framework-dom-map` の3件のみ設定済み。他のプラグインは `|| []` フォールバックで動作するが、厳密な依存順序は未保証
-- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.4.5`、62ツール（正は `package.json`）
+- バージョン表記は `package.json` が唯一の真実。`start.ps1` バナーは package.json から動的に読む（再 stale 化しない）、`mcp-server.js` のヘッダコメントはハードコードを廃止済み
 - アダプティブ収集スケジューリング（Proposal D）は **実装済みだがデフォルト無効**。実体は `extension/background/sw.js` の `CollectionScheduler` クラス（two-speed cadence: active/quiescent）。`config.json` の `adaptiveCollection.enabled: true` で有効化する。SW（長寿命）側に置かれているのは、ナビゲーションごとに破棄される MAIN-world の `collector.js` ではタイマーが保持できないため
 
 ## Key Ports & Endpoints

@@ -11,6 +11,10 @@ param(
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
+# Version is read from package.json (the single source of truth) so the banner
+# never goes stale as releases are cut.
+$bwVer = try { (Get-Content "package.json" -Raw | ConvertFrom-Json).version } catch { "?" }
+
 # node_modules
 if (-not (Test-Path "node_modules")) {
   Write-Host "[bw] node_modules not found. Running npm install..." -ForegroundColor Yellow
@@ -78,7 +82,7 @@ if ($cacheDir) { $env:WHISKOR_CACHE_DIR = $cacheDir }
 # ── Banner ─────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║       browser-whiskor v0.3.4  —  Server   ║" -ForegroundColor Cyan
+Write-Host "║       browser-whiskor v$bwVer  —  Server   ║" -ForegroundColor Cyan
 Write-Host "╠══════════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "║  WebSocket   ws://localhost:$port1             ║" -ForegroundColor Cyan
 Write-Host "║  HTTP API    http://localhost:$port2/api       ║" -ForegroundColor Cyan

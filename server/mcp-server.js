@@ -1,5 +1,6 @@
 /**
- * server/mcp-server.js  –  browser-whiskor v0.3.4
+ * server/mcp-server.js  –  browser-whiskor MCP server
+ * (version は package.json が唯一の真実 — ここには書かない)
  *
  * MCP (Model Context Protocol) server — 新アーキテクチャ。
  *
@@ -14,7 +15,8 @@
  *     → mcp/tools/replay.js
  *     → mcp/transport.js (stdio/JSON-RPC)
  *
- * 全57ツール（READ 21, WRITE 16, CAPTURE 3, CONTROL 6+4meta, INTELLIGENCE 6, REPLAY 1）。
+ * ツールはカテゴリ別（read / write / capture / tabs / control / intelligence / replay）。
+ * 正確なツール数・プロファイル内訳は CLAUDE.md と server/configs/tool-profiles.json を正とする。
  */
 'use strict';
 
