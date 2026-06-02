@@ -4,6 +4,18 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [0.5.3] — 2026-06-02
+
+### Added
+
+- **Crash resilience / auto-restart** — the server now recovers on its own when the worker crashes. `npm start` and `start.ps1` run under a new zero-dependency supervisor (`scripts/supervisor.js`) by default, which restarts the worker on an *unclean* exit with backoff and a crash-loop guard (gives up after 5 crashes in 60s); a clean signal exit (code 0) is not restarted. Run the raw worker with `npm run start:raw` / `start.ps1 -NoSupervisor`. The `--mcp` process is intentionally not supervised (its lifecycle belongs to the agent).
+- **No lost instructions during a restart** — in Proxy Mode the worker (heavy process: ports + cache + embeddings) and the MCP/stdio process the agent talks to are separate, so a worker crash never reaches the agent. `requestServer()` now retries connection-level forward failures (`ECONNREFUSED`/`ECONNRESET`/…) while the worker restarts (`config.json` → `resilience.proxyRetry`, default up to 15s), turning a restart into a brief pause instead of a dropped tool call. Only connection failures are retried — a refused connection never reached the worker, so re-sending cannot double-execute an action; HTTP error responses are returned as-is.
+
+### Fixed
+
+- **No corrupted cache on crash** — `cache-writer` now writes atomically (temp file → `rename`), so a crash mid-write leaves the previous file intact instead of a half-written JSON. On startup the integrity check additionally sweeps orphaned `*.tmp` files left by a crash (`cache-integrity.cleanupTempFiles`).
+- **Clean shutdown handoff** — `uncaughtException` / `unhandledRejection` / `SIGTERM` / `SIGINT` now route through a single `shutdown()` that flushes in-memory network/console buffers synchronously (`cache.flushAllSync()`) before exiting (non-zero on crash so the supervisor restarts). Also lifts `httpServer` to module scope so the signal handlers no longer reference an out-of-scope binding.
+
 ## [0.5.2] — 2026-06-02
 
 ### Added

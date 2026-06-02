@@ -5,6 +5,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 param(
   [switch]$mock,
   [switch]$verbose,
+  [switch]$NoSupervisor,   # run the worker directly (no auto-restart)
   [string]$cacheDir = ""
 )
 
@@ -90,7 +91,15 @@ Write-Host "║  Dashboard   http://localhost:$port2/          ║" -ForegroundC
 Write-Host "╚══════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
-$args = @("server/index.js")
+# By default the server runs under the supervisor (scripts/supervisor.js) so an
+# unclean crash auto-restarts and the cache hands off cleanly. Use -NoSupervisor
+# to run the worker directly (e.g. when debugging a crash you want to inspect).
+if ($NoSupervisor) {
+  $args = @("server/index.js")
+} else {
+  $args = @("scripts/supervisor.js")
+  Write-Host "[bw] Supervised mode: auto-restart on crash (use -NoSupervisor to disable)." -ForegroundColor DarkGray
+}
 if ($mock) { $args += "--mock" }
 if ($verbose) { $args += "--verbose" }
 

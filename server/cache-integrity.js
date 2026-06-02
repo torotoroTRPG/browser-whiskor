@@ -451,6 +451,31 @@ function enforceDiskLimit(cacheRoot, maxMB, opts = {}) {
   return result;
 }
 
+/**
+ * Remove orphaned atomic-write temp files (*.tmp) left by a crash that hit
+ * between writing the temp file and renaming it over the target. They are
+ * harmless but accumulate, so sweep them on startup.
+ * @param {string} cacheRoot - Cache root directory
+ * @returns {number} count of temp files removed
+ */
+function cleanupTempFiles(cacheRoot) {
+  if (!fs.existsSync(cacheRoot)) return 0;
+  let removed = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); }
+      else if (e.isFile() && e.name.endsWith('.tmp')) {
+        try { fs.unlinkSync(full); removed++; } catch { /* ignore */ }
+      }
+    }
+  };
+  walk(cacheRoot);
+  return removed;
+}
+
 module.exports = {
   validateJsonFile,
   validateIndexStructure,
@@ -460,4 +485,5 @@ module.exports = {
   calculateDiskUsage,
   getAllSessions,
   enforceDiskLimit,
+  cleanupTempFiles,
 };

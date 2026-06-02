@@ -4,7 +4,8 @@
   "description": "Agent-grade browser instrumentation with MCP server",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
+    "start": "node scripts/supervisor.js",
+    "start:raw": "node server/index.js",
     "mcp": "node server/index.js --mcp",
     "verbose": "node server/index.js --verbose",
     "mock": "node server/index.js --mock",

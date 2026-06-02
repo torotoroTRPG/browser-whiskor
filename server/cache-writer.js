@@ -78,13 +78,26 @@ async function loadSessionsFromDisk() {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+// Atomic-write helper: write to a unique temp file in the same directory, then
+// rename over the target. rename(2) is atomic on the same volume (Windows uses
+// MoveFileEx with MOVEFILE_REPLACE_EXISTING), so a crash mid-write leaves either
+// the old file intact or the fully-written new one — never a half-written JSON.
+// The pid+counter suffix avoids collisions between concurrent writes to one path.
+let _tmpCounter = 0;
+function _tmpPath(filePath) {
+  return `${filePath}.${process.pid}.${(_tmpCounter = (_tmpCounter + 1) & 0xffffff)}.tmp`;
+}
+
 // sync helpers (legacy – not used in the hot handleMessage path)
 function writeJson(filePath, data) {
+  const tmp = _tmpPath(filePath);
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, filePath);
   } catch (e) {
     console.error('[cache] writeJson error:', e.message, filePath);
+    try { fs.unlinkSync(tmp); } catch { /* tmp may not exist */ }
   }
 }
 
@@ -94,11 +107,14 @@ function readJson(filePath) {
 }
 
 async function writeJsonAsync(filePath, data) {
+  const tmp = _tmpPath(filePath);
   try {
     await fsp.mkdir(path.dirname(filePath), { recursive: true });
-    await fsp.writeFile(filePath, JSON.stringify(data, null, 2));
+    await fsp.writeFile(tmp, JSON.stringify(data, null, 2));
+    await fsp.rename(tmp, filePath);
   } catch (e) {
     console.error('[cache] writeJson error:', e.message, filePath);
+    try { await fsp.unlink(tmp); } catch { /* tmp may not exist */ }
   }
 }
 
@@ -506,9 +522,42 @@ function getSmartDelta(tabId) {
   };
 }
 
+// Best-effort SYNCHRONOUS flush of all in-memory session state. Used by the
+// shutdown/crash handlers in index.js so a restart loses as little as possible.
+// Must stay synchronous (no await): an uncaughtException handler runs with the
+// event loop in an undefined state, so we cannot rely on async I/O completing.
+// Every write is individually guarded — one bad session must not abort the rest.
+function flushAllSync() {
+  let flushed = 0;
+  for (const s of sessions.values()) {
+    try {
+      if (Array.isArray(s.networkRequests) && s.networkRequests.length) {
+        writeJson(path.join(s.dir, 'raw/network/requests.json'), {
+          capturedAt: Date.now(),
+          totalRequests: s.networkRequests.length,
+          requests: s.networkRequests,
+        });
+        s.index.files.raw.network = 'raw/network/requests.json';
+      }
+      if (Array.isArray(s.consoleLogs) && s.consoleLogs.length) {
+        writeJson(path.join(s.dir, 'raw/console/logs.json'), {
+          capturedAt: Date.now(),
+          totalEntries: s.consoleLogs.length,
+          entries: s.consoleLogs,
+        });
+        s.index.files.raw.console = 'raw/console/logs.json';
+      }
+      s.index.updatedAt = Date.now();
+      writeJson(path.join(s.dir, '_index.json'), s.index);
+      flushed++;
+    } catch (_) { /* keep going — partial flush beats no flush */ }
+  }
+  return flushed;
+}
+
 module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
   storeSmartDelta, getSmartDelta, setSessionKeep,
-  loadSessionsFromDisk,
+  loadSessionsFromDisk, flushAllSync,
 };

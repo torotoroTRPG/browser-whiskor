@@ -174,6 +174,15 @@
 │      REACT_TRANSITION  → stateStore.addEdge() (was previously swallowed)    │
 │      STATE_HASH_REPORT → navigator.handleHashReport() (for nav verification)│
 │      EXPLORER_STATE_UPDATE → stateStore.addNode() with reactHash/domHash    │
+│                                                                              │
+│    Crash resilience (optional, via scripts/supervisor.js):                   │
+│      supervisor.js runs THIS worker as a child and restarts it on an         │
+│      unclean exit (backoff + crash-loop guard). uncaughtException /          │
+│      unhandledRejection / SIGTERM / SIGINT → shutdown(): cache.flushAllSync() │
+│      then exit (non-zero on crash so the supervisor restarts). cache-writer   │
+│      writes atomically (tmp→rename); startup sweeps orphaned *.tmp + repairs. │
+│      The MCP proxy retries connection-level forwards during the restart       │
+│      window (resilience.proxyRetry) so in-flight instructions are not lost.   │
 └──────┬───────────────────────────────────────┬───────────────────────────────┘
        │ HTTP :7892                            │ WebSocket :7891
        ▼                                       ▼
@@ -632,8 +641,15 @@
   FILE MAP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  scripts/
+    supervisor.js         — Keeps the worker alive: spawns server/index.js, restarts
+                            on unclean exit (backoff + crash-loop guard). Default for
+                            npm start / start.ps1 (raw: npm run start:raw / -NoSupervisor)
+
   server/
-    index.js              — HTTP + WS server, cache writer, config manager
+    index.js              — HTTP + WS server, cache writer, config manager;
+                            crash-safe shutdown (flush + non-zero exit), proxy retry
+    cache-integrity.js    — Startup integrity check/repair + cleanupTempFiles (orphaned *.tmp)
     mcp-server.js         — Entry point: wires registry, transport, tool modules
     mcp/
       registry.js         — Tool registration, filtering, preset management

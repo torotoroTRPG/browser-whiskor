@@ -10,6 +10,17 @@
     "_comment_ja": "host を 0.0.0.0 にすると LAN 全体に公開されます"
   },
 
+  "resilience": {
+    "_comment_en": "Crash resilience. npm start / start.ps1 run the worker under scripts/supervisor.js by default, so an unclean exit auto-restarts (raw worker: npm run start:raw / start.ps1 -NoSupervisor). proxyRetry makes an MCP proxy process transparently retry HTTP forwards while the worker restarts, so instructions arriving during the brief downtime are not lost (only connection-level failures are retried; a refused connection never reached the worker, so re-sending cannot double-execute an action).",
+    "_comment_ja": "クラッシュ耐性。npm start / start.ps1 はデフォルトで scripts/supervisor.js 配下でワーカーを起動し、異常終了時に自動再起動する（生起動は npm run start:raw / start.ps1 -NoSupervisor）。proxyRetry は MCPプロキシがワーカー再起動中のHTTP転送を透過的に再試行し、ダウン中に来た指示を取りこぼさない（再試行するのは接続レベルの失敗のみ。接続拒否はワーカーに届いていないので再送で操作が二重実行されることはない）。",
+    "proxyRetry": {
+      "enabled": true,
+      "totalMs": 15000,
+      "baseMs":  200,
+      "maxMs":   1000
+    }
+  },
+
   "security": {
     "allowExecuteJs":      false,
     "allowActions":        true,

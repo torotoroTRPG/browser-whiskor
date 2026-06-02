@@ -174,6 +174,24 @@ To prevent this, browser-whiskor automatically detects if another instance is al
 
 This allows seamless coexistence of a global browser instrumentation dashboard and local editor-based AI agents.
 
+### Crash Resilience (Auto-Restart)
+
+The server occasionally crashes under load. **`npm start` (and `start.ps1`) run under the supervisor by default**, so it comes back on its own — no separate command to remember:
+
+```bash
+npm start                  # supervised (auto-restart) — node scripts/supervisor.js
+npm run start:raw          # raw worker, no auto-restart (start.ps1 -NoSupervisor)
+```
+
+The same two-process split that powers Proxy Mode is what makes the restart clean. The **worker** (the heavy process that owns WS:7891 + HTTP:7892 + cache + embeddings) is what crashes; the **MCP proxy** the agent talks to is a separate, long-lived process. So a worker crash never reaches the agent:
+
+- **Auto-restart** — `scripts/supervisor.js` runs the worker as a child and restarts it on an *unclean* exit (a clean signal exit returns 0 and is not restarted). Backoff + a crash-loop guard (gives up after 5 crashes in 60s).
+- **No corrupted cache** — `cache-writer` writes atomically (temp file → rename), so a crash mid-write leaves the old file intact instead of a half-written JSON. The startup integrity check repairs dangling refs and sweeps orphaned temp files.
+- **Clean handoff** — on crash/exit the worker flushes in-memory network/console buffers synchronously before exiting non-zero.
+- **No lost instructions during the restart** — the proxy retries connection-level failures (`resilience.proxyRetry`, default up to 15s) while the worker restarts, so a tool call that arrives mid-restart just waits a beat and still returns a real result. Only *connection* failures are retried — a refused connection never reached the worker, so re-sending cannot double-execute an action; HTTP error responses (the worker handled it) are returned as-is.
+
+This covers the common case — the *worker* falling over. The MCP proxy process itself is owned by the agent (Claude/Cursor) and is a thin HTTP forwarder, so it rarely crashes. Start the server (`npm start`) before the agent so the agent's `--mcp` process attaches in Proxy Mode. (The `--mcp` process is intentionally *not* supervised — its lifecycle belongs to the agent.)
+
 ---
 
 ## Explorer — Honest Assessment

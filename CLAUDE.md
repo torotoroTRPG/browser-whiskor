@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # サーバー起動
-npm start                         # 通常起動 (HTTP:7892 + WS:7891)
+npm start                         # 通常起動 (HTTP:7892 + WS:7891)。supervisor配下で自動再起動つき（後述「クラッシュ耐性」）
+npm run start:raw                 # supervisorなしで生起動（クラッシュを調べたい時など）
 node server/index.js --mock       # モックデータで起動
 node server/index.js --verbose    # 全メッセージをログ出力
 node server/index.js --mcp        # MCPスタンドアロンモード (stdio)
@@ -121,6 +122,17 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 1. **通常モード** (`npm start`): HTTP:7892 と WS:7891 の両方を開く。ブラウザ拡張機能がWS:7891に接続し、ダッシュボードは http://localhost:7892/ で閲覧可能
 2. **MCPモード** (`--mcp`): stdioでJSON-RPC 2.0を処理。ポート:7892が既に使用中の場合は**Proxyモード**に自動切替し、既存サーバーへ全操作を透過的に転送する（ポート競合なし）
+
+### クラッシュ耐性（自動再起動 + 無損失な引き継ぎ）
+
+「稀に落ちる」ワーカーを綺麗に復帰させる仕組み。役割が2プロセスに分かれている（重い処理＝ワーカー／エージェントと喋る軽いMCPプロキシ）構造を利用している。
+
+- **`scripts/supervisor.js`**（`npm start` と `start.ps1` のデフォルト。生起動は `npm run start:raw` / `start.ps1 -NoSupervisor`）: ワーカー（`server/index.js`）を子プロセスで起動・監視し、**非ゼロ終了＝クラッシュのときだけ**バックオフ再起動する。シグナル由来のクリーン終了（code 0）では再起動しない。クラッシュループ保護つき（60秒で5回落ちたら停止）。ゼロ依存CommonJS。MCP起動（`node server/index.js --mcp`）はsupervisorを通さない（エージェント側が握るため）
+- **アトミック書き込み**: `cache-writer.js` の `writeJson`/`writeJsonAsync` は `tmp書き込み→rename` で書く。クラッシュが書き込み途中に当たっても旧ファイルが残り、半端JSONは生まれない
+- **クラッシュ時flush**: `index.js` の `uncaughtException`/`unhandledRejection`/SIGTERM/SIGINT ハンドラ（`shutdown()`）が `cache.flushAllSync()` でメモリ上のnetwork/consoleバッファを同期保存してから `exit`（クラッシュは非ゼロ→supervisorが再起動）
+- **起動時リカバリ**: 既存の `checkAndRepair`（壊れた`_index.json`の自動修復）に加え、`cleanupTempFiles()` がクラッシュで残った孤立 `.tmp` を掃除する
+- **プロキシのリトライ（第3層・ダウン中の指示の無損失化）**: Proxyモードの `requestServer()` が、ワーカー再起動中の接続レベル失敗（ECONNREFUSED等）を `resilience.proxyRetry` の設定（既定: 最大15秒バックオフ）まで再試行する。エージェント↔MCPプロキシは別プロセスなのでワーカーのクラッシュが届かず、ツール呼び出しは「少し待たされて成功」になる。**接続拒否はワーカーに届いていないため再送で操作の二重実行は起きない**。HTTPエラー応答（ワーカーが処理済み）は再試行せずそのまま返す
+- 守るのは「ワーカーが落ちる」ケース（実際に稀に起きる重い側）。MCPプロキシ自体の再起動はエージェント（Claude/Cursor）側が握るため対象外だが、プロキシは「HTTP転送するだけ」の軽量プロセスでまず落ちない
 
 ### ステートグラフのハッシュ方式
 

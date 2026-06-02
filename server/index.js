@@ -28,7 +28,7 @@ const configLog  = require('./config-change-log');
 const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
-const { checkAndRepair } = require('./cache-integrity');
+const { checkAndRepair, cleanupTempFiles } = require('./cache-integrity');
 const patternRegistry = require('./pattern-registry');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
@@ -82,7 +82,27 @@ function checkExistingServer(host, port) {
   });
 }
 
-function requestServer(method, pathname, body = null) {
+// Proxy → worker resilience. When the worker (the heavy process that owns the
+// ports + cache) crashes, the supervisor restarts it within a second or two. The
+// MCP/stdio process the agent talks to is THIS proxy — a separate, long-lived
+// process — so a worker crash never reaches the agent. We just retry the HTTP
+// forward across connection-level failures until the worker is back, turning a
+// restart into a brief pause instead of a lost instruction.
+//
+// We only retry CONNECTION errors (the worker is down / restarting). HTTP error
+// *responses* mean the worker handled the call, so those are returned as-is.
+// A connection refused means the request never reached the worker, so re-sending
+// it cannot double-execute an action.
+const RETRY = {
+  enabled:    _cfg.resilience?.proxyRetry?.enabled    !== false, // default ON in proxy mode
+  totalMs:    _cfg.resilience?.proxyRetry?.totalMs    ?? 15000,   // give up after this long
+  baseMs:     _cfg.resilience?.proxyRetry?.baseMs     ?? 200,
+  maxMs:      _cfg.resilience?.proxyRetry?.maxMs      ?? 1000,
+};
+const RETRYABLE = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'EPIPE']);
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function _requestOnce(method, pathname, body) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: HOST,
@@ -110,8 +130,29 @@ function requestServer(method, pathname, body = null) {
   });
 }
 
+async function requestServer(method, pathname, body = null) {
+  const deadline = Date.now() + RETRY.totalMs;
+  let attempt = 0;
+  let lastErr;
+  let warned = false;
+  for (;;) {
+    try {
+      return await _requestOnce(method, pathname, body);
+    } catch (err) {
+      lastErr = err;
+      const retryable = RETRY.enabled && RETRYABLE.has(err.code) && Date.now() < deadline;
+      if (!retryable) throw err;
+      if (!warned) { warned = true; log('warn', `[proxy] Worker unreachable (${err.code}) — retrying ${method} ${pathname} until it restarts...`); }
+      const backoff = Math.min(RETRY.maxMs, RETRY.baseMs * Math.pow(2, attempt++));
+      const remaining = deadline - Date.now();
+      await _sleep(Math.max(0, Math.min(backoff, remaining)));
+    }
+  }
+}
+
 let core = null;
 let wss = null;
+let httpServer = null;
 let PROXY_MODE = false;
 let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
@@ -235,7 +276,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
   // ── HTTP API ──────────────────────────────────────────────────────────────────
   let _firstHttpCall = true;
-  const httpServer = http.createServer((req, res) => {
+  httpServer = http.createServer((req, res) => {
     const url    = new URL(req.url, `http://${HOST}:${HTTP_PORT}`);
     const method = req.method;
 
@@ -528,6 +569,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
       setImmediate(() => {
         try {
+          const swept = cleanupTempFiles(cacheRoot);
+          if (swept) log('info', `[cache] Removed ${swept} orphaned temp file(s) from a previous crash`);
           const result = checkAndRepair(cacheRoot, { verbose: true, autoRepair: true });
           if (result && result.healthy) log('info', `[cache] Integrity check OK (${result.sessions} session(s))`);
         } catch (e) {
@@ -712,13 +755,31 @@ if (MOCK) {
   setTimeout(injectMockData, 500);
 }
 
-process.on('SIGTERM', () => { 
-  if (wss) wss.close(); 
-  if (httpServer && httpServer.listening) httpServer.close(); 
-  process.exit(0); 
+// ── Graceful shutdown & crash safety ───────────────────────────────────────────
+// A clean exit (signal) flushes and returns 0. A crash flushes and returns a
+// NON-zero code so the supervisor (scripts/supervisor.js) knows to restart. The
+// in-memory network/console buffers are flushed synchronously so a restart loses
+// as little as possible; atomic writes (cache-writer) guarantee nothing on disk
+// is left half-written, and the startup integrity check repairs any dangling refs.
+let _shuttingDown = false;
+function shutdown(code, reason) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  try { if (!PROXY_MODE) { const n = cache.flushAllSync(); log('info', `[shutdown] Flushed ${n} session(s) (${reason})`); } }
+  catch (e) { try { log('warn', `[shutdown] Flush failed: ${e.message}`); } catch {} }
+  try { if (wss) wss.close(); } catch {}
+  try { if (httpServer && httpServer.listening) httpServer.close(); } catch {}
+  process.exit(code);
+}
+
+process.on('SIGTERM', () => shutdown(0, 'SIGTERM'));
+process.on('SIGINT',  () => shutdown(0, 'SIGINT'));
+
+process.on('uncaughtException', (err) => {
+  try { log('error', `[fatal] Uncaught exception: ${err && err.stack || err}`); } catch {}
+  shutdown(1, 'uncaughtException');
 });
-process.on('SIGINT',  () => { 
-  if (wss) wss.close(); 
-  if (httpServer && httpServer.listening) httpServer.close(); 
-  process.exit(0); 
+process.on('unhandledRejection', (reason) => {
+  try { log('error', `[fatal] Unhandled rejection: ${reason && reason.stack || reason}`); } catch {}
+  shutdown(1, 'unhandledRejection');
 });
