@@ -14,6 +14,8 @@ npm start                         # 通常起動 (HTTP:7892 + WS:7891)
 node server/index.js --mock       # モックデータで起動
 node server/index.js --verbose    # 全メッセージをログ出力
 node server/index.js --mcp        # MCPスタンドアロンモード (stdio)
+npm run stop                      # 7891/7892 を握る whiskor サーバーを停止
+npm run restart                   # 停止→(可能なら)拡張再ビルド→再起動。コード変更の反映用
 
 # テスト
 npm test                          # 全テスト (unit + integration + stress)
@@ -175,7 +177,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 ## Known Issues / Notes
 
 - `plugin-system.js` の `dependencies` フィールドは `source-fetcher` / `css-origin` / `framework-dom-map` の3件のみ設定済み。他のプラグインは `|| []` フォールバックで動作するが、厳密な依存順序は未保証
-- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.4.2`、62ツール
+- `start.ps1` のバナー内バージョン表示が `v0.3.0` と古い（`mcp-server.js` コメントも `v0.3.0` / 55ツール表記が残っている）—実際のバージョンは `v0.4.5`、62ツール（正は `package.json`）
 - アダプティブ収集スケジューリング（Proposal D）は **実装済みだがデフォルト無効**。実体は `extension/background/sw.js` の `CollectionScheduler` クラス（two-speed cadence: active/quiescent）。`config.json` の `adaptiveCollection.enabled: true` で有効化する。SW（長寿命）側に置かれているのは、ナビゲーションごとに破棄される MAIN-world の `collector.js` ではタイマーが保持できないため
 
 ## Key Ports & Endpoints

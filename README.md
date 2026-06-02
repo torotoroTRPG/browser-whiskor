@@ -126,7 +126,7 @@ Non-deterministic prop values are filtered out so the hash stays stable across v
 - **`aggressive`**: also strips bare 13-digit numbers and 32+ char random strings regardless of key.
 - **`off`**: no filtering (legacy).
 
-See `docs/v0.3.6-improvements.md` for the rationale and the dual-hash implementation note.
+See `docs/archive/v0.3.6-improvements.md` for the rationale and the dual-hash implementation note.
 
 ## Setup
 

@@ -40,7 +40,7 @@
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
 │    mcp/transport.js       ← stdio JSON-RPC 2.0 transport                    │
 │    tool-manager.js        ← Dynamic profile management, auto-load/unload     │
-│    mcp/tools/read.js      ← Entry point → 21 read tools (split into         │
+│    mcp/tools/read.js      ← Entry point → 22 read tools (split into         │
 │    read-basic.js, read-data.js, read-state.js, read-helpers.js)             │
 │    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page;      │
 │                             observe option on interaction tools)            │
@@ -54,14 +54,14 @@
 │     get_source_file, detect_site_updates)                                  │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
-│    │  READ (21)       │ get_sessions, get_index, get_text_coords,        │  │
+│    │  READ (22)       │ get_sessions, get_index, get_text_coords,        │  │
 │    │                  │ get_viewport, get_framework_state, get_network,   │  │
 │    │                  │ get_ui_catalog, get_accessibility, get_storage,   │  │
 │    │                  │ get_console_logs, get_perf_metrics,               │  │
 │    │                  │ get_css_analysis, get_dom_snapshot, get_state_map,│  │
 │    │                  │ list_states, search_states, get_state_detail,     │  │
 │    │                  │ pin_state, get_delta, list_patterns,              │  │
-│    │                  │ lookup_pattern                                   │  │
+│    │                  │ lookup_pattern, find_target                      │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  WRITE (16)      │ navigate_to, click, right_click, type_text,      │  │
 │    │                  │ press_key, hover, scroll_page, mouse_scroll,     │  │
@@ -559,6 +559,76 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  v0.4.x BEHAVIORAL ADDITIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Behavioural layers added on top of the structure above. No new modules — each
+  lives inside an existing file.
+
+  Action routing (multi-browser) — server/core.js  sendToTab()
+    Tab-scoped messages (EXECUTE_ACTION, CAPTURE_*) go ONLY to the service
+    worker that owns msg.tabId (tracked in core._wsToTabs), instead of being
+    broadcast to every connected browser. Stops a browser that lacks the tab
+    from answering "No tab with id" first and winning the result race. Falls
+    back to broadcast only when the owner is unknown.
+
+  Tab-gone recovery — extension sw.js  (isTabGone / tabGoneInfo)
+    When chrome.tabs.* fails because the tab was closed or reloaded into a new
+    id, the SW returns { tabGone:true, liveTabs:[{tabId,url,title}], error }
+    instead of a raw Chrome error, so the agent can retarget by URL (or use
+    list_tabs / switch_tab). Capture also fails fast rather than grabbing the
+    active tab. Forwarded through action-executor / screenshot-manager.
+
+  Native dialog guard — shared/injected/executor.js
+    window.alert/confirm/prompt are overridden in the MAIN world so a native
+    dialog never blocks the event loop (which used to freeze the click handler
+    and time the action out). Content is captured, auto-answered (alert
+    dismissed; confirm/prompt per policy, per-call override via the `dialog`
+    option on click / type_text), and returned in result.dialogs with causal
+    attribution: direct (fired during the action) / indirect (<1.5s after) /
+    none.
+
+  Profile auto-load on call — server/tool-manager.js  ensureToolVisible()
+    Calling a tool whose profile is not loaded auto-loads the owning profile
+    and proceeds (reported via _autoLoaded) instead of bouncing the call —
+    which agents misread as "not implemented". Permission-gated profiles
+    (allowExecuteJs / allowAgentConfig) are NOT auto-loaded and return a
+    precise reason so the agent asks the user.
+
+  find_target — server/mcp/tools/read-data.js  (READ, core profile)
+    One-shot "where do I act for X?" resolver: fuzzy-ranks get_ui_catalog +
+    get_text_coords (MiniLM when available) and returns click coordinates,
+    selector hint, kind, score, enterKey, and a clickable hint (obstructedBy
+    when covered). Obstructed candidates are deprioritised; verify:true
+    re-checks the top candidate live via analyze_click.
+
+  Submit-key inference — shared/injected/executor.js  (type_text submit:"auto")
+    Best-effort inference of the submit gesture from observable signals, in
+    priority order: aria-keyshortcuts, role=searchbox / type=search,
+    role=textbox + aria-multiline, enterkeyhint, a single-line <input> in a
+    <form>, then hint text. Returns submitInference {key, confidence, evidence};
+    key:null when it cannot be inferred (it never guesses).
+
+  Accessible-name search — ui-catalog.js + executor.js elementText
+    Icon controls are indexed by aria-label / title / alt and the text of
+    aria-labelledby / aria-describedby targets (e.g. a tooltip "送信") at the
+    control's OWN coordinates, so search / click(text) / find_target hit the
+    real control rather than a floating tooltip overlay. contenteditable /
+    role=textbox editors are catalogued among inputs.
+
+  Token-light screenshots — capture.js  (agentControl.screenshot)
+    capture_screenshot returns filePath only by default (base64 omitted to
+    save tokens); when the image is requested it is JPEG-encoded and downscaled
+    to maxWidth. Configurable; per-call overrides on the tool.
+
+  Semantic search backend — MiniLM (paraphrase-multilingual) is used by default
+    (searchClassifier.backend:"auto") for get_text_coords(match:) and fuzzy
+    suggestions, with a dictionary fallback. An exact-search miss now returns
+    fuzzy _suggestions by default. matchBackend:"minilm" in the response
+    confirms the model served the query.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   FILE MAP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -569,10 +639,10 @@
       registry.js         — Tool registration, filtering, preset management
       transport.js        — stdio JSON-RPC 2.0 transport layer
       tools/
-        read.js           — Entry point → 21 READ tools
+        read.js           — Entry point → 22 READ tools
         read-helpers.js   — Fuzzy matching (tokenize, bigramSet, jaccard, freshness)
         read-basic.js     — READ tools 1–5 (sessions → framework_state)
-        read-data.js      — READ tools 6–13 (network → dom_snapshot)
+        read-data.js      — READ tools 6–13 + find_target (network → dom_snapshot)
         read-state.js     — READ tools 14–21 (state_map → lookup_pattern)
         write.js          — 16 WRITE tools (navigate_to → reload_page; observe option helper)
         tabs.js           — 4 TABS tools (list_tabs, switch_tab, open_tab, close_tab)

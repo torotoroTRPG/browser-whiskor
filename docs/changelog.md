@@ -333,7 +333,7 @@ All notable changes to browser-whiskor.
 
 ---
 
-## [3.0.0] — 2025-12-XX
+## [3.0.0] — 2026-05-20
 
 ### Added
 - Initial browser-whiskor v3 release.
