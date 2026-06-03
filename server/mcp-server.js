@@ -58,6 +58,10 @@ function setConfigLog(log) {
   registry.setCallbacks({ _configLog: log });
 }
 
+function setSecretGuard(guard) {
+  registry.setCallbacks({ _secretGuard: guard });
+}
+
 function setStartupWarnings(warnings) {
   registry.setCallbacks({ _startupWarnings: warnings });
 }
@@ -130,6 +134,7 @@ module.exports = {
   setIntelligenceCallbacks,
   setNavigateBroadcast,
   setConfigLog,
+  setSecretGuard,
   setStartupWarnings,
   setMcpToolsConfig,
   getMcpToolsConfig,

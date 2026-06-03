@@ -683,6 +683,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots));
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
+    mcp.setSecretGuard(secretGuard);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
     mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
     configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);

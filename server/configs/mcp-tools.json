@@ -59,6 +59,7 @@
     "click":              { "enabled": true,  "category": "write" },
     "right_click":        { "enabled": true,  "category": "write" },
     "type_text":          { "enabled": true,  "category": "write" },
+    "type_secret":        { "enabled": true,  "category": "write" },
     "press_key":          { "enabled": true,  "category": "write" },
     "hover":              { "enabled": true,  "category": "write" },
     "scroll_page":        { "enabled": true,  "category": "write" },

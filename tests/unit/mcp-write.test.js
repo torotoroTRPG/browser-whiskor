@@ -95,6 +95,42 @@ describe('4.3 press_key', () => {
   });
 });
 
+describe('4.3 type_secret', () => {
+  const guard = {
+    active: true,
+    resolveSecret: (ref) => (ref === 'user_password' ? 'hunter2' : null),
+    listRefs: () => ['user_password'],
+  };
+
+  it('errors when the secret guard is not enabled', async () => {
+    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'user_password' }, recordingCb());
+    assert.strictEqual(res.ok, false);
+    assert.match(res.error, /not enabled/i);
+  });
+
+  it('errors and lists refs when the ref is unknown', async () => {
+    const cb = recordingCb(); cb._secretGuard = guard;
+    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'nope' }, cb);
+    assert.strictEqual(res.ok, false);
+    assert.match(res.error, /nope/);
+    assert.deepStrictEqual(res.availableRefs, ['user_password']);
+  });
+
+  it('injects the real value into the page action but never returns it', async () => {
+    const cb = recordingCb(); cb._secretGuard = guard;
+    const res = await writeTools['type_secret'].handler({ tabId: 5, ref: 'user_password', selector: '#pw' }, cb);
+
+    // The action sent to the page carries the real value — that's the point.
+    assert.strictEqual(cb.calls[0].action.type, 'type');
+    assert.strictEqual(cb.calls[0].action.text, 'hunter2');
+    assert.strictEqual(cb.calls[0].action.selector, '#pw');
+    // The agent-facing result must NOT contain the value.
+    assert.ok(!JSON.stringify(res).includes('hunter2'), 'the secret must not appear in the tool result');
+    assert.strictEqual(res.ref, 'user_password');
+    assert.strictEqual(res.typed, true);
+  });
+});
+
 describe('4.3 observe guard', () => {
   it('reports observation unavailable when no hash broadcast channel exists', async () => {
     const cb = recordingCb();           // no _navigateBroadcast

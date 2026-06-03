@@ -52,9 +52,9 @@ function loadKnownValues(cfg) {
   const out = [];
   const mode = cfg && cfg.knownValues; // "env" | "file" | "off" | undefined (=both)
 
-  const pushSecret = (value, type, reason) => {
+  const pushSecret = (value, type, reason, ref) => {
     if (typeof value !== 'string' || value.length < 3) return; // too short → false positives
-    out.push({ value, token: makeToken(type, deriveHint(value, type), reason) });
+    out.push({ value, ref: ref || null, token: makeToken(type, deriveHint(value, type), reason) });
   };
 
   if (mode !== 'off' && mode !== 'env') {
@@ -62,7 +62,7 @@ function loadKnownValues(cfg) {
       if (fs.existsSync(SECRETS_FILE)) {
         const parsed = JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8'));
         for (const s of parsed.secrets || []) {
-          if (s && typeof s.value === 'string') pushSecret(s.value, s.type, 'user-blacklist');
+          if (s && typeof s.value === 'string') pushSecret(s.value, s.type, 'user-blacklist', s.ref);
         }
       }
     } catch (e) {
@@ -127,6 +127,13 @@ function createGuard(cfg) {
   const patterns = enabled ? buildPatterns(cfg) : [];
   const active   = enabled && (secrets.length > 0 || patterns.length > 0);
 
+  // ref → real value, for the write side (type_secret). Server-only; the value
+  // is never returned to the agent, only injected into the page by the executor.
+  const byRef = new Map();
+  for (const s of secrets) if (s.ref) byRef.set(s.ref, s.value);
+  function resolveSecret(ref) { return byRef.get(ref) || null; }
+  function listRefs() { return [...byRef.keys()]; }
+
   // Two-phase replace: every match first becomes a NUL-delimited sentinel, then
   // all sentinels expand to their human tokens at the very end. This stops a
   // later/shorter secret (e.g. "pass") from re-matching inside a token already
@@ -180,7 +187,7 @@ function createGuard(cfg) {
     return msg;
   }
 
-  return { enabled, active, count: secrets.length, patternCount: patterns.length, redactString, redactDeep, redactMessage };
+  return { enabled, active, count: secrets.length, patternCount: patterns.length, refCount: byRef.size, redactString, redactDeep, redactMessage, resolveSecret, listRefs };
 }
 
 module.exports = { createGuard, makeToken, deriveHint, luhnValid, SECRETS_FILE };
