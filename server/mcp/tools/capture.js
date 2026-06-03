@@ -77,6 +77,49 @@ module.exports = function registerCaptureTools(registry) {
     },
   });
 
+  // 32b. capture_packed_som
+  tools.push({
+    definition: {
+      name: 'capture_packed_som',
+      description: 'Capture a COMPACT Set-of-Marks image of just the interactive elements (buttons, links, inputs), each cropped from the real page and packed tightly together with a number. Far smaller than a full screenshot while keeping a visual of every actionable element. The response is a viewable image plus a "marks" map; to act on a mark, click its selector (or its rect center) with the click tool. Best for point-and-click flows; not for drag/gesture interactions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Tab ID' },
+          max:   { type: 'number', description: 'Max elements to include (default 40, capped by what fits).' },
+          types: { type: 'array', items: { type: 'string', enum: ['button', 'link', 'input'] }, description: 'Restrict to these element kinds (default: all interactive).' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._capturePackedSom) return { error: 'Packed SoM capture not available (no browser connected).' };
+      try {
+        const opts = {
+          max:   typeof args.max === 'number' ? args.max : 40,
+          types: Array.isArray(args.types) ? args.types : null,
+        };
+        const result = await cb._capturePackedSom(args.tabId, opts);
+        if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+
+        const marks = (result.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
+        const response = {
+          ok: true,
+          filePath: result.filePath,
+          count: marks.length,
+          marks,
+          _note: 'Each mark is an interactive element cropped from the page. To act on one, click its selector (or its rect center) with the click tool.',
+        };
+        const b64 = (result.dataUrl || '').split(',')[1] || '';
+        const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
+        if (b64) response._mcpImage = { data: b64, mimeType: mimeMatch ? mimeMatch[1] : 'image/png' };
+        return response;
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    },
+  });
+
   // 33. refresh_data
   tools.push({
     definition: {

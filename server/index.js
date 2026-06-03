@@ -412,6 +412,18 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       });
     }
 
+    if (method === 'POST' && p === '/api/packed-som') {
+      return readBody().then(async b => {
+        try {
+          const opts = { max: b.max, types: b.types };
+          const result = await screenshots.capturePackedSom(b.tabId, opts);
+          sendJson(result);
+        } catch (e) {
+          sendJson({ ok: false, error: e.message }, 500);
+        }
+      });
+    }
+
     // Embed endpoint (added for Proxy Mode compatibility)
     if (method === 'POST' && p === '/api/embed') {
       return readBody().then(async b => {
@@ -644,7 +656,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(
       proxyAction,
       async (tabId, opts) => requestServer('POST', '/api/screenshot', { tabId, ...opts }),
-      async (tabId, action) => requestServer('POST', '/api/action', { tabId, action: { type: 'capture_element_screenshot', ...action } })
+      async (tabId, action) => requestServer('POST', '/api/action', { tabId, action: { type: 'capture_element_screenshot', ...action } }),
+      async (tabId, opts) => requestServer('POST', '/api/packed-som', { tabId, ...opts })
     );
 
     mcp.setSecurity(SECURITY);
@@ -674,7 +687,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       (tabId, plugins) => core.triggerCollect(tabId, plugins),
       (tabId, active, strategy) => core.triggerExplorer(tabId, active, strategy),
     );
-    mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots));
+    mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));

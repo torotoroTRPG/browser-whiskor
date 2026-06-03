@@ -51,6 +51,26 @@ function capture(tabId, opts = {}) {
 }
 
 /**
+ * Packed Set-of-Marks capture: the extension crops only the interactive elements
+ * from one viewport bitmap and packs them into a single numbered image (canvas).
+ * Resolves Promise<{ ok, dataUrl, filePath, marks: [{n, selector, rect, text}] }>.
+ * See docs/ideas/PACKED_SOM_CAPTURE.md.
+ */
+function capturePackedSom(tabId, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const reqId = randomUUID();
+    const timer = setTimeout(() => {
+      pending.delete(reqId);
+      reject(new Error(`Packed SoM capture timed out for tabId=${tabId}`));
+    }, TIMEOUT_MS);
+
+    pending.set(reqId, { resolve, reject, timer, tabId });
+
+    _broadcast({ type: 'CAPTURE_PACKED_SOM', reqId, tabId, opts });
+  });
+}
+
+/**
  * Called by index.js when SCREENSHOT_RESULT arrives.
  */
 function handleResult(msg) {
@@ -79,6 +99,7 @@ function handleResult(msg) {
 
   const result = { ok: true, dataUrl, filePath, width, height, capturedAt: Date.now() };
   if (elements) result.elements = elements;
+  if (msg.marks) result.marks = msg.marks; // packed Set-of-Marks: number → element map
   if (msg.rect) result.rect = msg.rect;
   if (msg.padding) result.padding = msg.padding;
   if (msg.vpWidth) result.vpWidth = msg.vpWidth;
@@ -86,4 +107,4 @@ function handleResult(msg) {
   p.resolve(result);
 }
 
-module.exports = { setBroadcast, capture, captureElement, handleResult };
+module.exports = { setBroadcast, capture, captureElement, capturePackedSom, handleResult };

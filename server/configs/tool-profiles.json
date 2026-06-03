@@ -7,7 +7,7 @@
     "tools": [
       "get_sessions", "get_index", "get_text_coords", "get_viewport",
       "get_framework_state", "get_ui_catalog", "get_network", "find_target",
-      "refresh_data", "capture_screenshot", "capture_element_screenshot",
+      "refresh_data", "capture_screenshot", "capture_element_screenshot", "capture_packed_som",
       "click", "type_text", "navigate_to"
     ],
     "_metaTools": "search_tools/load_profile/unload_profile/profile_status/analyze_click are always visible (handled by tool-manager.js, see ALWAYS_VISIBLE_TOOLS).",
