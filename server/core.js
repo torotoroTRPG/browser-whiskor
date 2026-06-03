@@ -445,7 +445,21 @@ class WhiskorCore extends EventEmitter {
     const appRegistry  = this.appRegistry;
 
     if (method === 'GET' && p === '/health') {
-      return { status: 200, body: { ok: true, identity: this.identity || null, wsConnections: this.swSockets.size, sessions: this.cache.getSessionList().length, pendingActions: this.actions.pendingCount() } };
+      const sg = this.secretGuard;
+      return { status: 200, body: {
+        ok: true,
+        identity: this.identity || null,
+        wsConnections: this.swSockets.size,
+        sessions: this.cache.getSessionList().length,
+        pendingActions: this.actions.pendingCount(),
+        // Secret-guard status — counts only, never the secret values.
+        secretGuard: {
+          active:      !!(sg && sg.active),
+          knownValues: (sg && sg.count) || 0,
+          patterns:    (sg && sg.patternCount) || 0,
+          refs:        (sg && sg.refCount) || 0,
+        },
+      } };
     }
 
     if (method === 'GET' && p === '/api/config') {

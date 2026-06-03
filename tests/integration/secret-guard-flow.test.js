@@ -51,4 +51,30 @@ describe('Secret guard — core ingestion chokepoint', () => {
 
     assert.match(JSON.stringify(received.payload), /alice@gmail\.com/);
   });
+
+  it('reports secret-guard status on /health (counts only, never values)', () => {
+    process.env.WHISKOR_SECRETS = 'alice@gmail.com:email,hunter2:password';
+    const guard = createGuard({ enabled: true, knownValues: 'env' });
+    delete process.env.WHISKOR_SECRETS;
+
+    const core = new WhiskorCore({ secretGuard: guard });
+    const res = core.handleHttpRequest({ method: 'GET', url: { pathname: '/health' } });
+    clearInterval(core._cleanupTimer);
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.secretGuard.active, true);
+    assert.strictEqual(res.body.secretGuard.knownValues, 2);
+    assert.strictEqual(res.body.secretGuard.patterns, 2, 'email + creditCard default on');
+    const dump = JSON.stringify(res.body);
+    assert.ok(!dump.includes('alice@gmail.com') && !dump.includes('hunter2'),
+      'health must expose counts, never the secret values');
+  });
+
+  it('reports an inactive secret-guard by default', () => {
+    const core = new WhiskorCore({});
+    const res = core.handleHttpRequest({ method: 'GET', url: { pathname: '/health' } });
+    clearInterval(core._cleanupTimer);
+    assert.strictEqual(res.body.secretGuard.active, false);
+    assert.strictEqual(res.body.secretGuard.knownValues, 0);
+  });
 });
