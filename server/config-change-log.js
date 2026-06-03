@@ -129,6 +129,13 @@ function validateChange(patch) {
           }
         }
       }
+
+      // Recurse into nested config sections. pushConfig() sends nested patches
+      // (e.g. { security: { allowExecuteJs: false } }), while the rules above are
+      // keyed by dotted paths — so without this descent no rule would ever match.
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        walk(val, fullPath);
+      }
     }
   }
 
@@ -168,6 +175,10 @@ function autoRevertIfNeeded(config, pushConfig) {
             target = target[parts[i]];
           }
           target[parts[parts.length - 1]] = !val;
+        } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+          // Descend into nested patches so flips on e.g. security.allowActions
+          // are actually emitted (the patches pushConfig records are nested).
+          buildRevert(val, fullPath);
         }
       }
     }
