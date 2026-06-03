@@ -38,6 +38,9 @@ class WhiskorCore extends EventEmitter {
     this.stateNavigator = opts.stateNavigator || { handleHashReport() {} };
     this.deltaEngine = opts.deltaEngine || { addFrame() { return null; } };
     this.configLog = opts.configLog || { validateChange() { return []; }, addChange() {}, autoRevertIfNeeded() { return null; } };
+    // Redacts the user's secrets from collected data before it is logged,
+    // broadcast, persisted, or read by the agent. Passthrough unless configured.
+    this.secretGuard = opts.secretGuard || { redactMessage(m) { return m; } };
     this.correlator       = opts.correlator       || null;
     this.sourceStore      = opts.sourceStore      || null;
     this._conclusionCache = opts.conclusionCache  || null;
@@ -186,6 +189,9 @@ class WhiskorCore extends EventEmitter {
 
   // ── Message routing ─────────────────────────────────────────────────────────
   async routeMessage(msg, fromWs) {
+    // Redact secrets at the single ingestion point — before any logging,
+    // dashboard broadcast, persistence, or agent-facing read can see them.
+    this.secretGuard.redactMessage(msg);
     this.emit('message', msg, fromWs);
     // Track which tabIds belong to this WebSocket for cleanup + app isolation
     if (msg.tabId && fromWs) {

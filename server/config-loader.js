@@ -120,6 +120,14 @@ function getDefaults() {
     executeJs:  { captureConsoleDuringExec: true },
     adaptiveCollection: { enabled: false, activeIntervalMs: 5000, quiescentIntervalMs: 30000, quiescentAfterMs: 60000 },
     agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false },
+    privacy: {
+      secretGuard: {
+        enabled: false,          // opt-in. Redacts the user's secrets from agent/cache/logs.
+        knownValues: 'file',     // 'file' (secrets.local.json) | 'env' (WHISKOR_SECRETS) | 'off'
+        redactScreenshots: true, // mask sensitive boxes in screenshots (later slice)
+        dashboardSeesRaw: false, // local dashboard shows redacted values too
+      },
+    },
     intelligence: {
       clickability: {
         enabled: true,

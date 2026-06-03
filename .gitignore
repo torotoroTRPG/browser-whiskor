@@ -4,6 +4,7 @@ Thumbs.db
 *.log
 .env
 .env.*
+secrets.local.json
 archive_project.ps1
 Export-GitHistory.ps1
 GIT-HISTORY.md
