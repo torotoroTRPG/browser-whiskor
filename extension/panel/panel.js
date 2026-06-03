@@ -160,20 +160,25 @@ function renderReactTree(data) {
   const container = document.getElementById('fw-react');
   container.innerHTML = '';
   if (!data?.componentTree) { container.innerHTML = '<span class="empty">No fiber tree</span>'; return; }
-  const FW_COLORS = { vue3:'#42b883', vue2:'#42b883', angular:'#dd0031',
-                      svelte:'#ff3e00', react:'var(--blue)' };
-  function renderNode(node) {
+  // Remember which nodes the user expanded/collapsed so a fresh REACT_SNAPSHOT
+  // (which re-renders the whole tree) doesn't reset the tree back to the default
+  // and collapse what they were looking at. Keyed by structural path + name.
+  if (!state.reactExpand) state.reactExpand = new Map();
+  const expandState = state.reactExpand;
+
+  function renderNode(node, path) {
     if (!node) return null;
+    const key = path + ':' + (node.n || '');
     const div = document.createElement('div');
     div.className = 'tree-node';
     const label = document.createElement('div');
     label.className = 'label';
     const caret = document.createElement('span');
     caret.className = 'tree-caret';
-    caret.textContent = (node.c?.length) ? '▾' : ' ';
     const name = document.createElement('span');
     name.className = 'comp-name';
     name.textContent = node.n || 'Unknown';
+    if (!node.n) name.classList.add('anon');
     label.append(caret, name);
     if (node.n?.match(/^[a-z]/)) {
       const tag = document.createElement('span');
@@ -182,25 +187,33 @@ function renderReactTree(data) {
       label.appendChild(tag);
     }
     div.appendChild(label);
+
     const children = document.createElement('div');
-    children.style.display = 'none';
-    (node.c || []).forEach(child => {
-      const c = renderNode(child);
+    (node.c || []).forEach((child, i) => {
+      const c = renderNode(child, path + '.' + i);
       if (c) children.appendChild(c);
     });
-    if (children.children.length) {
+    const hasChildren = children.children.length > 0;
+
+    // User override wins; otherwise auto-expand the top 3 levels.
+    const override = expandState.get(key);
+    let expanded = override !== undefined ? override : (node.d < 3);
+    const apply = () => {
+      children.style.display = expanded ? '' : 'none';
+      caret.textContent = hasChildren ? (expanded ? '▾' : '▸') : ' ';
+    };
+    apply();
+    if (hasChildren) {
       label.addEventListener('click', () => {
-        const open = children.style.display !== 'none';
-        children.style.display = open ? 'none' : '';
-        caret.textContent = open ? '▸' : '▾';
+        expanded = !expanded;
+        expandState.set(key, expanded);
+        apply();
       });
     }
     div.appendChild(children);
-    // Auto-expand top 3 levels
-    if (node.d < 3) children.style.display = '';
     return div;
   }
-  container.appendChild(renderNode(data.componentTree));
+  container.appendChild(renderNode(data.componentTree, '0'));
 }
 
 function onVue(data, ver) {
