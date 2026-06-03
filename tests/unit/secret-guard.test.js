@@ -143,7 +143,7 @@ describe('12.1 secret-guard — pattern detection (no pre-registration)', () => 
   });
 
   it('does not touch emails when the email pattern is disabled', () => {
-    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: false, creditCard: false, jwt: false } });
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: false, creditCard: false, jwt: false }, sensitiveKeys: false });
     assert.strictEqual(g.active, false);
     assert.strictEqual(g.redactString('bob@example.org'), 'bob@example.org');
   });
@@ -157,6 +157,49 @@ describe('12.1 secret-guard — pattern detection (no pre-registration)', () => 
     assert.ok(!out.includes('a@b.io'));
     assert.match(out, /type=password/);
     assert.match(out, /type=email/);
+  });
+});
+
+describe('12.1 secret-guard — sensitive-key redaction (by context)', () => {
+  const keyGuard = () => createGuard({
+    enabled: true, knownValues: 'off',
+    patterns: { email: false, creditCard: false, jwt: false }, sensitiveKeys: true,
+  });
+
+  it('redacts a value whose key implies a secret, even if unregistered', () => {
+    const g = keyGuard();
+    assert.strictEqual(g.active, true, 'sensitiveKeys alone activates the guard');
+    const out = g.redactDeep({ username: 'alice', password: 'never-registered-pw', note: 'ok' });
+    assert.strictEqual(out.username, 'alice', 'a non-secret key is untouched');
+    assert.strictEqual(out.note, 'ok');
+    assert.ok(!String(out.password).includes('never-registered-pw'));
+    assert.match(out.password, /type=password reason=sensitive-key/);
+  });
+
+  it('matches common credential field names (api_key, accessToken, authorization)', () => {
+    const out = keyGuard().redactDeep({
+      api_key: 'AKIAEXAMPLE', accessToken: 'abc.def', authorization: 'Bearer xyz', other: 'keep',
+    });
+    assert.match(out.api_key, /sensitive-key/);
+    assert.match(out.accessToken, /sensitive-key/);
+    assert.match(out.authorization, /sensitive-key/);
+    assert.strictEqual(out.other, 'keep');
+  });
+
+  it('does not fire on similarly-named but non-secret keys', () => {
+    const out = keyGuard().redactDeep({ passwordLabel: 'Password:', tokenizer: 'bert', author: 'me' });
+    assert.strictEqual(out.passwordLabel, 'Password:');
+    assert.strictEqual(out.tokenizer, 'bert');
+    assert.strictEqual(out.author, 'me');
+  });
+
+  it('can be turned off', () => {
+    const g = createGuard({
+      enabled: true, knownValues: 'off',
+      patterns: { email: false, creditCard: false, jwt: false }, sensitiveKeys: false,
+    });
+    assert.strictEqual(g.active, false);
+    assert.deepStrictEqual(g.redactDeep({ password: 'x' }), { password: 'x' });
   });
 });
 
@@ -215,14 +258,14 @@ describe('12.1 secret-guard — disabled / empty', () => {
   });
 
   it('is a passthrough when enabled but nothing to match (no secrets, no patterns)', () => {
-    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false } });
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false }, sensitiveKeys: false });
     assert.strictEqual(g.active, false);
     assert.strictEqual(g.redactString('anything'), 'anything');
   });
 
   it('ignores too-short values (false-positive guard)', () => {
     process.env.WHISKOR_SECRETS = 'ab:token'; // 2 chars → ignored
-    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false } });
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false }, sensitiveKeys: false });
     delete process.env.WHISKOR_SECRETS;
     assert.strictEqual(g.active, false, 'a too-short value registers nothing');
     assert.strictEqual(g.redactString('ab cd ab'), 'ab cd ab');

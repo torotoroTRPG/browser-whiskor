@@ -28,6 +28,12 @@ const MAX_DEPTH = 12;
 // switch). Image blobs are skipped separately by size under the dataUrl key.
 const SKIP_KEYS = new Set(['type', 'tabId', 'reqId', 'actionId', 'requestId', 'siteVersion', 'capturedAt']);
 
+// Object keys whose value is a secret by context — caught even when the value is
+// not registered and matches no pattern (e.g. an unregistered password or token
+// sitting in a network body or storage entry). Deliberately specific to keep
+// false positives low (bare "token"/"auth" are intentionally excluded).
+const SENSITIVE_KEY_RE = /^(password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|credential)s?$/i;
+
 // Sentinel delimiter for the two-phase replace below. NUL never appears in
 // normal page text or JSON, so a sentinel can't collide with real content.
 const SEP = String.fromCharCode(0);
@@ -171,7 +177,8 @@ function createGuard(cfg) {
   const enabled  = !!(cfg && cfg.enabled);
   const secrets  = enabled ? loadKnownValues(cfg) : [];
   const patterns = enabled ? buildPatterns(cfg) : [];
-  const active   = enabled && (secrets.length > 0 || patterns.length > 0);
+  const sensitiveKeys = enabled && !(cfg && cfg.sensitiveKeys === false);
+  const active   = enabled && (secrets.length > 0 || patterns.length > 0 || sensitiveKeys);
 
   // ref → real value, for the write side (type_secret). Server-only; the value
   // is never returned to the agent, only injected into the page by the executor.
@@ -221,6 +228,12 @@ function createGuard(cfg) {
     if (typeof node === 'object') {
       for (const k of Object.keys(node)) {
         if (SKIP_KEYS.has(k)) continue; // routing/correlation ids — never secrets
+        // Context redaction: the key itself marks the value as secret (e.g.
+        // {"password": "..."}), so redact it whole regardless of its content.
+        if (sensitiveKeys && typeof node[k] === 'string' && node[k] && SENSITIVE_KEY_RE.test(k)) {
+          node[k] = makeToken(k.toLowerCase(), null, 'sensitive-key');
+          continue;
+        }
         // Base64 image blob (SCREENSHOT_RESULT.dataUrl): no substring secrets,
         // and scanning megabytes is wasteful.
         if (k === 'dataUrl' && typeof node[k] === 'string' && node[k].length > 2048) continue;

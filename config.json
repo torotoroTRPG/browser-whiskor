@@ -368,6 +368,7 @@
       "enabled":            false,
       "knownValues":        "file",
       "patterns":           { "email": true, "creditCard": true, "jwt": true },
+      "sensitiveKeys":      true,
       "redactScreenshots":  true,
       "dashboardSeesRaw":   false
     }
