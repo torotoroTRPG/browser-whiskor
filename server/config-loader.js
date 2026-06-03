@@ -124,6 +124,7 @@ function getDefaults() {
       secretGuard: {
         enabled: false,          // opt-in. Redacts the user's secrets from agent/cache/logs.
         knownValues: 'file',     // 'file' (secrets.local.json) | 'env' (WHISKOR_SECRETS) | 'off'
+        patterns: { email: true, creditCard: true }, // auto-detect without pre-registration
         redactScreenshots: true, // mask sensitive boxes in screenshots (later slice)
         dashboardSeesRaw: false, // local dashboard shows redacted values too
       },

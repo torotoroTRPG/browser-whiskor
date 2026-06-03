@@ -78,6 +78,44 @@ describe('12.1 secret-guard — deep + message', () => {
   });
 });
 
+describe('12.1 secret-guard — pattern detection (no pre-registration)', () => {
+  it('auto-redacts an email it was never told about', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: true } });
+    assert.strictEqual(g.active, true, 'patterns alone make the guard active');
+    const out = g.redactString('write to bob@example.org today');
+    assert.ok(!out.includes('bob@example.org'));
+    assert.match(out, /type=email hint=@example\.org reason=pattern/);
+  });
+
+  it('redacts a Luhn-valid card number but leaves a random digit run alone', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { creditCard: true } });
+
+    const valid = g.redactString('card 4242 4242 4242 4242 here');   // Luhn-valid
+    assert.ok(!valid.includes('4242 4242 4242 4242'));
+    assert.match(valid, /type=credit-card reason=pattern/);
+
+    const bogus = g.redactString('order 1234 5678 9012 3456 ref');   // fails Luhn
+    assert.match(bogus, /1234 5678 9012 3456/, 'a non-card digit run must not be redacted');
+  });
+
+  it('does not touch emails when the email pattern is disabled', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: false, creditCard: false } });
+    assert.strictEqual(g.active, false);
+    assert.strictEqual(g.redactString('bob@example.org'), 'bob@example.org');
+  });
+
+  it('known values and patterns coexist (known wins, then patterns sweep)', () => {
+    process.env.WHISKOR_SECRETS = 'hunter2:password';
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: true } });
+    delete process.env.WHISKOR_SECRETS;
+    const out = g.redactString('login hunter2 mail a@b.io');
+    assert.ok(!out.includes('hunter2'));
+    assert.ok(!out.includes('a@b.io'));
+    assert.match(out, /type=password/);
+    assert.match(out, /type=email/);
+  });
+});
+
 describe('12.1 secret-guard — disabled / empty', () => {
   it('is a passthrough when disabled', () => {
     const g = createGuard({ enabled: false });
@@ -85,14 +123,17 @@ describe('12.1 secret-guard — disabled / empty', () => {
     assert.strictEqual(g.redactString('hunter2'), 'hunter2');
   });
 
-  it('is a passthrough when enabled but no secrets are registered', () => {
-    const g = createGuard({ enabled: true, knownValues: 'env' }); // no WHISKOR_SECRETS
+  it('is a passthrough when enabled but nothing to match (no secrets, no patterns)', () => {
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false } });
     assert.strictEqual(g.active, false);
     assert.strictEqual(g.redactString('anything'), 'anything');
   });
 
   it('ignores too-short values (false-positive guard)', () => {
-    const g = guardWith('ab:token'); // 2 chars → ignored
+    process.env.WHISKOR_SECRETS = 'ab:token'; // 2 chars → ignored
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false } });
+    delete process.env.WHISKOR_SECRETS;
+    assert.strictEqual(g.active, false, 'a too-short value registers nothing');
     assert.strictEqual(g.redactString('ab cd ab'), 'ab cd ab');
   });
 });
