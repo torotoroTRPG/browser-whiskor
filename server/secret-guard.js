@@ -37,11 +37,40 @@ function deriveHint(value, type) {
   return null; // password / token / pii: no hint
 }
 
+const TOKEN_PREFIX = '[WHISKOR_REDACTED';
+
 function makeToken(type, hint, reason) {
   const parts = [`type=${type || 'secret'}`];
   if (hint) parts.push(`hint=${hint}`);
   parts.push(`reason=${reason || 'user-blacklist'}`);
-  return `[WHISKOR_REDACTED ${parts.join(' ')}]`;
+  return `${TOKEN_PREFIX} ${parts.join(' ')}]`;
+}
+
+// Screenshot masking (slice 3): given an already-redacted text-coords payload,
+// return the bounding boxes of the items whose text was replaced by a token, so
+// the page can draw opaque overlays there before capturing. Uses the finest
+// granularity available (words) to avoid over-covering neighbouring text.
+function rectOf(it) {
+  const x = it.x ?? it.rect?.x;
+  const y = it.y ?? it.rect?.y;
+  const w = it.width ?? it.w ?? it.rect?.width ?? it.rect?.w;
+  const h = it.height ?? it.h ?? it.rect?.height ?? it.rect?.h;
+  return [x, y, w, h].every((v) => typeof v === 'number')
+    ? { x, y, width: w, height: h }
+    : null;
+}
+
+function findRedactedRects(textCoords) {
+  const rects = [];
+  if (!textCoords) return rects;
+  const items = textCoords.words || textCoords.lines || textCoords.blocks || [];
+  for (const it of items) {
+    if (it && typeof it.text === 'string' && it.text.includes(TOKEN_PREFIX)) {
+      const r = rectOf(it);
+      if (r) rects.push(r);
+    }
+  }
+  return rects;
 }
 
 // ── Known-value loading ──────────────────────────────────────────────────────
@@ -190,4 +219,4 @@ function createGuard(cfg) {
   return { enabled, active, count: secrets.length, patternCount: patterns.length, refCount: byRef.size, redactString, redactDeep, redactMessage, resolveSecret, listRefs };
 }
 
-module.exports = { createGuard, makeToken, deriveHint, luhnValid, SECRETS_FILE };
+module.exports = { createGuard, makeToken, deriveHint, luhnValid, findRedactedRects, TOKEN_PREFIX, SECRETS_FILE };

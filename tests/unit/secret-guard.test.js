@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createGuard } = require('../../server/secret-guard');
+const { createGuard, findRedactedRects, makeToken } = require('../../server/secret-guard');
 
 afterEach(() => { delete process.env.WHISKOR_SECRETS; });
 
@@ -113,6 +113,43 @@ describe('12.1 secret-guard — pattern detection (no pre-registration)', () => 
     assert.ok(!out.includes('a@b.io'));
     assert.match(out, /type=password/);
     assert.match(out, /type=email/);
+  });
+});
+
+describe('12.1 secret-guard — findRedactedRects (screenshot masking)', () => {
+  const tok = makeToken('email', '@gmail.com', 'pattern');
+
+  it('returns boxes for words whose text was redacted, skipping the rest', () => {
+    const tc = { words: [
+      { text: 'Hello', x: 0, y: 0, width: 40, height: 10 },
+      { text: `mail ${tok}`, x: 50, y: 0, width: 120, height: 10 },
+    ] };
+    const rects = findRedactedRects(tc);
+    assert.strictEqual(rects.length, 1);
+    assert.deepStrictEqual(rects[0], { x: 50, y: 0, width: 120, height: 10 });
+  });
+
+  it('prefers word granularity over lines/blocks (no over-covering)', () => {
+    const tc = {
+      words: [{ text: tok, x: 10, y: 10, width: 30, height: 8 }],
+      lines: [{ text: `a long line with ${tok} inside`, x: 0, y: 10, width: 300, height: 8 }],
+    };
+    const rects = findRedactedRects(tc);
+    assert.strictEqual(rects.length, 1);
+    assert.strictEqual(rects[0].width, 30, 'should use the narrow word box, not the whole line');
+  });
+
+  it('supports a nested rect:{} shape and ignores items without coordinates', () => {
+    const tc = { words: [
+      { text: tok, rect: { x: 1, y: 2, width: 3, height: 4 } },
+      { text: tok /* no coords */ },
+    ] };
+    assert.deepStrictEqual(findRedactedRects(tc), [{ x: 1, y: 2, width: 3, height: 4 }]);
+  });
+
+  it('returns nothing when there is no redacted text', () => {
+    assert.deepStrictEqual(findRedactedRects({ words: [{ text: 'plain', x: 0, y: 0, width: 1, height: 1 }] }), []);
+    assert.deepStrictEqual(findRedactedRects(null), []);
   });
 });
 
