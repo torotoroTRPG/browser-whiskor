@@ -28,6 +28,7 @@
     "test:e2e": "npx playwright test tests/e2e/",
     "download-model": "node scripts/download-model.js",
     "check-version": "node scripts/_check-version.js",
+    "check-tests": "node scripts/_check-hollow-tests.js",
     "sync-version": "node scripts/_check-version.js --fix",
     "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json"
   },

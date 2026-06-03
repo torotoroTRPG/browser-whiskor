@@ -148,6 +148,16 @@ if ($LASTEXITCODE -eq 0) {
     Fail "Model config inconsistent — $ModelResult"
 }
 
+# ── 7. Hollow test guard ─────────────────────────────────────────────────────
+Write-Host "`n  Test Integrity" -ForegroundColor White
+
+$HollowResult = node (Join-Path $Root 'scripts/_check-hollow-tests.js') 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Pass "Unit tests reach production code — $HollowResult"
+} else {
+    Fail "Hollow test(s) found — $HollowResult"
+}
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 Write-Host "`n  Result: $Pass pass, $Fail fail, $Warn warnings`n" -ForegroundColor $(if ($Fail -gt 0) { 'Red' } else { 'Green' })
 
