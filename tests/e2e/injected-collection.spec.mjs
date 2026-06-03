@@ -57,7 +57,10 @@ async function openWsDashboard(context) {
   const wsPage = await context.newPage();
   await wsPage.goto(HTTP_URL + '/', { waitUntil: 'domcontentloaded' });
   await waitForExtensionConnection(wsPage);
-  const { id: wsId } = await createWS(wsPage, WS_URL);
+  // The real server only registers a socket as a dashboard (→ receives
+  // broadcastToDashboard) when it connects to the /dashboard path; any other
+  // path is treated as a service-worker socket. (index.js wss 'connection'.)
+  const { id: wsId } = await createWS(wsPage, WS_URL + '/dashboard');
   return { wsPage, wsId };
 }
 
