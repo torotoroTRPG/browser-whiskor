@@ -113,11 +113,15 @@ export async function createWS(page, url, opts = {}) {
 
       ws.addEventListener('open', () => {
         window.__e2eWs.set(id, ws);
-        if (consume) {
-          setTimeout(() => resolve({ id, initMsg }), 200);
-        } else {
-          resolve({ id, initMsg: null });
-        }
+        if (!consume) { resolve({ id, initMsg: null }); return; }
+        // Event-driven: settle the instant the server's first message lands
+        // (handleDashboardConnect pushes config/state on connect), instead of a
+        // fixed 200ms wait. A short fallback covers a server that stays silent.
+        let settled = false;
+        const settle = () => { if (!settled) { settled = true; resolve({ id, initMsg }); } };
+        if (initMsg) { settle(); return; }
+        ws.addEventListener('message', settle, { once: true });
+        setTimeout(settle, 250); // fallback only
       });
       ws.addEventListener('error', () => reject(new Error(`Failed to connect to ${wsUrl}`)));
       setTimeout(() => {
