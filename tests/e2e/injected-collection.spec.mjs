@@ -26,6 +26,7 @@ import {
   waitForExtensionConnection,
   createWS,
   closeAllWS,
+  httpPost,
   WS_URL,
   HTTP_URL,
 } from './helpers/e2e-helpers.mjs';
@@ -111,6 +112,36 @@ test.describe('Injected pipeline — real data collection', () => {
       await testPage.reload({ waitUntil: 'domcontentloaded' });
       const second = await waitForMarkerCoords(wsPage, wsId, 'BEACONWORD');
       expect(second.payload.words.some((w) => (w.text || '').includes('BEACONWORD'))).toBe(true);
+
+      await closeAllWS(wsPage);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('whiskor executes a click end-to-end (server → SW → executor → DOM)', async () => {
+    const context = await launchWithExtension(chromium);
+    try {
+      const { wsPage, wsId } = await openWsDashboard(context);
+
+      const testPage = await context.newPage();
+      const html = '<!doctype html><html><body><h1>ACTIONMARK42</h1>'
+        + '<button id="wbtn" onclick="this.textContent=\'CLICKED_OK\'">Click Me</button></body></html>';
+      await testPage.route('**/__whiskor_action__*', (route) =>
+        route.fulfill({ contentType: 'text/html', body: html }));
+      await testPage.goto(HTTP_URL + '/__whiskor_action__', { waitUntil: 'domcontentloaded' });
+
+      // Identify the tab whiskor assigned by waiting for its collected text-coords.
+      const coords = await waitForMarkerCoords(wsPage, wsId, 'ACTIONMARK42');
+      const tabId = coords.tabId;
+      expect(typeof tabId).toBe('number');
+
+      // Drive whiskor's OWN executor (not Playwright's click) through the action API.
+      const res = await httpPost(wsPage, '/api/action', { tabId, action: { type: 'click', selector: '#wbtn' } });
+      expect(res.status).toBe(200);
+
+      // The button must reflect the click performed by injected/executor.js.
+      await expect(testPage.locator('#wbtn')).toHaveText('CLICKED_OK', { timeout: 10000 });
 
       await closeAllWS(wsPage);
     } finally {
