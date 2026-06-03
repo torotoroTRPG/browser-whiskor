@@ -51,9 +51,11 @@ function makeToken(type, hint, reason) {
 // the page can draw opaque overlays there before capturing. Uses the finest
 // granularity available (words) to avoid over-covering neighbouring text.
 function rectOf(it) {
-  const x = it.x ?? it.rect?.x;
-  const y = it.y ?? it.rect?.y;
-  const w = it.width ?? it.w ?? it.rect?.width ?? it.rect?.w;
+  // text-coords words use Tesseract-style absolute fields (left/top = absX/absY)
+  // plus explicit absoluteX/absoluteY; also tolerate x/y and nested rect:{}.
+  const x = it.absoluteX ?? it.left ?? it.x ?? it.viewportX ?? it.rect?.x;
+  const y = it.absoluteY ?? it.top  ?? it.y ?? it.viewportY ?? it.rect?.y;
+  const w = it.width ?? it.w ?? it.rect?.width  ?? it.rect?.w;
   const h = it.height ?? it.h ?? it.rect?.height ?? it.rect?.h;
   return [x, y, w, h].every((v) => typeof v === 'number')
     ? { x, y, width: w, height: h }

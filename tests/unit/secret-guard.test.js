@@ -139,6 +139,16 @@ describe('12.1 secret-guard — findRedactedRects (screenshot masking)', () => {
     assert.strictEqual(rects[0].width, 30, 'should use the narrow word box, not the whole line');
   });
 
+  it('reads the real text-coords word shape (left/top/width/height, absolute)', () => {
+    // Mirrors extension/injected/analyzers/text-coords.js output.
+    const tc = { words: [
+      { text: 'safe', left: 0, top: 0, width: 20, height: 12, absoluteX: 0, absoluteY: 0, viewportX: 0, viewportY: 0 },
+      { text: tok, left: 120, top: 340, width: 90, height: 14, absoluteX: 120, absoluteY: 340, viewportX: 120, viewportY: 40 },
+    ] };
+    const rects = findRedactedRects(tc);
+    assert.deepStrictEqual(rects, [{ x: 120, y: 340, width: 90, height: 14 }]);
+  });
+
   it('supports a nested rect:{} shape and ignores items without coordinates', () => {
     const tc = { words: [
       { text: tok, rect: { x: 1, y: 2, width: 3, height: 4 } },
