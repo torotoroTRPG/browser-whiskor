@@ -68,9 +68,43 @@ packed geometry is internal.
   (fuzzy-search / text-coords / click counts).
 - **Global usage stats (cross-session, shared):** accumulate which labels get
   acted on ("Login", "Sign up", "Start", "Continue"…) so that on a fresh page we
-  anticipate where the agent is likely to go and prefetch those first. Stats are
-  *common* across sessions; an identity-tagged whiskor ([[project_instance_identity]])
-  may keep its own bucket. Map visible elements → stats by normalized label.
+  anticipate where the agent is likely to go and prefetch those first.
+
+### Global stats — careful design
+
+The signal must transfer *across sites and sessions*, so the stat key is the
+**normalized element label**, not a (site-specific) selector.
+
+- **Key / normalization.** `label = lowercase(trim(collapse-whitespace(text)))`,
+  strip surrounding punctuation/emoji. Keep a small **synonym table** that folds
+  obvious equivalents to a canonical form (`sign in|log in|login → login`,
+  `sign up|register|create account → signup`, `add to cart|add to bag → add-to-cart`).
+  Start exact-normalized; grow the table from observed co-occurrence, not guesses.
+- **What increments.** A whiskor *action* on the element (click/type) is the
+  strong signal (+1); a mere appearance is not counted. Optionally a weaker signal
+  for "agent referenced it" (find_target / text-coords match) at a fraction.
+- **Store (bounded + decaying).** `cache/som-stats.json`:
+  `{ label: { score, count, lastActedAt } }`. Use **time-decayed score** (each
+  update: `score = score * 0.5^(Δdays / halfLife) + weight`) so stale habits fade
+  and the model adapts; keep only the top-N labels (evict lowest score). Absolute
+  timestamps only.
+- **Scope / isolation.** Default bucket is **global/shared** (the whole point is
+  cross-session learning). An **identity-tagged** whiskor
+  ([[project_instance_identity]]) gets its own bucket file so an embedded whiskor
+  doesn't pollute (or get polluted by) the shared one — same principle as identity.
+- **Cold start.** Seed a small built-in prior of near-universal labels (login,
+  signup, search, continue, next, submit, add-to-cart, checkout, accept, close,
+  menu) with low baseline scores, so prefetch is useful before any stats exist.
+- **Use (ranking, not tyranny).** On a fresh page, rank the visible interactive
+  elements by a **blend**: `stats.score(label)` × current-page signals (above-fold,
+  size/prominence). Prefetch the top-K. Stats *bias* ordering; they never hide an
+  element or override what's actually on screen.
+- **Privacy.** Labels are UI chrome and rarely sensitive, but never record a label
+  that the secret guard would redact ([[project_secret_guard]]) — skip redacted
+  text so a stray secret can't leak into the shared stats file.
+- **Honesty.** Expose the ranking inputs (score, page signals) rather than a single
+  opaque "confidence" number — consistent with [[project_related_inputs]]
+  (evidence-linked tiers, not fabricated confidence).
 
 ## Config
 
