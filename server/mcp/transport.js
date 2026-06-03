@@ -37,6 +37,27 @@ function toContentBlocks(toolResult) {
   return [{ type: 'text', text: JSON.stringify(toolResult, null, 2) }];
 }
 
+// Build the MCP serverInfo block. `identity` lets an agent tell whiskor instances
+// apart; `redaction` (when active) tells the agent its perception is privacy-
+// filtered, so it expects [WHISKOR_REDACTED ...] tokens and reaches for
+// type_secret instead of typing a secret it should not see. Counts only — never
+// the secret values.
+function buildServerInfo(identity, redaction) {
+  const info = { name: 'browser-whiskor', version: PKG_VERSION };
+  if (identity && identity.instanceId) info.instanceId = identity.instanceId;
+  if (identity && identity.name)       info.instanceName = identity.name;
+  if (redaction && redaction.active) {
+    info.redaction = {
+      active: true,
+      knownValues: redaction.knownValues || 0,
+      patterns:    redaction.patterns || 0,
+      refs:        redaction.refs || 0,
+      note: 'Your perception is privacy-filtered server-side: real secrets appear as [WHISKOR_REDACTED type=.. ...] tokens, not their values. To enter a secret you must not see, call type_secret with its ref name.',
+    };
+  }
+  return info;
+}
+
 // ── MCP stdio transport ───────────────────────────────────────────────────────
 // `identity` (optional) = { instanceId, name } from config.json identity section,
 // surfaced in serverInfo so an agent talking to several whiskor servers can tell
@@ -58,16 +79,14 @@ function startMcpServer(identity = null) {
       let result;
 
       if (method === 'initialize') {
+        const sg = registry.getCallbacks()._secretGuard;
+        const redaction = (sg && sg.active)
+          ? { active: true, knownValues: sg.count || 0, patterns: sg.patternCount || 0, refs: sg.refCount || 0 }
+          : null;
         result = {
           protocolVersion: '2024-11-05',
           capabilities:    { tools: {} },
-          serverInfo:      {
-            name:    'browser-whiskor',
-            version: PKG_VERSION,
-            ...(identity && (identity.instanceId || identity.name)
-              ? { instanceId: identity.instanceId || undefined, instanceName: identity.name || undefined }
-              : {}),
-          },
+          serverInfo:      buildServerInfo(identity, redaction),
         };
       } else if (method === 'notifications/initialized') {
         return;
@@ -94,4 +113,4 @@ function startMcpServer(identity = null) {
   process.stderr.write(`[whiskor:mcp] MCP server ready — ${registry.getToolNames().length} tools registered\n`);
 }
 
-module.exports = { startMcpServer };
+module.exports = { startMcpServer, buildServerInfo };
