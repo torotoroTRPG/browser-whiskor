@@ -76,6 +76,36 @@ describe('12.1 secret-guard — deep + message', () => {
     assert.strictEqual(msg.tabId, 7);
     assert.ok(!JSON.stringify(msg.payload).includes('alice@gmail.com'));
   });
+
+  it('redacts secrets that ride at the top level (tabUrl), not just payload', () => {
+    const g = guardWith('alice@gmail.com:email');
+    const msg = { type: 'PAGE_NAVIGATED', tabId: 1, tabUrl: 'https://x.test/?email=alice@gmail.com', payload: {} };
+    g.redactMessage(msg);
+    assert.ok(!msg.tabUrl.includes('alice@gmail.com'), 'a secret in the URL must be redacted');
+    assert.strictEqual(msg.type, 'PAGE_NAVIGATED');
+  });
+
+  it('redacts SoM element labels and action results (top-level), skips routing ids', () => {
+    const g = guardWith('hunter2:password');
+    const msg = {
+      type: 'SCREENSHOT_RESULT', reqId: 'abc', tabId: 2,
+      elements: [{ id: 1, text: 'pw is hunter2' }],
+      result: { value: 'typed hunter2' },
+    };
+    g.redactMessage(msg);
+    assert.strictEqual(msg.reqId, 'abc', 'correlation id must be preserved');
+    assert.ok(!JSON.stringify(msg.elements).includes('hunter2'));
+    assert.ok(!JSON.stringify(msg.result).includes('hunter2'));
+  });
+
+  it('does not waste effort scanning a large base64 dataUrl', () => {
+    const g = guardWith('hunter2:password');
+    const blob = 'data:image/png;base64,' + 'A'.repeat(5000);
+    const msg = { type: 'SCREENSHOT_RESULT', reqId: 'x', dataUrl: blob, payload: { note: 'hunter2' } };
+    g.redactMessage(msg);
+    assert.strictEqual(msg.dataUrl, blob, 'image blob left untouched');
+    assert.ok(!JSON.stringify(msg.payload).includes('hunter2'), 'other fields still redacted');
+  });
 });
 
 describe('12.1 secret-guard — pattern detection (no pre-registration)', () => {

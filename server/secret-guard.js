@@ -23,6 +23,11 @@ const SECRETS_FILE = path.join(__dirname, '..', 'secrets.local.json');
 // Depth cap: collected payloads are plain JSON (no cycles), but stay defensive.
 const MAX_DEPTH = 12;
 
+// Message keys never worth scanning: routing/correlation ids (their values are
+// never secrets, and skipping them keeps msg.type intact for routeMessage's
+// switch). Image blobs are skipped separately by size under the dataUrl key.
+const SKIP_KEYS = new Set(['type', 'tabId', 'reqId', 'actionId', 'requestId', 'siteVersion', 'capturedAt']);
+
 // Sentinel delimiter for the two-phase replace below. NUL never appears in
 // normal page text or JSON, so a sentinel can't collide with real content.
 const SEP = String.fromCharCode(0);
@@ -204,18 +209,26 @@ function createGuard(cfg) {
       return node;
     }
     if (typeof node === 'object') {
-      for (const k of Object.keys(node)) node[k] = redactDeep(node[k], depth + 1);
+      for (const k of Object.keys(node)) {
+        if (SKIP_KEYS.has(k)) continue; // routing/correlation ids — never secrets
+        // Base64 image blob (SCREENSHOT_RESULT.dataUrl): no substring secrets,
+        // and scanning megabytes is wasteful.
+        if (k === 'dataUrl' && typeof node[k] === 'string' && node[k].length > 2048) continue;
+        node[k] = redactDeep(node[k], depth + 1);
+      }
       return node;
     }
     return node;
   }
 
-  // Redact a collected-data message in place. Only the payload is scanned;
-  // routing fields (type, tabId, requestId, …) are left intact.
+  // Redact the whole message in place. Collected data lives under payload, but
+  // sensitive strings also ride at the top level — the page URL (tabUrl), Set-of-
+  // Marks element labels (elements[].text), action results — so scan everything
+  // except routing ids and image blobs. Runs before logging / dashboard
+  // broadcast / persistence / agent reads.
   function redactMessage(msg) {
     if (!active || !msg || typeof msg !== 'object') return msg;
-    if (msg.payload != null) msg.payload = redactDeep(msg.payload);
-    return msg;
+    return redactDeep(msg, 0);
   }
 
   return { enabled, active, count: secrets.length, patternCount: patterns.length, refCount: byRef.size, redactString, redactDeep, redactMessage, resolveSecret, listRefs };
