@@ -64,7 +64,7 @@ describe('Secret guard — core ingestion chokepoint', () => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.secretGuard.active, true);
     assert.strictEqual(res.body.secretGuard.knownValues, 2);
-    assert.strictEqual(res.body.secretGuard.patterns, 2, 'email + creditCard default on');
+    assert.strictEqual(res.body.secretGuard.patterns, 3, 'email + creditCard + jwt default on');
     const dump = JSON.stringify(res.body);
     assert.ok(!dump.includes('alice@gmail.com') && !dump.includes('hunter2'),
       'health must expose counts, never the secret values');

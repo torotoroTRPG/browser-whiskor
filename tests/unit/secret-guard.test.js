@@ -128,8 +128,22 @@ describe('12.1 secret-guard — pattern detection (no pre-registration)', () => 
     assert.match(bogus, /1234 5678 9012 3456/, 'a non-card digit run must not be redacted');
   });
 
+  it('auto-redacts a JWT (auth token) it was never told about', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { jwt: true } });
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const out = g.redactString(`Authorization: Bearer ${jwt}`);
+    assert.ok(!out.includes(jwt), 'the JWT must not survive');
+    assert.match(out, /type=jwt reason=pattern/);
+  });
+
+  it('does not mistake ordinary dotted text for a JWT', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { jwt: true, email: false, creditCard: false } });
+    const out = g.redactString('version a.b.c and file name.spec.js');
+    assert.strictEqual(out, 'version a.b.c and file name.spec.js');
+  });
+
   it('does not touch emails when the email pattern is disabled', () => {
-    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: false, creditCard: false } });
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: false, creditCard: false, jwt: false } });
     assert.strictEqual(g.active, false);
     assert.strictEqual(g.redactString('bob@example.org'), 'bob@example.org');
   });
@@ -201,14 +215,14 @@ describe('12.1 secret-guard — disabled / empty', () => {
   });
 
   it('is a passthrough when enabled but nothing to match (no secrets, no patterns)', () => {
-    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false } });
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false } });
     assert.strictEqual(g.active, false);
     assert.strictEqual(g.redactString('anything'), 'anything');
   });
 
   it('ignores too-short values (false-positive guard)', () => {
     process.env.WHISKOR_SECRETS = 'ab:token'; // 2 chars → ignored
-    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false } });
+    const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: false, creditCard: false, jwt: false } });
     delete process.env.WHISKOR_SECRETS;
     assert.strictEqual(g.active, false, 'a too-short value registers nothing');
     assert.strictEqual(g.redactString('ab cd ab'), 'ab cd ab');

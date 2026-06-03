@@ -153,6 +153,16 @@ function buildPatterns(cfg) {
       replace: (m) => (luhnValid(m.replace(/\D/g, '')) ? makeToken('credit-card', null, 'pattern') : m),
     });
   }
+  if (p.jwt !== false) {
+    // JSON Web Token: header.payload.signature, base64url. The header always
+    // starts with "eyJ" (base64 of '{"'), so false positives are negligible.
+    // High value: auth/bearer tokens routinely sit in storage and network data.
+    out.push({
+      type: 'jwt',
+      re: /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+      replace: () => makeToken('jwt', null, 'pattern'),
+    });
+  }
   return out;
 }
 
