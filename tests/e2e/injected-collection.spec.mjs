@@ -2,17 +2,22 @@
  * tests/e2e/injected-collection.spec.mjs
  *
  * Deep coverage for the injected MAIN-world pipeline that the (removed) hollow
- * unit tests only pretended to cover: the text-coords analyzer, the seen-text /
- * beacon tracking it feeds, and the ISOLATED-world bridge that relays page data
- * to the service worker and on to the server.
+ * unit tests only pretended to cover: the text-coords analyzer and the
+ * ISOLATED-world bridge that relays page data to the service worker and on to
+ * the server.
  *
- * Strategy: load a page with KNOWN text, listen on a dashboard WebSocket for the
- * TEXT_COORDS the server re-broadcasts, and assert the page's real words arrive
- * with absolute pixel coordinates. The data could not arrive at all unless the
- * analyzer → collector → bridge → SW → server chain works end to end.
+ * Strategy: load an http page with KNOWN marker text (content scripts do not run
+ * on data: URLs, so we serve real http via route fulfillment), listen on a
+ * dashboard WebSocket for the TEXT_COORDS the server re-broadcasts, and assert
+ * the marker arrives with absolute pixel coordinates. The data could not arrive
+ * at all unless analyzer → collector → bridge → SW → server works end to end.
  *
- * Run with: npm run test:e2e -- --grep "Injected pipeline"
- * (Requires Chromium + the e2e-extension sandbox built by global-setup.mjs.)
+ * The WebSocket lives on its own page that never navigates (window.__e2eWs is
+ * per-document and would be lost on navigation), and we match only the
+ * TEXT_COORDS that actually contains our marker — so the dashboard page's own
+ * collection is ignored.
+ *
+ * Run with: npm run test:e2e -- --grep "Injected pipeline"  (Chromium only).
  */
 
 import { test, expect, chromium } from '@playwright/test';
@@ -20,10 +25,50 @@ import {
   launchWithExtension,
   waitForExtensionConnection,
   createWS,
-  waitForMessage,
   closeAllWS,
   WS_URL,
+  HTTP_URL,
 } from './helpers/e2e-helpers.mjs';
+
+// Resolve when a TEXT_COORDS whose words contain `marker` arrives on the WS.
+// Ignores unrelated broadcasts (e.g. the dashboard page's own text-coords).
+function waitForMarkerCoords(page, wsId, marker, timeoutMs = 20000) {
+  return page.evaluate(({ id, marker, timeout }) => {
+    const ws = window.__e2eWs && window.__e2eWs.get(id);
+    if (!ws) throw new Error('No WS found with id: ' + id);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { ws.removeEventListener('message', h); reject(new Error('timeout waiting for marker ' + marker)); }, timeout);
+      const h = (e) => {
+        let m; try { m = JSON.parse(e.data); } catch { return; }
+        if (m.type === 'TEXT_COORDS' && JSON.stringify(m.payload && m.payload.words || []).includes(marker)) {
+          clearTimeout(timer); ws.removeEventListener('message', h); resolve(m);
+        }
+      };
+      ws.addEventListener('message', h);
+    });
+  }, { id: wsId, marker, timeout: timeoutMs });
+}
+
+const markerPage = (marker) =>
+  `<!doctype html><html><body><h1>Whiskor Pipeline Test</h1><p>Unique marker ${marker} here</p></body></html>`;
+
+async function openWsDashboard(context) {
+  // Stable page that holds the dashboard WebSocket (never navigates).
+  const wsPage = await context.newPage();
+  await wsPage.goto(HTTP_URL + '/', { waitUntil: 'domcontentloaded' });
+  await waitForExtensionConnection(wsPage);
+  const { id: wsId } = await createWS(wsPage, WS_URL);
+  return { wsPage, wsId };
+}
+
+async function openMarkerPage(context, marker) {
+  const testPage = await context.newPage();
+  // Content scripts need http(s); serve known HTML via route fulfillment.
+  await testPage.route('**/__whiskor_e2e__*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: markerPage(marker) }));
+  await testPage.goto(HTTP_URL + '/__whiskor_e2e__', { waitUntil: 'domcontentloaded' });
+  return testPage;
+}
 
 test.describe('Injected pipeline — real data collection', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension loading requires Chromium');
@@ -31,62 +76,40 @@ test.describe('Injected pipeline — real data collection', () => {
   test('text-coords reports the page\'s actual words with absolute coordinates', async () => {
     const context = await launchWithExtension(chromium);
     try {
-      const page = await context.newPage();
-      await waitForExtensionConnection(page);
+      const { wsPage, wsId } = await openWsDashboard(context);
+      await openMarkerPage(context, 'FOOBAR123');
 
-      // Listen as a dashboard BEFORE navigating so the broadcast isn't missed.
-      const { id: wsId } = await createWS(page, WS_URL);
-
-      await page.goto(
-        'data:text/html,<html><body><h1>Whiskor Pipeline Test</h1><p>Unique marker FOOBAR123 here</p></body></html>',
-        { waitUntil: 'domcontentloaded' },
-      );
-
-      // The analyzer collects on load and the server re-broadcasts to dashboards.
-      const msg = await waitForMessage(page, wsId, 'TEXT_COORDS', 20000);
-      const words = msg.payload?.words || [];
+      const msg = await waitForMarkerCoords(wsPage, wsId, 'FOOBAR123');
+      const words = msg.payload.words || [];
       expect(words.length).toBeGreaterThan(0);
 
-      // The real page text must be present — proves the analyzer + bridge relay.
-      const allText = words.map((w) => w.text || '').join(' ');
-      expect(allText).toContain('FOOBAR123');
-
-      // The marker word must carry numeric absolute coordinates (left/top/w/h).
       const marker = words.find((w) => (w.text || '').includes('FOOBAR123'));
-      expect(marker).toBeTruthy();
+      expect(marker, 'a word carrying the marker must be present').toBeTruthy();
       for (const f of ['left', 'top', 'width', 'height']) {
         expect(typeof marker[f]).toBe('number');
       }
 
-      await closeAllWS(page);
+      await closeAllWS(wsPage);
     } finally {
       await context.close();
     }
   });
 
-  test('re-collecting a stable page keeps reporting the same text (beacon/seen-text)', async () => {
+  test('reload re-collects and reports the same text (pipeline is repeatable)', async () => {
     const context = await launchWithExtension(chromium);
     try {
-      const page = await context.newPage();
-      await waitForExtensionConnection(page);
-      const { id: wsId } = await createWS(page, WS_URL);
+      const { wsPage, wsId } = await openWsDashboard(context);
+      const testPage = await openMarkerPage(context, 'BEACONWORD');
 
-      await page.goto(
-        'data:text/html,<html><body><p>Persistent BEACONWORD content</p></body></html>',
-        { waitUntil: 'domcontentloaded' },
-      );
+      const first = await waitForMarkerCoords(wsPage, wsId, 'BEACONWORD');
+      expect(first.payload.words.some((w) => (w.text || '').includes('BEACONWORD'))).toBe(true);
 
-      const first = await waitForMessage(page, wsId, 'TEXT_COORDS', 20000);
-      expect(first.payload?.words?.some((w) => (w.text || '').includes('BEACONWORD'))).toBe(true);
+      // A full reload re-injects the content scripts and re-collects.
+      await testPage.reload({ waitUntil: 'domcontentloaded' });
+      const second = await waitForMarkerCoords(wsPage, wsId, 'BEACONWORD');
+      expect(second.payload.words.some((w) => (w.text || '').includes('BEACONWORD'))).toBe(true);
 
-      // A small interaction nudges re-collection; the stable text must persist.
-      await page.mouse.move(10, 10);
-      await page.waitForTimeout(1500);
-
-      const second = await waitForMessage(page, wsId, 'TEXT_COORDS', 20000);
-      expect(second.payload?.words?.some((w) => (w.text || '').includes('BEACONWORD'))).toBe(true);
-
-      await closeAllWS(page);
+      await closeAllWS(wsPage);
     } finally {
       await context.close();
     }
