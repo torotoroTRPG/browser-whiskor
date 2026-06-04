@@ -15,6 +15,13 @@ let _broadcast = null;   // set by index.js
 
 function setBroadcast(fn) { _broadcast = fn; }
 
+// Worker-side usage-stats, injected (nullable → no-op). Recording which labels
+// get clicked here — on the process that runs the action — means it works over
+// MCP stdio, HTTP /api/action, and the proxy forward alike, instead of only in
+// the MCP layer (which the proxy runs in a separate process). See som-stats.js.
+let _somStats = null;
+function setSomStats(s) { _somStats = s; }
+
 /**
  * Execute an action in a browser tab.
  * Returns a Promise that resolves with the result when the extension responds.
@@ -26,6 +33,11 @@ function setBroadcast(fn) { _broadcast = fn; }
 function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (!action || !action.type) {
     return Promise.reject(new Error(`Invalid action: must have a "type" property`));
+  }
+  // Usage stats: learn which labels get clicked, to bias packed-SoM ranking
+  // (best-effort; never affects the action). Keyed on the agent-supplied text.
+  if (_somStats && action.type === 'click' && action.text) {
+    try { _somStats.record(action.text); } catch (_) {}
   }
   return new Promise((resolve, reject) => {
     const actionId = randomUUID();
@@ -70,4 +82,4 @@ function handleResult(msg) {
 
 function pendingCount() { return pending.size; }
 
-module.exports = { setBroadcast, execute, handleResult, pendingCount };
+module.exports = { setBroadcast, setSomStats, execute, handleResult, pendingCount };

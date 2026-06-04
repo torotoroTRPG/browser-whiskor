@@ -200,8 +200,8 @@ module.exports = function registerWriteTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      // Usage stats: learn which labels get clicked (best-effort; SoM ranking).
-      if (cb._somStats && args.text) { try { cb._somStats.record(args.text); } catch (_) {} }
+      // Usage stats for SoM ranking are recorded worker-side in action-executor
+      // (so it works over the proxy too), not here in the MCP layer.
       return observeAction(cb, args.tabId, {
         type: 'click',
         selector: args.selector,

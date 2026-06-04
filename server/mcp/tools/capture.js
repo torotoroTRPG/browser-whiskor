@@ -113,31 +113,15 @@ module.exports = function registerCaptureTools(registry) {
           max:   typeof args.max === 'number' ? args.max : 40,
           types: Array.isArray(args.types) ? args.types : null,
         };
-        // Freshness cache: reuse the last packed capture if the page hasn't
-        // changed since (avoids a re-capture). Stats ordering still re-applies.
-        let result = (cb._somCache && cb._somCache.get(args.tabId)) || null;
-        const fromCache = !!result;
-        if (!result) {
-          result = await cb._capturePackedSom(args.tabId, opts);
-          if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
-          if (cb._somCache) cb._somCache.set(args.tabId, result);
-        }
-
-        const marks = (result.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
-
-        // Usage-stats bias: annotate each mark with a likelihood score and list
-        // the likely targets first. The image numbers (n) are unchanged — only
-        // the marks array order changes — so it never hides or relabels anything.
-        let ordered = false;
-        if (cb._somStats && typeof cb._somStats.rank === 'function') {
-          try {
-            const ranked = cb._somStats.rank(marks.map((m) => m.text));
-            const scoreByText = new Map(ranked.map((r) => [r.text, r.score]));
-            for (const m of marks) m.score = scoreByText.get(m.text) || 0;
-            marks.sort((a, b) => (b.score - a.score) || (a.n - b.n));
-            ordered = marks.some((m) => m.score > 0);
-          } catch (_) { /* stats are best-effort */ }
-        }
+        // Freshness cache + usage-stats ordering are applied worker-side in
+        // screenshot-manager (so they work identically over MCP stdio, HTTP, and
+        // the proxy forward). The result already carries shaped+ordered marks and
+        // the _cached/_ordered flags.
+        const result = await cb._capturePackedSom(args.tabId, opts);
+        if (!result || !result.ok) return { ok: false, error: result && result.error, ...(result && result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+        const marks = result.marks || [];
+        const fromCache = !!result._cached;
+        const ordered = !!result._ordered;
 
         const response = {
           ok: true,

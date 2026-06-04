@@ -18,6 +18,17 @@ const pending = new Map(); // reqId → { resolve, reject, timer }
 let _broadcast = null;
 function setBroadcast(fn) { _broadcast = fn; }
 
+// Worker-side packed-SoM cache + usage-stats, injected (nullable → no-op). These
+// live here, on the process that actually captures, so every caller — MCP stdio,
+// HTTP /api/packed-som, and the proxy's HTTP forward — shares one cache and one
+// ranking. Putting them in the MCP layer instead would silently disable them in
+// proxy mode (the MCP process is separate there). Kept loosely coupled (plain
+// get/set/rank) so a future implementation can be swapped in by re-injecting.
+let _somCache = null;
+let _somStats = null;
+function setSomCache(c) { _somCache = c; }
+function setSomStats(s) { _somStats = s; }
+
 /**
  * Request a screenshot of the given tab.
  * Returns Promise<{ dataUrl, filePath, width, height, capturedAt, elements? }>
@@ -56,7 +67,8 @@ function capture(tabId, opts = {}) {
  * Resolves Promise<{ ok, dataUrl, filePath, marks: [{n, selector, rect, text}] }>.
  * See docs/ideas/PACKED_SOM_CAPTURE.md.
  */
-function capturePackedSom(tabId, opts = {}) {
+// Raw capture: ask the extension to crop+pack and resolve the base result.
+function _rawCapturePackedSom(tabId, opts = {}) {
   return new Promise((resolve, reject) => {
     const reqId = randomUUID();
     const timer = setTimeout(() => {
@@ -68,6 +80,41 @@ function capturePackedSom(tabId, opts = {}) {
 
     _broadcast({ type: 'CAPTURE_PACKED_SOM', reqId, tabId, opts });
   });
+}
+
+// Shape a base result into the response: project marks to {n,text,selector,rect},
+// then bias the order by usage stats (never drops a mark; the image numbers `n`
+// are unchanged). Re-applied on every return so cache hits reflect current stats.
+function _shapePackedResult(base, fromCache) {
+  let marks = (base.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
+  let ordered = false;
+  if (_somStats && typeof _somStats.rank === 'function') {
+    try {
+      const ranked = _somStats.rank(marks.map((m) => m.text));
+      const scoreByText = new Map(ranked.map((r) => [r.text, r.score]));
+      for (const m of marks) m.score = scoreByText.get(m.text) || 0;
+      marks.sort((a, b) => (b.score - a.score) || (a.n - b.n));
+      ordered = marks.some((m) => m.score > 0);
+    } catch (_) { /* stats are best-effort */ }
+  }
+  return { ...base, marks, _cached: fromCache, _ordered: ordered };
+}
+
+/**
+ * Packed Set-of-Marks capture with a freshness cache and usage-stats ordering.
+ * Cache hit → reuse the last image+marks for an unchanged page (no re-capture);
+ * miss → capture and store. The cache/stats are worker-side (see setSomCache),
+ * so this single path serves MCP stdio, HTTP, and the proxy forward identically.
+ */
+async function capturePackedSom(tabId, opts = {}) {
+  let base = (_somCache && _somCache.get(tabId)) || null;
+  const fromCache = !!base;
+  if (!base) {
+    base = await _rawCapturePackedSom(tabId, opts);
+    if (!base || !base.ok) return base; // pass through errors untouched
+    if (_somCache) _somCache.set(tabId, base);
+  }
+  return _shapePackedResult(base, fromCache);
 }
 
 /**
@@ -107,4 +154,4 @@ function handleResult(msg) {
   p.resolve(result);
 }
 
-module.exports = { setBroadcast, capture, captureElement, capturePackedSom, handleResult };
+module.exports = { setBroadcast, setSomCache, setSomStats, capture, captureElement, capturePackedSom, handleResult };

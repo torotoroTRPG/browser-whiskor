@@ -51,13 +51,6 @@ function setActionCallbacks(callAction, captureScreenshot, captureElement, captu
   registry.setCallbacks({ _callAction: callAction, _captureScreenshot: captureScreenshot, _captureElement: captureElement, _capturePackedSom: capturePackedSom });
 }
 
-function setSomStats(store) {
-  registry.setCallbacks({ _somStats: store });
-}
-
-function setSomCache(cache) {
-  registry.setCallbacks({ _somCache: cache });
-}
 
 function setSourceContext(fn) {
   registry.setCallbacks({ _sourceContext: fn });
@@ -143,8 +136,6 @@ module.exports = {
   startMcpServer,
   setCallbacks,
   setActionCallbacks,
-  setSomStats,
-  setSomCache,
   setSourceContext,
   setSecurity,
   setIntelligenceCallbacks,

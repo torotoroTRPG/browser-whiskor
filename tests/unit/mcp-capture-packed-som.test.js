@@ -77,51 +77,45 @@ describe('4.5 capture_packed_som', () => {
     assert.strictEqual(opts.max, 40);
   });
 
-  it('orders marks by usage-stats score when a stats store is present (image numbers unchanged)', async () => {
+  it('surfaces the worker-applied stats ordering and the relevance note', async () => {
+    // Ordering now happens worker-side (screenshot-manager); the handler just
+    // surfaces the already-ordered marks + the _ordered flag in its note.
     const cb = {
       _capturePackedSom: async () => ({
         ok: true,
         dataUrl: 'data:image/png;base64,QQ==',
+        _ordered: true,
         marks: [
-          { n: 1, text: 'Login', selector: '#l', rect: { x: 0, y: 0, w: 1, h: 1 } },
-          { n: 2, text: 'Cart', selector: '#c', rect: { x: 0, y: 0, w: 1, h: 1 } },
+          { n: 2, text: 'Cart', selector: '#c', rect: { w: 1 }, score: 5 },
+          { n: 1, text: 'Login', selector: '#l', rect: { w: 1 }, score: 1 },
         ],
       }),
-      _somStats: { rank: (texts) => texts.map((t) => ({ text: t, label: t.toLowerCase(), score: t === 'Cart' ? 5 : 1 })) },
     };
     const res = await packed.handler({ tabId: 1 }, cb);
-    // Cart (score 5) is listed before Login (score 1) ...
     assert.strictEqual(res.marks[0].text, 'Cart');
-    assert.ok(res.marks[0].score > res.marks[1].score);
-    // ... but its image badge number is unchanged (still 2).
-    assert.strictEqual(res.marks[0].n, 2);
+    assert.strictEqual(res.marks[0].n, 2, 'image badge number is unchanged by ordering');
     assert.match(res._note, /likely relevance/);
   });
 
-  it('serves a fresh cached capture without re-capturing', async () => {
-    let captured = 0;
+  it('surfaces the worker _cached flag and the reuse note', async () => {
     const cb = {
-      _capturePackedSom: async () => { captured++; return { ok: true, dataUrl: 'data:image/png;base64,QQ==', marks: [] }; },
-      _somCache: {
-        get: () => ({ ok: true, dataUrl: 'data:image/png;base64,QzE=', filePath: '/c.png', marks: [{ n: 1, text: 'Cached', selector: '#c', rect: { w: 1 } }] }),
-        set: () => {},
-      },
+      _capturePackedSom: async () => ({
+        ok: true, _cached: true, filePath: '/c.png', dataUrl: 'data:image/png;base64,QzE=',
+        marks: [{ n: 1, text: 'Cached', selector: '#c', rect: { w: 1 } }],
+      }),
     };
     const res = await packed.handler({ tabId: 1 }, cb);
-    assert.strictEqual(captured, 0, 'must not re-capture when the cache is fresh');
     assert.strictEqual(res._cached, true);
     assert.strictEqual(res.marks[0].text, 'Cached');
+    assert.match(res._note, /Reused a cached capture/);
   });
 
-  it('captures and stores when the cache misses', async () => {
-    let stored = null;
+  it('reports _cached:false for a fresh capture', async () => {
     const cb = {
       _capturePackedSom: async () => ({ ok: true, dataUrl: 'data:image/png;base64,QQ==', marks: [{ n: 1, text: 'Fresh', selector: '#f', rect: { w: 1 } }] }),
-      _somCache: { get: () => null, set: (tabId, v) => { stored = { tabId, v }; } },
     };
     const res = await packed.handler({ tabId: 7 }, cb);
     assert.strictEqual(res._cached, false);
-    assert.strictEqual(stored.tabId, 7);
     assert.strictEqual(res.marks[0].text, 'Fresh');
   });
 

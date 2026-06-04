@@ -204,6 +204,14 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     }
 
     const somCache = require('./som-cache').createSomCache();
+    const somStats = require('./som-stats').createStatsStore();
+    // Packed-SoM cache + usage-stats live on the worker (the process that captures
+    // and runs actions), so they serve MCP stdio, HTTP, and the proxy forward
+    // identically. Wiring them in the MCP layer instead would silently disable
+    // them under the proxy (its MCP runs in a separate process). See PACKED_SOM doc.
+    screenshots.setSomCache(somCache);
+    screenshots.setSomStats(somStats);
+    actions.setSomStats(somStats);
     sourceIndex = require('./source-index').createSourceIndex();
     sourceCorrelations = require('./source-correlation').createCorrelations();
 
@@ -723,23 +731,20 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       (tabId, active, strategy) => core.triggerExplorer(tabId, active, strategy),
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
-    mcp.setSomStats(require('./som-stats').createStatsStore());
-    mcp.setSomCache(somCache);
     mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q, sourceCorrelations));
 
     // Optional packed-SoM prefetch: pre-capture the packed view shortly after a
     // navigation and warm the cache, so the agent's first capture_packed_som on
     // the new page returns instantly. Off by default (avoids capturing for an
     // agent that never asks). Best-effort; later collection may re-invalidate it.
+    // capturePackedSom stores into the worker-side cache itself, so warming it
+    // just means calling it (no separate set needed).
     if (_cfg.agentControl?.packedSom?.prefetchOnNavigate === true) {
       core.on('message', (msg) => {
         if (!msg || msg.type !== 'PAGE_NAVIGATED' || !msg.tabId) return;
         const tabId = msg.tabId;
-        setTimeout(async () => {
-          try {
-            const r = await screenshots.capturePackedSom(tabId, {});
-            if (r && r.ok) somCache.set(tabId, r);
-          } catch (_) { /* best-effort prefetch */ }
+        setTimeout(() => {
+          screenshots.capturePackedSom(tabId, {}).catch(() => { /* best-effort prefetch */ });
         }, 1500);
       });
     }
