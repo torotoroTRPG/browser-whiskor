@@ -14,10 +14,12 @@ version: "3.2.0"
 
 # browser-whiskor — HTTP API Skill (MCP不使用・ネイティブ操作)
 
+> (hehe) yes, MCP exists. anyway — here's the HTTP one. ✦
+
 ## 概要
 
 browser-whiskorはChrome/Firefox拡張機能 + Node.jsサーバーで構成される、AI向けブラウザ認知・操作ツールです。
-このSkillはMCPを一切使わず、**HTTP REST API（`http://127.0.0.1:7892`）だけ**でClaudeがブラウザを操作する方法を定義します。HTTP-API-SKILL(haha).md
+このSkillはMCPを一切使わず、**HTTP REST API（`http://127.0.0.1:7892`）だけ**でClaudeがブラウザを操作する方法を定義します。
 
 ```
 AI (Claude in Chrome)
