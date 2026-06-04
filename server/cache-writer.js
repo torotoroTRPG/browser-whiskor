@@ -88,15 +88,51 @@ function _tmpPath(filePath) {
   return `${filePath}.${process.pid}.${(_tmpCounter = (_tmpCounter + 1) & 0xffffff)}.tmp`;
 }
 
+// On Windows the atomic rename (MoveFileEx) can transiently fail with EPERM/
+// EBUSY/EACCES/EEXIST when the target is briefly locked by antivirus, the search
+// indexer, or another handle. These clear in milliseconds, so retry a few times
+// with a short backoff before giving up. ENOENT is NOT retried — it means the
+// target directory was removed under us (session deleted / test teardown), which
+// is expected and handled by the callers (no error log).
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
+const RENAME_BACKOFFS_MS = [10, 30, 80];
+
+function _sleepSync(ms) {
+  // Block without busy-spinning (sync path is legacy / cold only).
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// renameImpl is injectable purely for tests; production uses the fs default.
+function _renameWithRetrySync(tmp, filePath, renameImpl = fs.renameSync) {
+  for (let attempt = 0; ; attempt++) {
+    try { return renameImpl(tmp, filePath); }
+    catch (e) {
+      if (!RENAME_RETRY_CODES.has(e.code) || attempt >= RENAME_BACKOFFS_MS.length) throw e;
+      _sleepSync(RENAME_BACKOFFS_MS[attempt]);
+    }
+  }
+}
+
+async function _renameWithRetryAsync(tmp, filePath, renameImpl = fsp.rename) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await renameImpl(tmp, filePath); }
+    catch (e) {
+      if (!RENAME_RETRY_CODES.has(e.code) || attempt >= RENAME_BACKOFFS_MS.length) throw e;
+      await new Promise((r) => setTimeout(r, RENAME_BACKOFFS_MS[attempt]));
+    }
+  }
+}
+
 // sync helpers (legacy – not used in the hot handleMessage path)
 function writeJson(filePath, data) {
   const tmp = _tmpPath(filePath);
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, filePath);
+    _renameWithRetrySync(tmp, filePath);
   } catch (e) {
-    console.error('[cache] writeJson error:', e.message, filePath);
+    // ENOENT = target dir removed under us (session deleted / teardown) — expected.
+    if (e.code !== 'ENOENT') console.error('[cache] writeJson error:', e.message, filePath);
     try { fs.unlinkSync(tmp); } catch { /* tmp may not exist */ }
   }
 }
@@ -111,9 +147,10 @@ async function writeJsonAsync(filePath, data) {
   try {
     await fsp.mkdir(path.dirname(filePath), { recursive: true });
     await fsp.writeFile(tmp, JSON.stringify(data, null, 2));
-    await fsp.rename(tmp, filePath);
+    await _renameWithRetryAsync(tmp, filePath);
   } catch (e) {
-    console.error('[cache] writeJson error:', e.message, filePath);
+    // ENOENT = target dir removed under us (session deleted / teardown) — expected.
+    if (e.code !== 'ENOENT') console.error('[cache] writeJson error:', e.message, filePath);
     try { await fsp.unlink(tmp); } catch { /* tmp may not exist */ }
   }
 }
@@ -560,4 +597,6 @@ module.exports = {
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
   storeSmartDelta, getSmartDelta, setSessionKeep,
   loadSessionsFromDisk, flushAllSync,
+  // exposed for tests
+  _renameWithRetryAsync, _renameWithRetrySync, RENAME_BACKOFFS_MS,
 };
