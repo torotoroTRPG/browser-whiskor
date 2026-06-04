@@ -12,6 +12,13 @@ const EventEmitter = require('events');
 const DISCONNECT_CLEANUP_MS = 15 * 60 * 1000; // 15 min
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;    // check every 5 min
 
+// Message types that change a page's interactive surface → invalidate any cached
+// packed Set-of-Marks capture for that tab (see som-cache.js).
+const SOM_CHANGE_TYPES = new Set([
+  'PAGE_NAVIGATED', 'DOM_MUTATION', 'TEXT_COORDS', 'UI_CATALOG',
+  'DOM_SNAPSHOT', 'DOM_GENERIC_SNAPSHOT', 'SHADOW_DOM_SNAPSHOT',
+]);
+
 class WhiskorCore extends EventEmitter {
   constructor(opts = {}) {
     super();
@@ -41,6 +48,8 @@ class WhiskorCore extends EventEmitter {
     // Redacts the user's secrets from collected data before it is logged,
     // broadcast, persisted, or read by the agent. Passthrough unless configured.
     this.secretGuard = opts.secretGuard || { redactMessage(m) { return m; } };
+    // Packed-SoM freshness cache (slice 2). Default no-op; real one wired in index.js.
+    this.somCache = opts.somCache || { markChanged() {}, evictTab() {}, get() { return null; }, set() {} };
     this.correlator       = opts.correlator       || null;
     this.sourceStore      = opts.sourceStore      || null;
     this._conclusionCache = opts.conclusionCache  || null;
@@ -192,6 +201,10 @@ class WhiskorCore extends EventEmitter {
     // Redact secrets at the single ingestion point — before any logging,
     // dashboard broadcast, persistence, or agent-facing read can see them.
     this.secretGuard.redactMessage(msg);
+
+    // Invalidate any cached packed-SoM capture for this tab when the page's
+    // interactive surface changes (navigation, DOM mutation, scroll/recollect).
+    if (msg.tabId && SOM_CHANGE_TYPES.has(msg.type)) this.somCache.markChanged(msg.tabId);
     this.emit('message', msg, fromWs);
     // Track which tabIds belong to this WebSocket for cleanup + app isolation
     if (msg.tabId && fromWs) {

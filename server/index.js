@@ -201,6 +201,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       log('info', '[app-isolation] enabled — multi-app tab isolation is active');
     }
 
+    const somCache = require('./som-cache').createSomCache();
+
     core = new WhiskorCore({
       cache,
       actions,
@@ -210,6 +212,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       deltaEngine,
       configLog,
       secretGuard,
+      somCache,
       correlator,
       sourceStore,
       conclusionCache,
@@ -695,6 +698,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setSomStats(require('./som-stats').createStatsStore());
+    mcp.setSomCache(somCache);
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
     mcp.setSecretGuard(secretGuard);
