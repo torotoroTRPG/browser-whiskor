@@ -364,6 +364,7 @@ class WhiskorCore extends EventEmitter {
 
       case 'SCREENSHOT_RESULT':
       case 'ELEMENT_CAPTURE_RESULT':
+      case 'PACKED_SOM_RESULT':
         this.screenshots.handleResult(msg);
         break;
 

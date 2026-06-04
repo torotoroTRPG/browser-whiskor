@@ -186,6 +186,91 @@ function sendToServer(data) {
   if (!ws || ws.readyState === WebSocket.CLOSED) connectWs();
 }
 
+// ── Packed Set-of-Marks (Firefox MV2): crop interactive elements from one
+// viewport bitmap and pack into a numbered image. See docs/ideas/PACKED_SOM_CAPTURE.md.
+async function _blobToDataURLFx(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return 'data:' + (blob.type || 'image/png') + ';base64,' + btoa(binary);
+}
+
+function _kindFromTagFx(tag) {
+  if (tag === 'a') return 'link';
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') return 'input';
+  return 'button';
+}
+
+async function buildPackedSomFx(tabId, windowId, opts) {
+  const max = (opts && opts.max) || 40;
+  const cellMax = (opts && opts.cellMaxPx) || 96;
+  const types = opts && opts.types;
+
+  let elements = [], dpr = 1;
+  try {
+    const results = await browser.tabs.executeScript(tabId, {
+      code: `(${function() {
+        const els = [];
+        const nodes = document.querySelectorAll('button, a, [role=button], [role=link], input, select, textarea, [aria-label]');
+        for (const el of nodes) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width < 2 || rect.height < 2) continue;
+          const tag = el.tagName.toLowerCase();
+          const text = (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || '').trim().slice(0, 80);
+          if (!text && tag !== 'input' && tag !== 'select' && tag !== 'textarea') continue;
+          els.push({
+            tag, text,
+            x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2),
+            w: Math.round(rect.width), h: Math.round(rect.height),
+            selector: el.id ? '#' + el.id : (el.className && typeof el.className === 'string' ? tag + '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : tag),
+          });
+        }
+        return JSON.stringify({ elements: els, dpr: window.devicePixelRatio || 1 });
+      }})()`,
+    });
+    const r = JSON.parse(results?.[0] || '{}');
+    elements = r.elements || [];
+    dpr = r.dpr || 1;
+  } catch (_) {}
+
+  let els = elements.filter((e) => e.w >= 2 && e.h >= 2);
+  if (types && types.length) els = els.filter((e) => types.includes(_kindFromTagFx(e.tag)));
+  els = els.slice(0, max);
+  if (!els.length) return { dataUrl: null, marks: [], width: 0, height: 0 };
+
+  const shotUrl = await browser.tabs.captureVisibleTab(windowId, { format: 'png' });
+  const bitmap = await createImageBitmap(await (await fetch(shotUrl)).blob());
+
+  const PAD = 4, MAXW = 800;
+  const cells = els.map((e) => {
+    const s = Math.min(1, cellMax / Math.max(e.w, e.h, 1));
+    return { e, dw: Math.max(8, Math.round(e.w * s)), dh: Math.max(8, Math.round(e.h * s)) };
+  });
+  let cx = PAD, cy = PAD, rowH = 0, usedW = 0;
+  for (const c of cells) {
+    if (cx + c.dw + PAD > MAXW && cx > PAD) { cx = PAD; cy += rowH + PAD; rowH = 0; }
+    c.dx = cx; c.dy = cy;
+    cx += c.dw + PAD; rowH = Math.max(rowH, c.dh); usedW = Math.max(usedW, cx);
+  }
+  const W = Math.min(MAXW, usedW + PAD), H = cy + rowH + PAD;
+
+  const canvas = new OffscreenCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, 0, W, H);
+  const marks = [];
+  cells.forEach((c, i) => {
+    const n = i + 1, e = c.e;
+    try { ctx.drawImage(bitmap, (e.x - e.w / 2) * dpr, (e.y - e.h / 2) * dpr, e.w * dpr, e.h * dpr, c.dx, c.dy, c.dw, c.dh); } catch (_) {}
+    ctx.fillStyle = 'rgba(255,70,70,0.92)'; ctx.fillRect(c.dx, c.dy, 16, 13);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillText(String(n), c.dx + 3, c.dy + 2);
+    marks.push({ n, text: e.text, selector: e.selector, rect: { x: Math.round(e.x - e.w / 2), y: Math.round(e.y - e.h / 2), w: e.w, h: e.h } });
+  });
+  const dataUrl = await _blobToDataURLFx(await canvas.convertToBlob({ type: 'image/png' }));
+  return { dataUrl, marks, width: W, height: H };
+}
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'SET_CONFIG': {
@@ -342,6 +427,22 @@ async function handleServerMessage(msg) {
         });
       } catch (e) {
         sendToServer({ type: 'SCREENSHOT_RESULT', reqId, error: e.message });
+      }
+      break;
+    }
+
+    case 'CAPTURE_PACKED_SOM': {
+      const { reqId, tabId, opts = {} } = msg;
+      try {
+        const tab = await browser.tabs.get(tabId);
+        const packed = await buildPackedSomFx(tabId, tab.windowId, opts);
+        sendToServer({
+          type: 'PACKED_SOM_RESULT', reqId,
+          dataUrl: packed.dataUrl, marks: packed.marks,
+          width: packed.width, height: packed.height, capturedAt: Date.now(),
+        });
+      } catch (e) {
+        sendToServer({ type: 'PACKED_SOM_RESULT', reqId, error: e.message });
       }
       break;
     }

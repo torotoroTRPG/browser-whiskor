@@ -89,6 +89,7 @@
     "get_navigation_path": { "enabled": true, "category": "control" },
 
     "capture_element_screenshot": { "enabled": true, "category": "capture" },
+    "capture_packed_som":         { "enabled": true, "category": "capture" },
 
     "get_delta":          { "enabled": true,  "category": "read" },
     "list_patterns":      { "enabled": true,  "category": "read" },

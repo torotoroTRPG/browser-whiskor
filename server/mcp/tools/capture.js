@@ -91,6 +91,65 @@ module.exports = function registerCaptureTools(registry) {
     },
   });
 
+  // 32b. capture_packed_som
+  tools.push({
+    definition: {
+      name: 'capture_packed_som',
+      description: 'Capture a COMPACT Set-of-Marks image of just the interactive elements (buttons, links, inputs), each cropped from the real page and packed tightly together with a number. Far smaller than a full screenshot while keeping a visual of every actionable element. The response is a viewable image plus a "marks" map; to act on a mark, click its selector (or its rect center) with the click tool. Best for point-and-click flows; not for drag/gesture interactions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'number', description: 'Tab ID' },
+          max:   { type: 'number', description: 'Max elements to include (default 40, capped by what fits).' },
+          types: { type: 'array', items: { type: 'string', enum: ['button', 'link', 'input'] }, description: 'Restrict to these element kinds (default: all interactive).' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._capturePackedSom) return { error: 'Packed SoM capture not available (no browser connected).' };
+      try {
+        const opts = {
+          max:   typeof args.max === 'number' ? args.max : 40,
+          types: Array.isArray(args.types) ? args.types : null,
+        };
+        const result = await cb._capturePackedSom(args.tabId, opts);
+        if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+
+        const marks = (result.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
+
+        // Usage-stats bias: annotate each mark with a likelihood score and list
+        // the likely targets first. The image numbers (n) are unchanged — only
+        // the marks array order changes — so it never hides or relabels anything.
+        let ordered = false;
+        if (cb._somStats && typeof cb._somStats.rank === 'function') {
+          try {
+            const ranked = cb._somStats.rank(marks.map((m) => m.text));
+            const scoreByText = new Map(ranked.map((r) => [r.text, r.score]));
+            for (const m of marks) m.score = scoreByText.get(m.text) || 0;
+            marks.sort((a, b) => (b.score - a.score) || (a.n - b.n));
+            ordered = marks.some((m) => m.score > 0);
+          } catch (_) { /* stats are best-effort */ }
+        }
+
+        const response = {
+          ok: true,
+          filePath: result.filePath,
+          count: marks.length,
+          marks,
+          _note: 'Each mark is an interactive element cropped from the page (the number n matches the badge in the image). To act on one, click its selector (or its rect center) with the click tool.'
+            + (ordered ? ' Marks are ordered by likely relevance (score) from past usage; the image numbering is unchanged.' : ''),
+        };
+        const b64 = (result.dataUrl || '').split(',')[1] || '';
+        const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
+        if (b64) response._mcpImage = { data: b64, mimeType: mimeMatch ? mimeMatch[1] : 'image/png' };
+        return response;
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    },
+  });
+
   // 33. refresh_data
   tools.push({
     definition: {
