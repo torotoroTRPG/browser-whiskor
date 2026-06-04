@@ -22,6 +22,30 @@ function setBroadcast(fn) { _broadcast = fn; }
 let _somStats = null;
 function setSomStats(s) { _somStats = s; }
 
+// Worker-side secret guard, injected (nullable). type_secret resolves the secret
+// VALUE here — on the process that holds secrets.local.json — keyed by the agent-
+// supplied ref name, so it works over the proxy too (the proxy's MCP process has
+// no guard). The agent and the proxy only ever carry the ref; the value is put on
+// the action just before it is dispatched to the page. See secret-guard.js.
+let _secretGuard = null;
+function setSecretGuard(g) { _secretGuard = g; }
+
+// Resolve action.secretRef → action.text. Returns an error result to short-circuit
+// the dispatch, or null to proceed (action mutated in place via the returned copy).
+function _resolveSecretRef(action) {
+  if (!action || !action.secretRef) return { action, error: null };
+  if (!_secretGuard || !_secretGuard.active || typeof _secretGuard.resolveSecret !== 'function') {
+    return { error: { ok: false, error: 'Secret guard is not enabled on the server. Set privacy.secretGuard.enabled=true and register a secret with a "ref" in secrets.local.json.' } };
+  }
+  const value = _secretGuard.resolveSecret(action.secretRef);
+  if (value == null) {
+    return { error: { ok: false, error: `No secret registered for ref "${action.secretRef}".`, availableRefs: (_secretGuard.listRefs && _secretGuard.listRefs()) || [] } };
+  }
+  const resolved = { ...action, text: value };  // value → page only
+  delete resolved.secretRef;
+  return { action: resolved, error: null };
+}
+
 /**
  * Execute an action in a browser tab.
  * Returns a Promise that resolves with the result when the extension responds.
@@ -33,6 +57,14 @@ function setSomStats(s) { _somStats = s; }
 function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (!action || !action.type) {
     return Promise.reject(new Error(`Invalid action: must have a "type" property`));
+  }
+  // type_secret: resolve the secret value worker-side from the ref (so it works
+  // under the proxy). Short-circuits with a clear error if the guard is off or the
+  // ref is unknown — the value never reaches the agent.
+  if (action.secretRef) {
+    const r = _resolveSecretRef(action);
+    if (r.error) return Promise.resolve(r.error);
+    action = r.action;
   }
   // Usage stats: learn which labels get clicked, to bias packed-SoM ranking
   // (best-effort; never affects the action). Keyed on the agent-supplied text.
@@ -82,4 +114,4 @@ function handleResult(msg) {
 
 function pendingCount() { return pending.size; }
 
-module.exports = { setBroadcast, setSomStats, execute, handleResult, pendingCount };
+module.exports = { setBroadcast, setSomStats, setSecretGuard, execute, handleResult, pendingCount };

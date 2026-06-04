@@ -142,7 +142,7 @@
 - **背景**: 秘匿スクショ黒塗りの修正（H 参照）で判明した同根の未了。proxy ブロックは `mcp.setSecretGuard` を呼ばないため、proxy MCP プロセスの `cb._secretGuard` が undefined。
 - **影響**: (a) `write.js` の `type_secret` が `ref`→秘密値を解決できず**proxy で機能しない**（値はワーカー側 `secrets.local.json` にあり、proxy プロセスには無い＝ワーカーへ転送する経路が要る）。(b) `transport.js` の serverInfo redaction ブロックが proxy で出ない（表示のみ）。
 - **対応案**: `type_secret` をワーカー側経路（HTTP/action）で解決させる。serverInfo は worker の `/health` secretGuard 状態を取得して反映。
-- **状態**: ⬜（(a) は機能/セキュリティ、(b) は表示）。
+- **状態**: 🟡 (a) ✅ 🧪 / (b) ⬜。**(a) type_secret 修正済**: 値解決を `action-executor.execute`（全経路が通る唯一の dispatch チョークポイント）に移動。`write.js` は action に `secretRef`(ref名のみ)を載せ、ワーカーが `secretGuard.resolveSecret` で値を解決→action.text に入れて dispatch（agent/proxy は ref しか運ばない、値はワーカー→ページのみ）。guard無効/未知refはワーカーが明確なエラー返し。`actions.setSecretGuard` 配線。検証 `tests/unit/action-secret-ref.test.js`＋`mcp-write.test.js` 改訂。(b) serverInfo の redaction 表示が proxy で出ない件は表示のみ＝保留。
 
 ### T4. 秘匿ガード 追加堅牢化
 - **内容**(任意・`docs/ideas` & 記憶に詳細): ①保管元(.env/secrets.local.json)を別経路で読めない事のテスト ②追加パターン(電話/SSN/IP) ③スクショ **サーバー側ピクセル黒塗り** v2(ユーザー画面のちらつき回避) ④`dashboardSeesRaw:true` 経路の実装（現状 dead オプション。redactをdashboard broadcast後・cache前に分離する必要）。

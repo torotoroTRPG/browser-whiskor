@@ -304,21 +304,12 @@ module.exports = function registerWriteTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      const guard = cb._secretGuard;
-      if (!guard || !guard.active || typeof guard.resolveSecret !== 'function') {
-        return { ok: false, error: 'Secret guard is not enabled. Set privacy.secretGuard.enabled=true and register a secret with a "ref" in secrets.local.json.' };
-      }
-      const value = guard.resolveSecret(args.ref);
-      if (value == null) {
-        return {
-          ok: false,
-          error: `No secret registered for ref "${args.ref}".`,
-          availableRefs: (guard.listRefs && guard.listRefs()) || [],
-        };
-      }
+      // The secret VALUE is resolved worker-side (action-executor) from the ref, so
+      // this works under the proxy too — the agent and the proxy only carry the ref.
+      // Errors (guard disabled / unknown ref) come back from the worker.
       const result = await observeAction(cb, args.tabId, {
         type:         'type',
-        text:         value,          // real value → page only; never returned to the agent
+        secretRef:    args.ref,       // resolved to the real value on the worker, never here
         selector:     args.selector,
         clear:        args.clear,
         submit:       args.submit,
@@ -328,6 +319,7 @@ module.exports = function registerWriteTools(registry) {
       }, args);
       // Never echo the value or the raw executor payload — only a safe status.
       const ok = result?.ok !== false;
+      if (!ok) return { ok: false, ref: args.ref, error: result?.error, ...(result?.availableRefs ? { availableRefs: result.availableRefs } : {}) };
       return { ok, ref: args.ref, typed: ok, _observation: result?._observation };
     },
   });

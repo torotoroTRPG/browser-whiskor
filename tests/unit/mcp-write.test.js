@@ -96,38 +96,35 @@ describe('4.3 press_key', () => {
 });
 
 describe('4.3 type_secret', () => {
-  const guard = {
-    active: true,
-    resolveSecret: (ref) => (ref === 'user_password' ? 'hunter2' : null),
-    listRefs: () => ['user_password'],
-  };
+  // The value is resolved worker-side (action-executor) from the ref; the MCP
+  // layer only carries the ref, so it works under the proxy. (Resolution + the
+  // guard-off/unknown-ref errors are covered in action-secret-ref.test.js.)
+  it('passes the ref (not a value) on the action; agent result is safe', async () => {
+    const cb = recordingCb();
+    const res = await writeTools['type_secret'].handler({ tabId: 5, ref: 'user_password', selector: '#pw' }, cb);
+    const action = cb.calls[0].action;
+    assert.strictEqual(action.type, 'type');
+    assert.strictEqual(action.secretRef, 'user_password', 'carries the ref, not the value');
+    assert.strictEqual(action.text, undefined, 'the MCP layer never carries the value');
+    assert.strictEqual(action.selector, '#pw');
+    assert.strictEqual(action._sensitive, true);
+    assert.strictEqual(res.ref, 'user_password');
+    assert.strictEqual(res.typed, true);
+  });
 
-  it('errors when the secret guard is not enabled', async () => {
-    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'user_password' }, recordingCb());
+  it('surfaces a worker error when the guard is disabled', async () => {
+    const cb = { _config: {}, _callAction: async () => ({ ok: false, error: 'Secret guard is not enabled on the server.' }) };
+    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'user_password' }, cb);
     assert.strictEqual(res.ok, false);
     assert.match(res.error, /not enabled/i);
   });
 
-  it('errors and lists refs when the ref is unknown', async () => {
-    const cb = recordingCb(); cb._secretGuard = guard;
+  it('surfaces a worker error + available refs for an unknown ref', async () => {
+    const cb = { _config: {}, _callAction: async () => ({ ok: false, error: 'No secret registered for ref "nope".', availableRefs: ['user_password'] }) };
     const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'nope' }, cb);
     assert.strictEqual(res.ok, false);
-    assert.match(res.error, /nope/);
+    assert.match(res.error, /No secret registered/);
     assert.deepStrictEqual(res.availableRefs, ['user_password']);
-  });
-
-  it('injects the real value into the page action but never returns it', async () => {
-    const cb = recordingCb(); cb._secretGuard = guard;
-    const res = await writeTools['type_secret'].handler({ tabId: 5, ref: 'user_password', selector: '#pw' }, cb);
-
-    // The action sent to the page carries the real value — that's the point.
-    assert.strictEqual(cb.calls[0].action.type, 'type');
-    assert.strictEqual(cb.calls[0].action.text, 'hunter2');
-    assert.strictEqual(cb.calls[0].action.selector, '#pw');
-    // The agent-facing result must NOT contain the value.
-    assert.ok(!JSON.stringify(res).includes('hunter2'), 'the secret must not appear in the tool result');
-    assert.strictEqual(res.ref, 'user_password');
-    assert.strictEqual(res.typed, true);
   });
 });
 

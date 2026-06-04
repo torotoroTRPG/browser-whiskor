@@ -215,6 +215,9 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     screenshots.setSomStats(somStats);
     screenshots.setSomThumbs(somThumbs);
     actions.setSomStats(somStats);
+    // type_secret resolves the secret value here on the worker (where secrets live),
+    // so it works under the proxy — the agent/proxy only ever carry the ref name.
+    actions.setSecretGuard(secretGuard);
     // Secret-guard screenshot masking, resolved worker-side so it applies over MCP
     // stdio, HTTP, and the proxy forward alike (it used to be in the MCP tool and
     // was dead under the proxy). Reads the tab's already-redacted text-coords —
