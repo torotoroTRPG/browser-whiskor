@@ -32,30 +32,9 @@ const PAGE_ACTION_TIMEOUT = 15000;
 const panelPorts = new Map(); // tabId → port
 let pingTimer = null;
 
-// ── Secret guard: opaque masks over redacted regions before capture ──────────
-// Injected into the page (MAIN world) right before captureVisibleTab and removed
-// right after, so the agent's screenshot hides secrets the server redacted. Rects
-// are absolute page coordinates (text-coords left/top) → position absolutely.
-function drawWhiskorMasks(rects) {
-  const ID = '__whiskor_secret_masks__';
-  let layer = document.getElementById(ID);
-  if (!layer) {
-    layer = document.createElement('div');
-    layer.id = ID;
-    (document.documentElement || document.body).appendChild(layer);
-  }
-  layer.setAttribute('style', 'position:absolute;top:0;left:0;width:0;height:0;margin:0;padding:0;border:0;z-index:2147483647;pointer-events:none;');
-  layer.innerHTML = '';
-  for (const r of (rects || [])) {
-    const b = document.createElement('div');
-    b.setAttribute('style', 'position:absolute;left:' + r.x + 'px;top:' + r.y + 'px;width:' + r.width + 'px;height:' + r.height + 'px;background:#000;');
-    layer.appendChild(b);
-  }
-}
-function removeWhiskorMasks() {
-  const el = document.getElementById('__whiskor_secret_masks__');
-  if (el) el.remove();
-}
+// Secret-guard screenshot masking is now done on the captured image (canvas) in
+// maskDataUrl — no page overlay, so the user's screen doesn't flicker. The old
+// in-page drawWhiskorMasks/removeWhiskorMasks were removed (git history keeps them).
 
 // ── Adaptive Collection Scheduler ─────────────────────────────────────────────
 // Periodically fires MANUAL_COLLECT to whiskor-active tabs from the Service
@@ -238,6 +217,30 @@ async function downscaleDataUrl(dataUrl, maxWidth, format, quality) {
       reader.onerror   = () => reject(new Error('FileReader failed'));
       reader.readAsDataURL(outBlob);
     });
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+// Secret-guard masking v2: black out redacted regions ON the captured image so the
+// user's screen never flickers (vs. drawing a DOM overlay on the live page). Rects
+// are document coords; convert to viewport-image px via the current scroll + dpr.
+async function maskDataUrl(dataUrl, rects, dpr, scrollX, scrollY, format, quality) {
+  const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    ctx.fillStyle = '#000';
+    for (const r of (rects || [])) {
+      const x = Math.round((r.x - (scrollX || 0)) * dpr);
+      const y = Math.round((r.y - (scrollY || 0)) * dpr);
+      ctx.fillRect(x, y, Math.ceil(r.width * dpr), Math.ceil(r.height * dpr));
+    }
+    const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+    const blobOpts = format === 'png' ? { type: mime } : { type: mime, quality: (quality ?? 70) / 100 };
+    const outBlob = await canvas.convertToBlob(blobOpts);
+    return await _blobToDataURL(outBlob);
   } finally {
     bitmap.close?.();
   }
@@ -671,22 +674,21 @@ async function handleServerMessage(msg) {
           ? { format: 'jpeg', quality: typeof opts?.quality === 'number' ? opts.quality : 70 }
           : { format: 'png' };
 
-        // Secret guard: draw opaque masks over redacted regions, capture, remove.
-        let _whiskorMasked = false;
+        let dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, captureOpts);
+
+        // Secret guard: black out redacted regions ON THE CAPTURED IMAGE (canvas),
+        // not by drawing an overlay on the live page — so the user's screen never
+        // flickers. Rects are document coords; convert to viewport-image px with the
+        // current scroll + dpr.
         if (Array.isArray(opts?.maskRects) && opts.maskRects.length && windowId) {
           try {
-            await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: drawWhiskorMasks, args: [opts.maskRects] });
-            _whiskorMasked = true;
-          } catch (e) { console.warn('[capture] secret mask draw failed:', e.message); }
-        }
-
-        let dataUrl;
-        try {
-          dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, captureOpts);
-        } finally {
-          if (_whiskorMasked) {
-            try { await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: removeWhiskorMasks }); } catch (_) {}
-          }
+            const vp = await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: () => ({ dpr: window.devicePixelRatio || 1, sx: window.scrollX || 0, sy: window.scrollY || 0 }),
+            });
+            const m = (vp && vp[0] && vp[0].result) || { dpr: 1, sx: 0, sy: 0 };
+            dataUrl = await maskDataUrl(dataUrl, opts.maskRects, m.dpr, m.sx, m.sy, fmt, captureOpts.quality);
+          } catch (e) { console.warn('[capture] secret mask failed:', e.message); }
         }
 
         // Optional downscale to cap width — shrinks the base64 payload (and tokens) for
