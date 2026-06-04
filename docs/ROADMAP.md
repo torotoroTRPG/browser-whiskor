@@ -132,7 +132,7 @@
 - **症状**: 実機e2e中に `[cache] writeJson error: EPERM: operation not permitted, rename '..._index.json.NNN.tmp' -> '_index.json'`。cache-writer のアトミック書き込み（tmp→rename）が Windows で一時的に弾かれる。catch で握り潰すため**非致命的**だが、書き込みが落ちうる。
 - **疑い**: teardown の test-cache 掃除との競合 / AV・インデクサのファイルロック / 同名 rename 競合。
 - **対応案**: rename EPERM/EXDEV/EBUSY を数回・短間隔でリトライ（既存 proxyRetry 思想と同様）、または書込先が消えていれば諦める。`server/cache-writer.js`。
-- **状態**: ⬜（小、優先度低）。
+- **状態**: ✅ 🧪。rename を EPERM/EBUSY/EACCES/EEXIST で 10/30/80ms バックオフ再試行、ENOENT(宛先消失)は再試行せず黙って諦める（エラーログも抑制）。`_renameWithRetry{Async,Sync}`＋ `tests/unit/cache-writer-rename-retry.test.js`。
 
 ### T4. 秘匿ガード 追加堅牢化
 - **内容**(任意・`docs/ideas` & 記憶に詳細): ①保管元(.env/secrets.local.json)を別経路で読めない事のテスト ②追加パターン(電話/SSN/IP) ③スクショ **サーバー側ピクセル黒塗り** v2(ユーザー画面のちらつき回避) ④`dashboardSeesRaw:true` 経路の実装（現状 dead オプション。redactをdashboard broadcast後・cache前に分離する必要）。
