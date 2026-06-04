@@ -148,6 +148,33 @@ describe('12.1 secret-guard — pattern detection (no pre-registration)', () => 
     assert.strictEqual(g.redactString('bob@example.org'), 'bob@example.org');
   });
 
+  it('leaves opt-in patterns (ssn/ipv4/phone) OFF by default — no over-redaction', () => {
+    // Default patterns config (email/creditCard/jwt on) must not touch an IP or SSN,
+    // since those are often non-secret data (endpoints, etc.).
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { email: true } });
+    const out = g.redactString('api at 192.168.0.1 and ssn 123-45-6789 and tel 555-123-4567');
+    assert.match(out, /192\.168\.0\.1/, 'IP not redacted by default');
+    assert.match(out, /123-45-6789/, 'SSN not redacted by default');
+    assert.match(out, /555-123-4567/, 'phone not redacted by default');
+  });
+
+  it('redacts ssn / ipv4 / phone only when each is explicitly enabled', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { ssn: true, ipv4: true, phone: true } });
+    const ssn = g.redactString('ssn 123-45-6789 here');
+    assert.ok(!ssn.includes('123-45-6789')); assert.match(ssn, /type=ssn reason=pattern/);
+
+    const ip = g.redactString('connect 10.0.0.255 now');
+    assert.ok(!ip.includes('10.0.0.255')); assert.match(ip, /type=ipv4 reason=pattern/);
+
+    const phone = g.redactString('call +1 (555) 123-4567 today');
+    assert.match(phone, /type=phone reason=pattern/, 'phone redacted when enabled');
+  });
+
+  it('does not treat an out-of-range dotted-quad as an IPv4', () => {
+    const g = createGuard({ enabled: true, knownValues: 'off', patterns: { ipv4: true } });
+    assert.strictEqual(g.redactString('build 999.999.0.1 tag'), 'build 999.999.0.1 tag');
+  });
+
   it('known values and patterns coexist (known wins, then patterns sweep)', () => {
     process.env.WHISKOR_SECRETS = 'hunter2:password';
     const g = createGuard({ enabled: true, knownValues: 'env', patterns: { email: true } });

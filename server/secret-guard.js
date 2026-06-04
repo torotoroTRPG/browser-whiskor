@@ -169,6 +169,36 @@ function buildPatterns(cfg) {
       replace: () => makeToken('jwt', null, 'pattern'),
     });
   }
+  // ── Opt-in patterns (default OFF) ──────────────────────────────────────────
+  // These match data that is OFTEN not secret (an API endpoint's IP, a phone
+  // number in a footer), so they are off unless explicitly enabled per-pattern in
+  // config — never silently over-redact useful data. Gated by `=== true`.
+  if (p.ssn === true) {
+    // US Social Security Number, dashed form — the dash layout keeps it specific.
+    out.push({
+      type: 'ssn',
+      re: /\b\d{3}-\d{2}-\d{4}\b/g,
+      replace: () => makeToken('ssn', null, 'pattern'),
+    });
+  }
+  if (p.ipv4 === true) {
+    // Dotted-quad IPv4. Noisy by nature (endpoints, configs) — hence opt-in.
+    out.push({
+      type: 'ipv4',
+      re: /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g,
+      replace: () => makeToken('ipv4', null, 'pattern'),
+    });
+  }
+  if (p.phone === true) {
+    // Best-effort phone number (intl/US-ish): optional +cc, optional (area),
+    // then grouped digits. Inherently imprecise (matches some non-phone digit
+    // runs) — which is exactly why it is opt-in.
+    out.push({
+      type: 'phone',
+      re: /(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g,
+      replace: () => makeToken('phone', null, 'pattern'),
+    });
+  }
   return out;
 }
 

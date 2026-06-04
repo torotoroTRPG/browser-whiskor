@@ -367,7 +367,8 @@
       "_comment_ja": "ユーザーの秘密(パスワード/メアド等)を agent・ログ・キャッシュから置換する。検出はサーバー側のみ＝秘密はページに入らない(XSS安全)。脅威モデル: agentを信頼しない前提。秘密の値自体は secrets.local.json か WHISKOR_SECRETS(git管理外)に置き、ここには絶対書かない。enabled=opt-in / knownValues: 'file'|'env'|'off' / redactScreenshots: 後続スライス / dashboardSeesRaw=false でローカルダッシュボードも置換表示",
       "enabled":            false,
       "knownValues":        "file",
-      "patterns":           { "email": true, "creditCard": true, "jwt": true },
+      "_comment_patterns": "自動検出パターンを個別に on/off。email/creditCard(Luhn)/jwt は誤検出が少なく既定 on。ssn/ipv4/phone は『秘密でない有用データ(エンドポイントのIP・フッターの電話番号等)』も巻き込みやすいので既定 off の opt-in。必要なものだけ true に。根本解決ではないが個別に切り替え可能",
+      "patterns":           { "email": true, "creditCard": true, "jwt": true, "ssn": false, "ipv4": false, "phone": false },
       "sensitiveKeys":      true,
       "redactScreenshots":  true,
       "dashboardSeesRaw":   false
