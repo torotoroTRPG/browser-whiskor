@@ -361,6 +361,18 @@
     "_comment_example": "apps: [{\"id\":\"myapp\",\"token\":\"secret123\",\"access\":\"private\"}]"
   },
 
+  "privacy": {
+    "secretGuard": {
+      "_comment_en": "Redacts the user's secrets from everything the agent (and any log/cache file) receives. Detection runs only on the server, so secrets never enter the page (XSS-safe). Threat model: the user may not trust the agent. Secrets themselves live in secrets.local.json or WHISKOR_SECRETS (git-ignored), NEVER here.",
+      "_comment_ja": "ユーザーの秘密(パスワード/メアド等)を agent・ログ・キャッシュから置換する。検出はサーバー側のみ＝秘密はページに入らない(XSS安全)。脅威モデル: agentを信頼しない前提。秘密の値自体は secrets.local.json か WHISKOR_SECRETS(git管理外)に置き、ここには絶対書かない。enabled=opt-in / knownValues: 'file'|'env'|'off' / redactScreenshots: 後続スライス / dashboardSeesRaw=false でローカルダッシュボードも置換表示",
+      "enabled":            false,
+      "knownValues":        "file",
+      "patterns":           { "email": true, "creditCard": true, "jwt": true },
+      "sensitiveKeys":      true,
+      "redactScreenshots":  true,
+      "dashboardSeesRaw":   false
+    }
+  },
   "agentControl": {
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,

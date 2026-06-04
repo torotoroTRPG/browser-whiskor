@@ -282,6 +282,54 @@ module.exports = function registerWriteTools(registry) {
     },
   });
 
+  // 22b. type_secret — inject a registered secret WITHOUT exposing it to the agent
+  tools.push({
+    definition: {
+      name: 'type_secret',
+      description: 'Type one of the user\'s pre-registered secrets into a field WITHOUT ever seeing the value. You pass a "ref" name (e.g. "user_password"), not the secret itself; the server resolves it from secrets.local.json and types the real value into the page. Requires privacy.secretGuard enabled with a secret that has a matching "ref". The value never appears in the tool result, logs, or cache. Use this instead of type_text whenever a password/token/email you should not handle must be entered.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:    { type: 'number', description: 'Tab ID' },
+          ref:      { type: 'string', description: 'Name of the registered secret — the "ref" field in secrets.local.json, e.g. "user_password". NOT the value.' },
+          selector: { type: 'string', description: 'CSS selector of the target input (if absent, types into the focused element)' },
+          clear:    { type: 'boolean', description: 'Clear existing content before typing (default: false)' },
+          submit:   { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'], description: 'Key to press after typing (default: none)' },
+          timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
+          ...OBSERVE_SCHEMA,
+        },
+        required: ['tabId', 'ref'],
+      },
+    },
+    handler: async (args, cb) => {
+      const guard = cb._secretGuard;
+      if (!guard || !guard.active || typeof guard.resolveSecret !== 'function') {
+        return { ok: false, error: 'Secret guard is not enabled. Set privacy.secretGuard.enabled=true and register a secret with a "ref" in secrets.local.json.' };
+      }
+      const value = guard.resolveSecret(args.ref);
+      if (value == null) {
+        return {
+          ok: false,
+          error: `No secret registered for ref "${args.ref}".`,
+          availableRefs: (guard.listRefs && guard.listRefs()) || [],
+        };
+      }
+      const result = await observeAction(cb, args.tabId, {
+        type:         'type',
+        text:         value,          // real value → page only; never returned to the agent
+        selector:     args.selector,
+        clear:        args.clear,
+        submit:       args.submit,
+        submitOnFail: 'type-only',
+        inputMode:    _inputMode(cb),
+        _sensitive:   true,
+      }, args);
+      // Never echo the value or the raw executor payload — only a safe status.
+      const ok = result?.ok !== false;
+      return { ok, ref: args.ref, typed: ok, _observation: result?._observation };
+    },
+  });
+
   // 23. press_key
   tools.push({
     definition: {

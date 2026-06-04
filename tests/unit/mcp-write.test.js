@@ -1,185 +1,141 @@
 /**
  * tests/unit/mcp-write.test.js
- * Section 4.1 — Write Tools
+ * Section 4.3 — Write Tools
  *
- * Verifies that MCP write tools correctly interact with the DOM
- * and trigger the expected events/actions.
+ * Exercises the REAL write-tool handlers (server/mcp/tools/write.js) via a
+ * capturing registry + a mock action executor. Verifies the action each tool
+ * builds, how it resolves input fidelity from config, and the observe guard —
+ * not an inline re-implementation of DOM behaviour. (The page-side DOM event
+ * sequence lives in the injected executor and is covered by the e2e suite.)
  */
 
-import { describe, test, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  resetDOM,
-  MockElement,
-  MockMouseEvent,
-  MockKeyboardEvent,
-  MockWheelEvent,
-  MockInputEvent,
-} from '../helpers/dom-mock.js';
+import { createRequire } from 'node:module';
 
-// ── Mock Implementation of Write Tools ───────────────────────────────────────
-// In a real scenario, these would call functions from src/executor.js
+const require = createRequire(import.meta.url);
 
-const CLICK_SEQUENCE = ['mouseover', 'mouseenter', 'mousemove', 'mousedown', 'mouseup', 'click'];
-
-function simulateClick(el, { double = false, button = 0 } = {}) {
-  const init = { bubbles: true, button, buttons: button === 0 ? 1 : 2 };
-  const sequence = double ? [...CLICK_SEQUENCE, ...CLICK_SEQUENCE] : CLICK_SEQUENCE;
-  
-  for (const type of sequence) {
-    el.dispatchEvent(new MockMouseEvent(type, init));
-  }
-  if (double) {
-    el.dispatchEvent(new MockMouseEvent('dblclick', init));
-  }
+function captureTools(registerFn) {
+  const map = {};
+  const registry = {
+    registerTools(arr) { for (const t of arr) map[t.definition.name] = t; },
+    registerTool(def, handler) { map[def.name] = { definition: def, handler }; },
+  };
+  registerFn(registry);
+  return map;
 }
 
-function simulateType(el, text, { clear = false, pressEnter = false } = {}) {
-  if (clear) {
-    el.value = '';
-    el.dispatchEvent(new MockInputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-  }
-  for (const char of text) {
-    el.dispatchEvent(new MockKeyboardEvent('keydown', { key: char, bubbles: true }));
-    el.dispatchEvent(new MockKeyboardEvent('keypress', { key: char, bubbles: true }));
-    el.value = (el.value || '') + char;
-    el.dispatchEvent(new MockInputEvent('input', { bubbles: true, data: char }));
-    el.dispatchEvent(new MockKeyboardEvent('keyup', { key: char, bubbles: true }));
-  }
-  if (pressEnter) {
-    el.dispatchEvent(new MockKeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-    el.dispatchEvent(new MockKeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
-    const form = el.closest ? el.closest('form') : el.parentNode;
-    if (form) form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-  }
+const writeTools = captureTools(require('../../server/mcp/tools/write'));
+
+// A cb that records the action passed to _callAction and echoes a result.
+function recordingCb(config = {}) {
+  const calls = [];
+  return {
+    calls,
+    _config: config,
+    _callAction: async (tabId, action, timeoutMs) => {
+      calls.push({ tabId, action, timeoutMs });
+      return { ok: true };
+    },
+  };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('4.1 Write Tools', () => {
-
-  beforeEach(() => resetDOM());
-
-  describe('click', () => {
-    test('By selector: click element matching selector', () => {
-      const btn = new MockElement('button');
-      btn.id = 'btn';
-      document.body.append(btn);
-      
-      // Simulate tool: click({ selector: '#btn' })
-      const target = document.querySelector('#btn');
-      simulateClick(target);
-      
-      const types = target._dispatchedEvents.map(e => e.type);
-      assert.ok(types.includes('click'), 'must fire click event');
-    });
-
-    test('By text: click element matching text', () => {
-      const btn = new MockElement('button');
-      btn.textContent = 'Submit';
-      document.body.append(btn);
-      
-      // Simple text search mock
-      const target = Array.from(document.body.children).find(el => el.textContent === 'Submit');
-      simulateClick(target);
-      
-      assert.ok(target._dispatchedEvents.some(e => e.type === 'click'));
-    });
-
-    test('Double click: fires dblclick event', () => {
-      const btn = new MockElement('button');
-      document.body.append(btn);
-      
-      simulateClick(btn, { double: true });
-      
-      const types = btn._dispatchedEvents.map(e => e.type);
-      assert.ok(types.includes('dblclick'), 'must fire dblclick');
-      assert.strictEqual(types.filter(t => t === 'click').length, 2, 'must fire 2 clicks');
-    });
-
-    test('Right button: uses button=2', () => {
-      const btn = new MockElement('button');
-      document.body.append(btn);
-      
-      simulateClick(btn, { button: 2 });
-      
-      const clickEvent = btn.events('click')[0];
-      assert.strictEqual(clickEvent.button, 2);
-    });
+describe('4.3 click', () => {
+  it('forwards a click action with the chosen target', async () => {
+    const cb = recordingCb();
+    await writeTools['click'].handler({ tabId: 3, selector: '#go', double: true }, cb);
+    const { tabId, action } = cb.calls[0];
+    assert.strictEqual(tabId, 3);
+    assert.strictEqual(action.type, 'click');
+    assert.strictEqual(action.selector, '#go');
+    assert.strictEqual(action.double, true);
   });
 
-  describe('type_text', () => {
-    test('Basic type: char-by-char events', () => {
-      const input = new MockElement('input');
-      input.id = 'input';
-      document.body.append(input);
-      
-      simulateType(input, 'hi');
-      
-      assert.strictEqual(input.value, 'hi');
-      assert.strictEqual(input.events('keydown').length, 2);
-    });
-
-    test('Clear + type: resets value first', () => {
-      const input = new MockElement('input');
-      input.value = 'old';
-      document.body.append(input);
-      
-      simulateType(input, 'new', { clear: true });
-      
-      assert.strictEqual(input.value, 'new');
-      assert.ok(input.events('input').some(e => e.inputType === 'deleteContentBackward'));
-    });
+  it('defaults inputMode to "off" when no high-fidelity config is set', async () => {
+    const cb = recordingCb();
+    await writeTools['click'].handler({ tabId: 1, x: 10, y: 20 }, cb);
+    assert.strictEqual(cb.calls[0].action.inputMode, 'off');
   });
 
-  describe('drag', () => {
-    test('By coords: fires mousedown -> mousemove -> mouseup -> drop', () => {
-      const el = new MockElement('div');
-      document.body.append(el);
-      
-      // Mock drag
-      el.dispatchEvent(new MockMouseEvent('mousedown', { bubbles: true }));
-      el.dispatchEvent(new MockMouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 100 }));
-      el.dispatchEvent(new MockMouseEvent('mouseup', { bubbles: true, clientX: 100, clientY: 100 }));
-      el.dispatchEvent(new MockMouseEvent('drop', { bubbles: true }));
-      
-      const types = el._dispatchedEvents.map(e => e.type);
-      assert.ok(['mousedown', 'mousemove', 'mouseup', 'drop'].every(t => types.includes(t)));
-    });
+  it('reads inputMode from agentControl.input.highFidelity', async () => {
+    const cb = recordingCb({ agentControl: { input: { highFidelity: 'always' } } });
+    await writeTools['click'].handler({ tabId: 1, selector: '#x' }, cb);
+    assert.strictEqual(cb.calls[0].action.inputMode, 'always');
+  });
+});
+
+describe('4.3 type_text', () => {
+  it('builds a type action carrying text, selector and submit intent', async () => {
+    const cb = recordingCb();
+    await writeTools['type_text'].handler(
+      { tabId: 2, text: 'hello', selector: 'input', submit: 'enter' }, cb);
+    const a = cb.calls[0].action;
+    assert.strictEqual(a.type, 'type');
+    assert.strictEqual(a.text, 'hello');
+    assert.strictEqual(a.submit, 'enter');
   });
 
-  describe('execute_js', () => {
-    test('Simple: returns result of expression', () => {
-      const result = eval('1 + 1');
-      assert.strictEqual(result, 2);
-    });
+  it('defaults submitOnFail to "type-only" and honours config override', async () => {
+    const def = recordingCb();
+    await writeTools['type_text'].handler({ tabId: 1, text: 'x' }, def);
+    assert.strictEqual(def.calls[0].action.submitOnFail, 'type-only');
 
-    test('Async: resolves promise', async () => {
-      const result = await Promise.resolve('done');
-      assert.strictEqual(result, 'done');
-    });
+    const cfg = recordingCb({ agentControl: { submitInference: { onFail: 'abort' } } });
+    await writeTools['type_text'].handler({ tabId: 1, text: 'x' }, cfg);
+    assert.strictEqual(cfg.calls[0].action.submitOnFail, 'abort');
+  });
+});
+
+describe('4.3 press_key', () => {
+  it('forwards the key combo verbatim', async () => {
+    const cb = recordingCb();
+    await writeTools['press_key'].handler({ tabId: 1, key: 'Control+a' }, cb);
+    assert.strictEqual(cb.calls[0].action.type, 'press_key');
+    assert.strictEqual(cb.calls[0].action.key, 'Control+a');
+  });
+});
+
+describe('4.3 type_secret', () => {
+  const guard = {
+    active: true,
+    resolveSecret: (ref) => (ref === 'user_password' ? 'hunter2' : null),
+    listRefs: () => ['user_password'],
+  };
+
+  it('errors when the secret guard is not enabled', async () => {
+    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'user_password' }, recordingCb());
+    assert.strictEqual(res.ok, false);
+    assert.match(res.error, /not enabled/i);
   });
 
-  describe('wait_for_element', () => {
-    test('Selector: resolves when found', async () => {
-      const btn = new MockElement('button');
-      btn.id = 'loaded';
-      
-      // Simulate delayed appearance (matches real 100ms poll interval)
-      setTimeout(() => document.body.append(btn), 50);
-      
-      // Mirror real executor: poll every 100ms with 10s timeout
-      const timeout = 5000;
-      const start = Date.now();
-      let found = null;
-      while (Date.now() - start < timeout) {
-        found = document.querySelector('#loaded');
-        if (found) break;
-        await new Promise(r => setTimeout(r, 100));
-      }
-      
-      assert.ok(found !== null);
-      assert.strictEqual(found.id, 'loaded');
-    });
+  it('errors and lists refs when the ref is unknown', async () => {
+    const cb = recordingCb(); cb._secretGuard = guard;
+    const res = await writeTools['type_secret'].handler({ tabId: 1, ref: 'nope' }, cb);
+    assert.strictEqual(res.ok, false);
+    assert.match(res.error, /nope/);
+    assert.deepStrictEqual(res.availableRefs, ['user_password']);
+  });
+
+  it('injects the real value into the page action but never returns it', async () => {
+    const cb = recordingCb(); cb._secretGuard = guard;
+    const res = await writeTools['type_secret'].handler({ tabId: 5, ref: 'user_password', selector: '#pw' }, cb);
+
+    // The action sent to the page carries the real value — that's the point.
+    assert.strictEqual(cb.calls[0].action.type, 'type');
+    assert.strictEqual(cb.calls[0].action.text, 'hunter2');
+    assert.strictEqual(cb.calls[0].action.selector, '#pw');
+    // The agent-facing result must NOT contain the value.
+    assert.ok(!JSON.stringify(res).includes('hunter2'), 'the secret must not appear in the tool result');
+    assert.strictEqual(res.ref, 'user_password');
+    assert.strictEqual(res.typed, true);
+  });
+});
+
+describe('4.3 observe guard', () => {
+  it('reports observation unavailable when no hash broadcast channel exists', async () => {
+    const cb = recordingCb();           // no _navigateBroadcast
+    const res = await writeTools['click'].handler({ tabId: 1, selector: '#x', observe: true }, cb);
+    assert.strictEqual(res._observation.available, false);
+    assert.strictEqual(cb.calls.length, 1, 'the action itself must still execute');
   });
 });

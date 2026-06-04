@@ -26,6 +26,7 @@ const screenshots = require('./screenshot-manager');
 const stateMachine = require('./state-machine');
 const stateNavigator = require('./state-navigator');
 const configLog  = require('./config-change-log');
+const secretGuardFactory = require('./secret-guard');
 const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
@@ -45,6 +46,10 @@ const MCP_MODE  = args.includes('--mcp');
 
 // ── Load config.json (+ .env overrides) ──────────────────────────────────────
 const _cfg = loadConfig();
+
+// Secret guard: redacts the user's secrets from collected data before the agent,
+// cache, or logs can see them. Built once from config; passthrough when disabled.
+const secretGuard = secretGuardFactory.createGuard(_cfg.privacy?.secretGuard);
 
 const WS_PORT   = _cfg.server?.wsPort   || 7891;
 const HTTP_PORT = _cfg.server?.httpPort || 7892;
@@ -204,6 +209,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       stateNavigator,
       deltaEngine,
       configLog,
+      secretGuard,
       correlator,
       sourceStore,
       conclusionCache,
@@ -677,6 +683,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots));
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
+    mcp.setSecretGuard(secretGuard);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
     mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
     configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);

@@ -72,6 +72,9 @@ jobs:
       - name: Verify version consistency (manifests == package.json)
         run: node scripts/_check-version.js
 
+      - name: Verify unit tests reach production code (no hollow tests)
+        run: node scripts/_check-hollow-tests.js
+
       - name: Verify shared/ matches both extensions
         id: sync
         run: |

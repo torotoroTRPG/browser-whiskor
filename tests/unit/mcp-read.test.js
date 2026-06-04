@@ -2,63 +2,77 @@
  * tests/unit/mcp-read.test.js
  * Section 4.2 — Read Tools
  *
- * Verifies that MCP read tools correctly extract data from the state.
+ * Exercises the REAL read-tool handlers (server/mcp/tools/read-basic.js) by
+ * capturing them through a lightweight registry and driving them with a mock
+ * `cb.cache`. This verifies the actual extraction / warning / error logic —
+ * not an inline re-implementation of it.
  */
 
-import { describe, test, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateTextCoords, generateNetworkRequests } from '../helpers/fixtures.js';
+import { createRequire } from 'node:module';
 
-describe('4.2 Read Tools', () => {
+const require = createRequire(import.meta.url);
 
-  describe('get_sessions', () => {
-    test('No sessions: returns empty array', () => {
-      const sessions = []; // Mock empty sessions
-      assert.strictEqual(sessions.length, 0);
-    });
+// Capture the tools a register function emits into a name→tool map.
+function captureTools(registerFn) {
+  const map = {};
+  const registry = {
+    registerTools(arr) { for (const t of arr) map[t.definition.name] = t; },
+    registerTool(def, handler) { map[def.name] = { definition: def, handler }; },
+  };
+  registerFn(registry);
+  return map;
+}
 
-    test('Active session: returns session with freshness', () => {
-      const sessions = [{ tabId: 1, lastUpdate: Date.now() }];
-      assert.strictEqual(sessions.length, 1);
-      assert.ok(sessions[0].lastUpdate > 0);
-    });
+const readTools = captureTools(require('../../server/mcp/tools/read-basic'));
+
+// Build a cb whose cache returns whatever the test wants.
+function cbWith(cache) {
+  return { cache, _config: {}, _toolManager: null };
+}
+
+describe('4.2 get_sessions', () => {
+  it('returns a NO_ACTIVE_SESSIONS warning (not just an empty array) when nothing is connected', async () => {
+    const res = await readTools['get_sessions'].handler({}, cbWith({
+      getSessionList: async () => [],
+    }));
+    assert.deepStrictEqual(res.sessions, []);
+    assert.ok(Array.isArray(res._warnings));
+    assert.strictEqual(res._warnings[0].code, 'NO_ACTIVE_SESSIONS');
   });
 
-  describe('get_text_coords', () => {
-    test('With search: filtered results', () => {
-      const { words } = generateTextCoords(100);
-      words[0].text = 'TargetWord';
-      
-      const query = 'target';
-      const filtered = words.filter(w => w.text.toLowerCase().includes(query.toLowerCase()));
-      
-      assert.ok(filtered.length >= 1);
-      assert.strictEqual(filtered[0].text, 'TargetWord');
-    });
+  it('passes through the live session list untouched', async () => {
+    const list = [{ tabId: 1, url: 'https://x', stale: false }];
+    const res = await readTools['get_sessions'].handler({}, cbWith({
+      getSessionList: async () => list,
+    }));
+    assert.strictEqual(res, list);
+  });
+});
 
-    test('No data: returns warning or empty', () => {
-      const words = [];
-      assert.strictEqual(words.length, 0);
-      // In real tool, this would return a specific error/warning
-    });
+describe('4.2 get_index', () => {
+  it('errors (mentioning the tabId) when the session is unknown', async () => {
+    const res = await readTools['get_index'].handler({ tabId: 99 }, cbWith({
+      getSessionData: async () => null,
+    }));
+    assert.match(res.error, /99/);
   });
 
-  describe('get_network', () => {
-    test('With requests: returns request list', () => {
-      const requests = generateNetworkRequests(5);
-      assert.strictEqual(requests.length, 5);
-      assert.ok(requests[0].url !== undefined);
-    });
+  it('returns the session index when present', async () => {
+    const data = { tabId: 7, files: ['raw/visual/text-coords.json'] };
+    const res = await readTools['get_index'].handler({ tabId: 7 }, cbWith({
+      getSessionData: async (id) => (id === 7 ? data : null),
+    }));
+    assert.strictEqual(res, data);
   });
+});
 
-  describe('get_state_map', () => {
-    test('After exploration: returns nodes and edges', () => {
-      const graph = {
-        nodes: [{ hash: 'h1', label: 'Home' }, { hash: 'h2', label: 'About' }],
-        edges: [{ from: 'h1', to: 'h2', action: 'click' }]
-      };
-      assert.strictEqual(graph.nodes.length, 2);
-      assert.strictEqual(graph.edges.length, 1);
-    });
+describe('4.2 get_text_coords', () => {
+  it('errors with a refresh hint when TEXT_COORDS has not been collected', async () => {
+    const res = await readTools['get_text_coords'].handler({ tabId: 1 }, cbWith({
+      readSessionFile: async () => null,
+    }));
+    assert.match(res.error, /TEXT_COORDS|refresh_data/);
   });
 });

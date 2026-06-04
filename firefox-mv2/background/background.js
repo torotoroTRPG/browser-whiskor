@@ -300,7 +300,37 @@ async function handleServerMessage(msg) {
           } catch (_) {}
         }
 
-        const dataUrl = await browser.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        // Secret guard: draw opaque masks over redacted regions, capture, remove.
+        // Rects are absolute page coordinates (text-coords left/top).
+        let _whiskorMasked = false;
+        if (Array.isArray(opts?.maskRects) && opts.maskRects.length) {
+          try {
+            await browser.tabs.executeScript(tabId, {
+              code: `(${function(rects) {
+                const ID = '__whiskor_secret_masks__';
+                let layer = document.getElementById(ID);
+                if (!layer) { layer = document.createElement('div'); layer.id = ID; (document.documentElement || document.body).appendChild(layer); }
+                layer.setAttribute('style', 'position:absolute;top:0;left:0;width:0;height:0;margin:0;padding:0;border:0;z-index:2147483647;pointer-events:none;');
+                layer.innerHTML = '';
+                for (const r of rects) { const b = document.createElement('div'); b.setAttribute('style', 'position:absolute;left:' + r.x + 'px;top:' + r.y + 'px;width:' + r.width + 'px;height:' + r.height + 'px;background:#000;'); layer.appendChild(b); }
+              }})(${JSON.stringify(opts.maskRects)})`,
+            });
+            _whiskorMasked = true;
+          } catch (e) { console.warn('[capture] secret mask draw failed:', e && e.message); }
+        }
+
+        let dataUrl;
+        try {
+          dataUrl = await browser.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        } finally {
+          if (_whiskorMasked) {
+            try {
+              await browser.tabs.executeScript(tabId, {
+                code: `(function(){ const el = document.getElementById('__whiskor_secret_masks__'); if (el) el.remove(); })()`,
+              });
+            } catch (_) {}
+          }
+        }
 
         sendToServer({
           type: 'SCREENSHOT_RESULT', reqId,

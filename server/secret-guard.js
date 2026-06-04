@@ -1,0 +1,260 @@
+/**
+ * server/secret-guard.js
+ *
+ * Redacts the user's secrets from everything the agent (and any log/cache file
+ * the agent could later read) receives. See docs/ideas/REDACTION_SECRET_GUARD.md.
+ *
+ * Threat model: the user does not necessarily trust the agent. Detection and
+ * substitution happen ONLY here, on the Node server — the secret values never
+ * enter the page (MAIN world), so a hostile page/XSS cannot exfiltrate them, and
+ * the agent cannot reach them.
+ *
+ * Slice 1: known-value blacklist. Slice 2: pattern detection (email / credit
+ * card). Applied at the single core.js ingestion chokepoint. Screenshot masking
+ * and the type_secret write tool are later slices.
+ */
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+
+const SECRETS_FILE = path.join(__dirname, '..', 'secrets.local.json');
+
+// Depth cap: collected payloads are plain JSON (no cycles), but stay defensive.
+const MAX_DEPTH = 12;
+
+// Message keys never worth scanning: routing/correlation ids (their values are
+// never secrets, and skipping them keeps msg.type intact for routeMessage's
+// switch). Image blobs are skipped separately by size under the dataUrl key.
+const SKIP_KEYS = new Set(['type', 'tabId', 'reqId', 'actionId', 'requestId', 'siteVersion', 'capturedAt']);
+
+// Object keys whose value is a secret by context — caught even when the value is
+// not registered and matches no pattern (e.g. an unregistered password or token
+// sitting in a network body or storage entry). Deliberately specific to keep
+// false positives low (bare "token"/"auth" are intentionally excluded).
+const SENSITIVE_KEY_RE = /^(password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|credential)s?$/i;
+
+// Sentinel delimiter for the two-phase replace below. NUL never appears in
+// normal page text or JSON, so a sentinel can't collide with real content.
+const SEP = String.fromCharCode(0);
+const SENTINEL_RE = new RegExp(SEP + 'R(\\d+)' + SEP, 'g');
+
+// Non-sensitive hint per type. A hint must NEVER reveal the secret itself.
+function deriveHint(value, type) {
+  if (type === 'email') {
+    const at = value.lastIndexOf('@');
+    return at >= 0 ? value.slice(at) : null; // domain only, e.g. "@gmail.com"
+  }
+  return null; // password / token / pii: no hint
+}
+
+const TOKEN_PREFIX = '[WHISKOR_REDACTED';
+
+function makeToken(type, hint, reason) {
+  const parts = [`type=${type || 'secret'}`];
+  if (hint) parts.push(`hint=${hint}`);
+  parts.push(`reason=${reason || 'user-blacklist'}`);
+  return `${TOKEN_PREFIX} ${parts.join(' ')}]`;
+}
+
+// Screenshot masking (slice 3): given an already-redacted text-coords payload,
+// return the bounding boxes of the items whose text was replaced by a token, so
+// the page can draw opaque overlays there before capturing. Uses the finest
+// granularity available (words) to avoid over-covering neighbouring text.
+function rectOf(it) {
+  // text-coords words use Tesseract-style absolute fields (left/top = absX/absY)
+  // plus explicit absoluteX/absoluteY; also tolerate x/y and nested rect:{}.
+  const x = it.absoluteX ?? it.left ?? it.x ?? it.viewportX ?? it.rect?.x;
+  const y = it.absoluteY ?? it.top  ?? it.y ?? it.viewportY ?? it.rect?.y;
+  const w = it.width ?? it.w ?? it.rect?.width  ?? it.rect?.w;
+  const h = it.height ?? it.h ?? it.rect?.height ?? it.rect?.h;
+  return [x, y, w, h].every((v) => typeof v === 'number')
+    ? { x, y, width: w, height: h }
+    : null;
+}
+
+function findRedactedRects(textCoords) {
+  const rects = [];
+  if (!textCoords) return rects;
+  const items = textCoords.words || textCoords.lines || textCoords.blocks || [];
+  for (const it of items) {
+    if (it && typeof it.text === 'string' && it.text.includes(TOKEN_PREFIX)) {
+      const r = rectOf(it);
+      if (r) rects.push(r);
+    }
+  }
+  return rects;
+}
+
+// ── Known-value loading ──────────────────────────────────────────────────────
+// Sources (server-only, git-ignored — never config.json which is tracked):
+//   - secrets.local.json:  { "secrets": [ { "value": "...", "type": "email" }, ... ] }
+//   - env WHISKOR_SECRETS:  "value:type,value:type"  (simple cases)
+function loadKnownValues(cfg) {
+  const out = [];
+  const mode = cfg && cfg.knownValues; // "env" | "file" | "off" | undefined (=both)
+
+  const pushSecret = (value, type, reason, ref) => {
+    if (typeof value !== 'string' || value.length < 3) return; // too short → false positives
+    out.push({ value, ref: ref || null, token: makeToken(type, deriveHint(value, type), reason) });
+  };
+
+  if (mode !== 'off' && mode !== 'env') {
+    try {
+      if (fs.existsSync(SECRETS_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(SECRETS_FILE, 'utf8'));
+        for (const s of parsed.secrets || []) {
+          if (s && typeof s.value === 'string') pushSecret(s.value, s.type, 'user-blacklist', s.ref);
+        }
+      }
+    } catch (e) {
+      console.error('[secret-guard] Failed to read secrets.local.json:', e.message);
+    }
+  }
+
+  if (mode !== 'off' && mode !== 'file' && process.env.WHISKOR_SECRETS) {
+    for (const pair of process.env.WHISKOR_SECRETS.split(',')) {
+      const idx = pair.lastIndexOf(':');
+      const value = (idx >= 0 ? pair.slice(0, idx) : pair).trim();
+      const type  = idx >= 0 ? pair.slice(idx + 1).trim() : 'secret';
+      if (value) pushSecret(value, type, 'user-blacklist');
+    }
+  }
+
+  // Replace longer secrets first so a secret that contains another isn't left
+  // half-redacted.
+  out.sort((a, b) => b.value.length - a.value.length);
+  return out;
+}
+
+// ── Pattern detection (no pre-registration needed) ───────────────────────────
+function luhnValid(digits) {
+  if (digits.length < 13 || digits.length > 19) return false;
+  let sum = 0, alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return false;
+    if (alt) { d *= 2; if (d > 9) d -= 9; }
+    sum += d; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+// Each pattern is a global regex + a replacer that returns a token (or the
+// original match when a soft check like Luhn fails, to avoid false positives).
+function buildPatterns(cfg) {
+  const p = (cfg && cfg.patterns) || {};
+  const out = [];
+  if (p.email !== false) {
+    out.push({
+      type: 'email',
+      re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+      replace: (m) => makeToken('email', m.slice(m.lastIndexOf('@')), 'pattern'),
+    });
+  }
+  if (p.creditCard !== false) {
+    out.push({
+      type: 'credit-card',
+      re: /\b\d(?:[ -]?\d){12,18}\b/g,
+      replace: (m) => (luhnValid(m.replace(/\D/g, '')) ? makeToken('credit-card', null, 'pattern') : m),
+    });
+  }
+  if (p.jwt !== false) {
+    // JSON Web Token: header.payload.signature, base64url. The header always
+    // starts with "eyJ" (base64 of '{"'), so false positives are negligible.
+    // High value: auth/bearer tokens routinely sit in storage and network data.
+    out.push({
+      type: 'jwt',
+      re: /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+      replace: () => makeToken('jwt', null, 'pattern'),
+    });
+  }
+  return out;
+}
+
+// ── Guard factory ────────────────────────────────────────────────────────────
+function createGuard(cfg) {
+  const enabled  = !!(cfg && cfg.enabled);
+  const secrets  = enabled ? loadKnownValues(cfg) : [];
+  const patterns = enabled ? buildPatterns(cfg) : [];
+  const sensitiveKeys = enabled && !(cfg && cfg.sensitiveKeys === false);
+  const active   = enabled && (secrets.length > 0 || patterns.length > 0 || sensitiveKeys);
+
+  // ref → real value, for the write side (type_secret). Server-only; the value
+  // is never returned to the agent, only injected into the page by the executor.
+  const byRef = new Map();
+  for (const s of secrets) if (s.ref) byRef.set(s.ref, s.value);
+  function resolveSecret(ref) { return byRef.get(ref) || null; }
+  function listRefs() { return [...byRef.keys()]; }
+
+  // Two-phase replace: every match first becomes a NUL-delimited sentinel, then
+  // all sentinels expand to their human tokens at the very end. This stops a
+  // later/shorter secret (e.g. "pass") from re-matching inside a token already
+  // emitted for an earlier one (whose text contains words like "password").
+  function redactString(str) {
+    if (!active || typeof str !== 'string' || !str) return str;
+    const slots = [];
+    const stash = (token) => {
+      const sentinel = SEP + 'R' + slots.length + SEP;
+      slots.push(token);
+      return sentinel;
+    };
+
+    let out = str;
+    // 1) Known values: literal replace-all (secret contents can't act as regex),
+    //    longer secrets first so they win over shorter substrings.
+    for (const s of secrets) {
+      if (out.includes(s.value)) out = out.split(s.value).join(stash(s.token));
+    }
+    // 2) Patterns over what remains. A replacer that returns the match unchanged
+    //    (e.g. Luhn failed) is treated as "no match" and left in place.
+    for (const p of patterns) {
+      out = out.replace(p.re, (m) => {
+        const token = p.replace(m);
+        return token === m ? m : stash(token);
+      });
+    }
+    // 3) Expand sentinels → tokens (tokens are never re-scanned).
+    return out.replace(SENTINEL_RE, (_, i) => slots[Number(i)]);
+  }
+
+  function redactDeep(node, depth = 0) {
+    if (!active || node == null || depth > MAX_DEPTH) return node;
+    if (typeof node === 'string') return redactString(node);
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) node[i] = redactDeep(node[i], depth + 1);
+      return node;
+    }
+    if (typeof node === 'object') {
+      for (const k of Object.keys(node)) {
+        if (SKIP_KEYS.has(k)) continue; // routing/correlation ids — never secrets
+        // Context redaction: the key itself marks the value as secret (e.g.
+        // {"password": "..."}), so redact it whole regardless of its content.
+        if (sensitiveKeys && typeof node[k] === 'string' && node[k] && SENSITIVE_KEY_RE.test(k)) {
+          node[k] = makeToken(k.toLowerCase(), null, 'sensitive-key');
+          continue;
+        }
+        // Base64 image blob (SCREENSHOT_RESULT.dataUrl): no substring secrets,
+        // and scanning megabytes is wasteful.
+        if (k === 'dataUrl' && typeof node[k] === 'string' && node[k].length > 2048) continue;
+        node[k] = redactDeep(node[k], depth + 1);
+      }
+      return node;
+    }
+    return node;
+  }
+
+  // Redact the whole message in place. Collected data lives under payload, but
+  // sensitive strings also ride at the top level — the page URL (tabUrl), Set-of-
+  // Marks element labels (elements[].text), action results — so scan everything
+  // except routing ids and image blobs. Runs before logging / dashboard
+  // broadcast / persistence / agent reads.
+  function redactMessage(msg) {
+    if (!active || !msg || typeof msg !== 'object') return msg;
+    return redactDeep(msg, 0);
+  }
+
+  return { enabled, active, count: secrets.length, patternCount: patterns.length, refCount: byRef.size, redactString, redactDeep, redactMessage, resolveSecret, listRefs };
+}
+
+module.exports = { createGuard, makeToken, deriveHint, luhnValid, findRedactedRects, TOKEN_PREFIX, SECRETS_FILE };

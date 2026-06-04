@@ -2,6 +2,15 @@
   "name": "browser-whiskor",
   "version": "0.6.0",
   "description": "Agent-grade browser instrumentation with MCP server",
+  "license": "MIT",
+  "homepage": "https://github.com/torotoroTRPG/browser-whiskor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/torotoroTRPG/browser-whiskor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/torotoroTRPG/browser-whiskor/issues"
+  },
   "main": "server/index.js",
   "scripts": {
     "start": "node scripts/supervisor.js",
@@ -19,15 +28,16 @@
     "test:e2e": "npx playwright test tests/e2e/",
     "download-model": "node scripts/download-model.js",
     "check-version": "node scripts/_check-version.js",
+    "check-tests": "node scripts/_check-hollow-tests.js",
     "sync-version": "node scripts/_check-version.js --fix",
     "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json"
   },
   "dependencies": {
-    "playwright": "^1.60.0",
     "ws": "^8.18.0",
     "@xenova/transformers": "^2.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "@playwright/test": "^1.60.0",
+    "playwright": "^1.60.0"
   }
 }

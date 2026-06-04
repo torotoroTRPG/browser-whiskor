@@ -4,10 +4,12 @@ Thumbs.db
 *.log
 .env
 .env.*
+secrets.local.json
 archive_project.ps1
 Export-GitHistory.ps1
 GIT-HISTORY.md
 browser-whiskor-v3/
+extracted/
 直前のログ.txt
 参考(内)/
 参考(外)/
@@ -45,5 +47,6 @@ __pycache__/
 .antigravitycli/
 .mcp.json
 2026-05-*
+*-local-command-caveat*
 err.txt
 out.txt

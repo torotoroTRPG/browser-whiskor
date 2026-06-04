@@ -120,6 +120,16 @@ function getDefaults() {
     executeJs:  { captureConsoleDuringExec: true },
     adaptiveCollection: { enabled: false, activeIntervalMs: 5000, quiescentIntervalMs: 30000, quiescentAfterMs: 60000 },
     agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false },
+    privacy: {
+      secretGuard: {
+        enabled: false,          // opt-in. Redacts the user's secrets from agent/cache/logs.
+        knownValues: 'file',     // 'file' (secrets.local.json) | 'env' (WHISKOR_SECRETS) | 'off'
+        patterns: { email: true, creditCard: true, jwt: true }, // auto-detect without pre-registration
+        sensitiveKeys: true,     // redact values whose key implies a secret (password, api_key, …)
+        redactScreenshots: true, // mask sensitive boxes in screenshots (later slice)
+        dashboardSeesRaw: false, // local dashboard shows redacted values too
+      },
+    },
     intelligence: {
       clickability: {
         enabled: true,
@@ -229,6 +239,7 @@ function getMcpToolsDefaults() {
       click:              { enabled: true, category: 'write' },
       right_click:        { enabled: true, category: 'write' },
       type_text:          { enabled: true, category: 'write' },
+      type_secret:        { enabled: true, category: 'write' },
       press_key:          { enabled: true, category: 'write' },
       hover:              { enabled: true, category: 'write' },
       scroll_page:        { enabled: true, category: 'write' },

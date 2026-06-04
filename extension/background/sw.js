@@ -32,6 +32,31 @@ const PAGE_ACTION_TIMEOUT = 15000;
 const panelPorts = new Map(); // tabId → port
 let pingTimer = null;
 
+// ── Secret guard: opaque masks over redacted regions before capture ──────────
+// Injected into the page (MAIN world) right before captureVisibleTab and removed
+// right after, so the agent's screenshot hides secrets the server redacted. Rects
+// are absolute page coordinates (text-coords left/top) → position absolutely.
+function drawWhiskorMasks(rects) {
+  const ID = '__whiskor_secret_masks__';
+  let layer = document.getElementById(ID);
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = ID;
+    (document.documentElement || document.body).appendChild(layer);
+  }
+  layer.setAttribute('style', 'position:absolute;top:0;left:0;width:0;height:0;margin:0;padding:0;border:0;z-index:2147483647;pointer-events:none;');
+  layer.innerHTML = '';
+  for (const r of (rects || [])) {
+    const b = document.createElement('div');
+    b.setAttribute('style', 'position:absolute;left:' + r.x + 'px;top:' + r.y + 'px;width:' + r.width + 'px;height:' + r.height + 'px;background:#000;');
+    layer.appendChild(b);
+  }
+}
+function removeWhiskorMasks() {
+  const el = document.getElementById('__whiskor_secret_masks__');
+  if (el) el.remove();
+}
+
 // ── Adaptive Collection Scheduler ─────────────────────────────────────────────
 // Periodically fires MANUAL_COLLECT to whiskor-active tabs from the Service
 // Worker — so the timing logic lives in the long-running SW, not in the
@@ -546,7 +571,24 @@ async function handleServerMessage(msg) {
         const captureOpts = fmt === 'jpeg'
           ? { format: 'jpeg', quality: typeof opts?.quality === 'number' ? opts.quality : 70 }
           : { format: 'png' };
-        let dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, captureOpts);
+
+        // Secret guard: draw opaque masks over redacted regions, capture, remove.
+        let _whiskorMasked = false;
+        if (Array.isArray(opts?.maskRects) && opts.maskRects.length && windowId) {
+          try {
+            await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: drawWhiskorMasks, args: [opts.maskRects] });
+            _whiskorMasked = true;
+          } catch (e) { console.warn('[capture] secret mask draw failed:', e.message); }
+        }
+
+        let dataUrl;
+        try {
+          dataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, captureOpts);
+        } finally {
+          if (_whiskorMasked) {
+            try { await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: removeWhiskorMasks }); } catch (_) {}
+          }
+        }
 
         // Optional downscale to cap width — shrinks the base64 payload (and tokens) for
         // large/full-page screenshots. No-op when the image is already within maxWidth.
