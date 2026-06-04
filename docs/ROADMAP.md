@@ -145,10 +145,13 @@
 - **対応案**: `type_secret` をワーカー側経路（HTTP/action）で解決させる。serverInfo は worker の `/health` secretGuard 状態を取得して反映。
 - **状態**: 🟡 (a) ✅ 🧪 / (b) ⬜。**(a) type_secret 修正済**: 値解決を `action-executor.execute`（全経路が通る唯一の dispatch チョークポイント）に移動。`write.js` は action に `secretRef`(ref名のみ)を載せ、ワーカーが `secretGuard.resolveSecret` で値を解決→action.text に入れて dispatch（agent/proxy は ref しか運ばない、値はワーカー→ページのみ）。guard無効/未知refはワーカーが明確なエラー返し。`actions.setSecretGuard` 配線。検証 `tests/unit/action-secret-ref.test.js`＋`mcp-write.test.js` 改訂。(b) serverInfo の redaction 表示が proxy で出ない件は表示のみ＝保留。
 
-### T4. 秘匿ガード 追加堅牢化
-- **内容**(任意・`docs/ideas` & 記憶に詳細): ①保管元(.env/secrets.local.json)を別経路で読めない事のテスト ②追加パターン(電話/SSN/IP) ③スクショ **サーバー側ピクセル黒塗り** v2(ユーザー画面のちらつき回避) ④`dashboardSeesRaw:true` 経路の実装（現状 dead オプション。redactをdashboard broadcast後・cache前に分離する必要）。
-- **場所**: `server/secret-guard.js`、`server/core.js`。
-- **状態/規模**: ⬜ / 小〜中。
+### T4. 秘匿ガード 追加堅牢化（任意）
+- **② 追加パターン（main 9cdae78）**: ✅ 🧪。ssn/ipv4/phone を**個別 config トグル**で追加。誤検出しやすい（IP=エンドポイント, phone=フッター等）ため email/creditCard/jwt と違い**既定 off・`=== true` ゲート**。`privacy.secretGuard.patterns` で必要なものだけ有効化（config に trade-off コメント）。`secret-guard.js`＋config＋テスト。
+- **① 保管元の別経路読取防止**: ✅（実質）。秘密の値は agent 向け面に出ない事を既存テストが担保（`secret-guard-flow.test.js`＝/health は件数のみ・値は出さない、`transport-serverinfo.test.js`）。`resolveSecret` は type_secret(ワーカー→ページ)専用、`listRefs` は名前のみ。
+- **③ スクショ黒塗り v2（ちらつき無し）**: ⬜。今は実ページに一瞬 DOM オーバーレイ→撮影→除去（画面チラつき）。v2 案＝**撮影後に拡張 canvas 上で黒塗り**（ページ非接触・Node 画像処理不要、ロードマップ旧記載の「サーバー側ピクセル」より軽量方針に合う）。両 background 編集。中。
+- **④ `dashboardSeesRaw:true` 実装**: ⬜（**要慎重**）。redaction は `core.routeMessage` 冒頭の単一チョークポイントで in-place→以後 dashboard broadcast も cache も黒塗り＝現状 dead。実装は「dashboard へ生・cache/agent へ黒塗り」へ分離（散在する `broadcastToDashboard` を生コピーへ）。**誤ると agent に漏洩**。安全既定に穴を開ける項目なので最後・要レビュー。
+- **場所**: `server/secret-guard.js`、`server/core.js`、`extension/background/sw.js`＋`firefox-mv2/background/background.js`(③)。
+- **状態/規模**: 🟡 ②✅①✅／③④残（任意）。
 
 ### T5. devパネル拡張 B
 - **目的**: devパネルを大幅強化＋agentにも(config許可範囲で)見せる。
