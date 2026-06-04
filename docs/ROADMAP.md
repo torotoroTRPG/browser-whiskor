@@ -29,6 +29,7 @@
   - [T8. GitHub リポジトリ整頓 & リリース](#t8-github-リポジトリ整頓--リリース)
   - [T9. 雑多（ブランチ掃除・バージョン・dashboardSeesRaw 他）](#t9-雑多ブランチ掃除バージョンdashboardseesraw-他)
   - [T10. EPERM: cache writeJson の rename 失敗（Windows）](#t10-eperm-cache-writejson-の-rename-失敗windows)
+  - [T11. proxy で _secretGuard 未配線の残り（type_secret / serverInfo）](#t11-proxy-で-_secretguard-未配線の残りtype_secret--serverinfo)
 - [Part 3 — 逆引き索引](#part-3--逆引き索引)
 
 ---
@@ -103,6 +104,7 @@
 - **config-change-log の非再帰バグ**: `validateChange`/`autoRevert` がネストpatchを処理できず、エージェント設定の安全機構（非推奨警告+自動リバート）が **実運用入力に対して死んでいた** → 両walkerを再帰化。空洞テストが緑で隠蔽していた実例。`server/config-change-log.js`。✅ 🧪。
 - **packedSoM cache/stats が proxy で死亡**: som-cache(`_cached`)・som-stats(並べ替え/record)を MCP層(capture.js/write.js)に置いていたため、**proxy mode（実運用の通常構成）では setSomCache/setSomStats が未配線＝完全に無効**（HTTP経路もcache見ず・prefetch温めても誰も読まない）。→ ワーカー側 `screenshot-manager.capturePackedSom` にキャッシュ+stats集約、record は `action-executor.execute`(click) へ。全経路(MCP stdio/HTTP/proxy転送)が同一ワーカーcacheを通る構造で再発防止。[[project_proxy_mode_async_cache]] と同型。検証: `tests/unit/screenshot-manager-packed-som.test.js` ＋ 実機e2e(2回目HTTPが`_cached:true`)。✅ 🧪。
 - **非proxyサーバーの起動時クラッシュ（副次発見）**: `index.js:727` の `mcp.setSomCache(somCache)` が別ブロックの `somCache`(206行)を参照不可で `ReferenceError` → `npm start`(非proxy)/e2e が起動不能。proxy mode では当該elseが走らず露見せず。上記修正で727行撤去により解消。✅。
+- **秘匿スクショ黒塗りが proxy/HTTP で死亡（セキュリティ）**: マスク計算(`findRedactedRects`)が capture.js(MCP層)のみ＝proxy は `setSecretGuard` 未配線で `cb._secretGuard` undefined、HTTP `/api/screenshot` は `maskRects` を渡さず。**production(proxy)で agent が生スクショ＝秘密が見えていた**。→ ワーカー側 `screenshot-manager.capture` に `setMaskProvider` で集約（全経路が通る）、capture.js から撤去。enabler に config-loader ネスト env 上書き。検証: `tests/unit/screenshot-mask.test.js`＋`tests/unit/config-env-overrides.test.js`、packed-som guard ON 回帰なし。[[project_proxy_mode_async_cache]] と同型。✅ 🧪（実機e2eは headed 接続フレークで保留）。**未了の同根**: write.js `type_secret`・transport serverInfo も proxy で `_secretGuard` 未配線（別途）。
 
 ---
 
@@ -124,7 +126,7 @@
 
 ### T3. 手動ブラウザ検証（4点）
 - node では動かせない実機挙動。別pwsh + 拡張ロードで目視/e2e（実機メモ: **headed必須**＝旧headlessはMV3拡張を読まない、test timeoutは接続待ち60秒より長く）:
-  1. **秘匿スクショ黒塗り**: secrets.local.json + `privacy.secretGuard.enabled=true` → ページに秘密表示 → `capture_screenshot(returnImage:true)` で該当領域が黒塗りか。([C](#c-秘匿ガード-secret-guard))。⬜（config 2段ネストは env 上書き不可＝有効化方法の検討要、後述 T9 系）。
+  1. **秘匿スクショ黒塗り**: ✅ **検証中にバグ発見＆修正**（下記 H 参照）。マスク計算は capture.js(MCP層)のみ＝**proxy/HTTP で死亡**していた→ワーカー側 `screenshot-manager.capture` に集約。ユニット実証（maskProvider が capture broadcast に rects を載せる）＋ packed-som が guard ON で回帰なし。enabler として config-loader にネスト env 上書きを実装（CLAUDE.md の `.env` 上書きギャップも解消）。実機 e2e `tests/e2e/secret-mask.spec.mjs` は headed 拡張接続フレークで不安定（CI の `npm test` は e2e 非対象）。([C](#c-秘匿ガード-secret-guard))
   2. **devパネル Frameworks**: Reactページでノードを開いて放置 → 新データ到来後も開いたままか / Unknown が控えめか。([E](#e-devパネル-frameworks-修正))。⬜（目視）。
   3. **packedSoM プリフェッチ / cache**: ✅ cache 機構を実機検証済（2回目HTTPが`_cached:true`、`tests/e2e/packed-som.spec.mjs`）。残: `prefetchOnNavigate=true`(config 2段ネスト)での遷移後即返りの live 確認。([F](#f-パックド-set-of-marks-キャプチャ))
   4. **packedSoM の見た目品質**: ✅ 実機検証済（PNG 実寸デコードで非空・サイズ健全を確認）。([F](#f-パックド-set-of-marks-キャプチャ))
@@ -135,6 +137,12 @@
 - **疑い**: teardown の test-cache 掃除との競合 / AV・インデクサのファイルロック / 同名 rename 競合。
 - **対応案**: rename EPERM/EXDEV/EBUSY を数回・短間隔でリトライ（既存 proxyRetry 思想と同様）、または書込先が消えていれば諦める。`server/cache-writer.js`。
 - **状態**: ✅ 🧪。rename を EPERM/EBUSY/EACCES/EEXIST で 10/30/80ms バックオフ再試行、ENOENT(宛先消失)は再試行せず黙って諦める（エラーログも抑制）。`_renameWithRetry{Async,Sync}`＋ `tests/unit/cache-writer-rename-retry.test.js`。
+
+### T11. proxy で `_secretGuard` 未配線の残り（type_secret / serverInfo）
+- **背景**: 秘匿スクショ黒塗りの修正（H 参照）で判明した同根の未了。proxy ブロックは `mcp.setSecretGuard` を呼ばないため、proxy MCP プロセスの `cb._secretGuard` が undefined。
+- **影響**: (a) `write.js` の `type_secret` が `ref`→秘密値を解決できず**proxy で機能しない**（値はワーカー側 `secrets.local.json` にあり、proxy プロセスには無い＝ワーカーへ転送する経路が要る）。(b) `transport.js` の serverInfo redaction ブロックが proxy で出ない（表示のみ）。
+- **対応案**: `type_secret` をワーカー側経路（HTTP/action）で解決させる。serverInfo は worker の `/health` secretGuard 状態を取得して反映。
+- **状態**: ⬜（(a) は機能/セキュリティ、(b) は表示）。
 
 ### T4. 秘匿ガード 追加堅牢化
 - **内容**(任意・`docs/ideas` & 記憶に詳細): ①保管元(.env/secrets.local.json)を別経路で読めない事のテスト ②追加パターン(電話/SSN/IP) ③スクショ **サーバー側ピクセル黒塗り** v2(ユーザー画面のちらつき回避) ④`dashboardSeesRaw:true` 経路の実装（現状 dead オプション。redactをdashboard broadcast後・cache前に分離する必要）。

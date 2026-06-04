@@ -49,7 +49,23 @@ function captureElement(tabId, opts = {}) {
   });
 }
 
-function capture(tabId, opts = {}) {
+// Secret-guard screenshot masking is computed here, on the worker, so every
+// caller — MCP stdio, HTTP /api/screenshot, and the proxy's HTTP forward — gets
+// masked images. (It used to live in the MCP tool and was dead under the proxy,
+// which never received the guard, and dropped on the HTTP path.) The provider is
+// injected (nullable no-op) and returns the rects to black out for a tab.
+let _maskProvider = null;
+function setMaskProvider(fn) { _maskProvider = fn; }
+
+async function capture(tabId, opts = {}) {
+  // Resolve mask rects unless the caller already supplied them. Best-effort:
+  // masking must never block or fail a capture.
+  if (_maskProvider && !opts.maskRects) {
+    try {
+      const rects = await _maskProvider(tabId);
+      if (rects && rects.length) opts = { ...opts, maskRects: rects };
+    } catch (_) { /* never block a capture on masking */ }
+  }
   return new Promise((resolve, reject) => {
     const reqId = randomUUID();
     const timer = setTimeout(() => {
@@ -182,4 +198,4 @@ async function captureElementThumbnail(tabId, opts = {}) {
   return { ...result, _cached: false };
 }
 
-module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };
+module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, setMaskProvider, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };

@@ -54,24 +54,41 @@ function parseValue(str) {
 }
 
 // ── Apply WHISKOR_* env vars as overrides ────────────────────────────────────
+// Supports nested keys: WHISKOR_PRIVACY_SECRETGUARD_ENABLED → privacy.secretGuard
+// .enabled. Each '_'-separated part descends one level, matched case-insensitively
+// against the config keys (underscores in the key name are ignored). At each level
+// the longest run of parts that names an existing key wins, so multi-word keys
+// (whether written maxConsoleLogs or MAX_CONSOLE_LOGS) resolve. A part that matches
+// nothing is ignored — unknown env vars never create keys.
+function _norm(k) { return String(k).toLowerCase().replace(/_/g, ''); }
+
+function _applyEnvPath(root, parts, value) {
+  let cur = root;
+  let i = 0;
+  while (i < parts.length) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return;
+    const keys = Object.keys(cur);
+    let matchKey = null, consumed = 0;
+    // Prefer the longest prefix of remaining parts that names a key at this level.
+    for (let j = parts.length; j > i; j--) {
+      const joined = parts.slice(i, j).join('');
+      const found = keys.find((k) => _norm(k) === joined);
+      if (found) { matchKey = found; consumed = j - i; break; }
+    }
+    if (matchKey == null) return;       // no key matches → ignore this env var
+    i += consumed;
+    if (i >= parts.length) { cur[matchKey] = value; return; } // leaf → set
+    cur = cur[matchKey];                // descend
+  }
+}
+
 function applyEnvOverrides(config) {
   for (const [envKey, envVal] of Object.entries(process.env)) {
     if (!envKey.startsWith('WHISKOR_')) continue;
-    const parts = envKey.slice('WHISKOR_'.length).toLowerCase().split('_');
-    if (parts.length < 2) continue;
-
-    const section = parts[0];              // e.g. "security"
-    const key     = parts.slice(1).join('_'); // e.g. "allowexecutejs"
-
-    if (!config[section] || typeof config[section] !== 'object') continue;
-
-    // Case-insensitive key match
-    for (const cfgKey of Object.keys(config[section])) {
-      if (cfgKey.toLowerCase() === key.toLowerCase()) {
-        config[section][cfgKey] = parseValue(envVal);
-        break;
-      }
-    }
+    if (envKey.startsWith('WHISKOR_MCP_')) continue; // handled in loadMcpToolsConfig
+    const parts = envKey.slice('WHISKOR_'.length).toLowerCase().split('_').filter(Boolean);
+    if (parts.length < 2) continue;     // need at least section + key
+    _applyEnvPath(config, parts, parseValue(envVal));
   }
   return config;
 }
@@ -270,4 +287,4 @@ function getMcpToolsDefaults() {
   };
 }
 
-module.exports = { loadConfig, getDefaults, loadMcpToolsConfig };
+module.exports = { loadConfig, getDefaults, loadMcpToolsConfig, applyEnvOverrides };

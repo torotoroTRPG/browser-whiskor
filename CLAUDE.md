@@ -169,7 +169,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 ## Configuration
 
-`config.json` がメイン設定。`.env` ファイルで `WHISKOR_<SECTION>_<KEY>=<value>` 形式で上書き可能。
+`config.json` がメイン設定。`.env` ファイルや環境変数で `WHISKOR_<SECTION>_<KEY>=<value>` 形式で上書き可能。**ネストキーも可**：各 `_` 区切りが1階層を下り、キー名は大文字小文字・アンダースコアを無視して照合する（例：`WHISKOR_PRIVACY_SECRETGUARD_ENABLED=true` → `privacy.secretGuard.enabled`、`WHISKOR_AGENTCONTROL_PACKEDSOM_PREFETCHONNAVIGATE=true`）。既存キーに一致しない env は無視される（キーを新設しない）。実体は `config-loader.js` の `applyEnvOverrides`。
 
 主要な設定項目:
 - `security.allowExecuteJs`: デフォルト `false`。`execute_js` ツールを使うには `true` が必要

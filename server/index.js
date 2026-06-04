@@ -215,6 +215,19 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     screenshots.setSomStats(somStats);
     screenshots.setSomThumbs(somThumbs);
     actions.setSomStats(somStats);
+    // Secret-guard screenshot masking, resolved worker-side so it applies over MCP
+    // stdio, HTTP, and the proxy forward alike (it used to be in the MCP tool and
+    // was dead under the proxy). Reads the tab's already-redacted text-coords —
+    // their boxes mark where to black out — and returns the rects to mask.
+    {
+      const { findRedactedRects } = require('./secret-guard');
+      screenshots.setMaskProvider(async (tabId) => {
+        const cfg = _cfg.privacy && _cfg.privacy.secretGuard;
+        if (!secretGuard.active || !cfg || cfg.redactScreenshots === false) return null;
+        const tc = await cache.readSessionFile(tabId, 'raw/visual/text-coords.json');
+        return findRedactedRects(tc);
+      });
+    }
     sourceIndex = require('./source-index').createSourceIndex();
     sourceCorrelations = require('./source-correlation').createCorrelations();
 

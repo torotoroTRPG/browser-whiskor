@@ -24,9 +24,12 @@ export default defineConfig({
     },
   ],
   webServer: {
+    // secret-guard enabled (via the nested env override) so the masking e2e can
+    // verify screenshot redaction; the email pattern catches the test secret. Other
+    // suites use no email-like text, so redaction does not affect them.
     command: process.platform === 'win32'
-      ? 'powershell -Command "$env:WHISKOR_CACHE_DIR=\'tests/tmp/test-cache\'; node server/index.js"'
-      : 'WHISKOR_CACHE_DIR=tests/tmp/test-cache node server/index.js',
+      ? 'powershell -Command "$env:WHISKOR_CACHE_DIR=\'tests/tmp/test-cache\'; $env:WHISKOR_PRIVACY_SECRETGUARD_ENABLED=\'true\'; node server/index.js"'
+      : 'WHISKOR_CACHE_DIR=tests/tmp/test-cache WHISKOR_PRIVACY_SECRETGUARD_ENABLED=true node server/index.js',
     url: 'http://localhost:7892/health',
     reuseExistingServer: !process.env.CI,
   },

@@ -5,7 +5,6 @@
 'use strict';
 
 const embedService = require('../../services/embed-service');
-const { findRedactedRects } = require('../../secret-guard');
 
 module.exports = function registerCaptureTools(registry) {
   const tools = [];
@@ -40,18 +39,9 @@ module.exports = function registerCaptureTools(registry) {
           maxWidth: typeof args.maxWidth === 'number' ? args.maxWidth : (typeof sc.maxWidth === 'number' ? sc.maxWidth : 0),
         };
 
-        // Secret guard: mask redacted regions before the agent sees the image.
-        // The cached text-coords are already redacted (their words carry tokens
-        // but keep original boxes), so their boxes mark where to draw opaque masks.
-        const sgCfg = (cb._config && cb._config.privacy && cb._config.privacy.secretGuard) || {};
-        if (cb._secretGuard && cb._secretGuard.active && sgCfg.redactScreenshots !== false && cb.cache) {
-          try {
-            const tc = await cb.cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
-            const maskRects = findRedactedRects(tc);
-            if (maskRects.length) opts.maskRects = maskRects;
-          } catch (_) { /* best-effort; never block a capture on masking */ }
-        }
-
+        // Secret-guard screenshot masking is applied worker-side in
+        // screenshot-manager.capture (so it works over MCP stdio, HTTP, and the
+        // proxy forward alike), not here in the MCP layer.
         const result = await cb._captureScreenshot(args.tabId, opts);
         if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
         const response = {
