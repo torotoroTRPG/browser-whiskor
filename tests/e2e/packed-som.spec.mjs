@@ -46,6 +46,12 @@ test.describe('Packed Set-of-Marks capture', () => {
       }
       expect(tabId, 'whiskor should register a session for the test page').not.toBeNull();
 
+      // Let the initial collection settle so no DOM/text-coords change lands
+      // between the two captures below (which would invalidate the cache). The
+      // page is static, and collection is event-driven (no polling), so it goes
+      // quiet quickly.
+      await page.waitForTimeout(1500);
+
       const { status, body } = await httpPost(page, '/api/packed-som', { tabId });
       expect(status).toBe(200);
       expect(body.ok).toBe(true);
@@ -59,8 +65,22 @@ test.describe('Packed Set-of-Marks capture', () => {
         expect(typeof m.selector).toBe('string');
         expect(typeof m.rect.w).toBe('number');
       }
-      // The packed image is a real data URL (the canvas packer ran).
+      // The packed image is a real data URL (the canvas packer ran)...
       expect(body.dataUrl).toMatch(/^data:image\//);
+      // ...and a real, non-empty bitmap sized to hold the crops. A blank/0-size
+      // pack would mean the crop/DPR math collapsed.
+      const png = pngSize(body.dataUrl);
+      expect(png.width).toBeGreaterThan(0);
+      expect(png.height).toBeGreaterThan(0);
+      expect(png.bytes).toBeGreaterThan(100);
+
+      // The freshness cache now lives on the worker (server/screenshot-manager),
+      // so the plain HTTP path surfaces _cached — and the proxy, which forwards to
+      // this same path, gets it too (the regression this guards against). A second
+      // capture of the unchanged page must be served from cache.
+      const second = await httpPost(page, '/api/packed-som', { tabId });
+      expect(second.status).toBe(200);
+      expect(second.body._cached).toBe(true);
 
       await testPage.close();
     } finally {
@@ -68,3 +88,12 @@ test.describe('Packed Set-of-Marks capture', () => {
     }
   });
 });
+
+// Read width/height from a PNG data URL without an image library (IHDR sits at a
+// fixed offset after the 8-byte signature + 4-byte length + "IHDR").
+function pngSize(dataUrl) {
+  const b64 = (dataUrl || '').split(',')[1] || '';
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.length < 24) return { width: 0, height: 0, bytes: buf.length };
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), bytes: buf.length };
+}
