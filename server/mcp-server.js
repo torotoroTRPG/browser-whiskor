@@ -31,6 +31,7 @@ require('./mcp/tools/tabs')(registry);
 require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
 require('./mcp/tools/intelligence')(registry);
+require('./mcp/tools/source')(registry);
 
 // replay_session ツール — array-push pattern (see replay.js)
 const _replayTools = [];
@@ -56,6 +57,10 @@ function setSomStats(store) {
 
 function setSomCache(cache) {
   registry.setCallbacks({ _somCache: cache });
+}
+
+function setSourceContext(fn) {
+  registry.setCallbacks({ _sourceContext: fn });
 }
 
 function setNavigateBroadcast(fn) {
@@ -140,6 +145,7 @@ module.exports = {
   setActionCallbacks,
   setSomStats,
   setSomCache,
+  setSourceContext,
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,

@@ -70,7 +70,7 @@
     "description": "Deep element analysis and causal investigation. Auto-loads when AI needs to explain CSS, trace changes, or detect site updates.",
     "tools": [
       "explain_element", "why_did_this_change",
-      "get_source_file", "detect_site_updates"
+      "get_source_file", "detect_site_updates", "get_source_context"
     ],
     "autoUnload": true,
     "idleTurns": 5,

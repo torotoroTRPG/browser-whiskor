@@ -102,6 +102,7 @@
     "why_did_this_change": { "enabled": true, "category": "intelligence" },
     "get_source_file":    { "enabled": true,  "category": "intelligence" },
     "detect_site_updates": { "enabled": true, "category": "intelligence" },
+    "get_source_context":  { "enabled": true, "category": "intelligence" },
     "get_state_map_visual": { "enabled": true, "category": "intelligence" },
     "replay_session":      { "enabled": true, "category": "replay" }
   },

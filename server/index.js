@@ -170,6 +170,7 @@ let core = null;
 let wss = null;
 let httpServer = null;
 let PROXY_MODE = false;
+let sourceIndex = null; // uploaded-source index (slice 1); created in non-proxy mode
 let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
 (async () => {
@@ -202,6 +203,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     }
 
     const somCache = require('./som-cache').createSomCache();
+    sourceIndex = require('./source-index').createSourceIndex();
 
     core = new WhiskorCore({
       cache,
@@ -430,6 +432,25 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         } catch (e) {
           sendJson({ ok: false, error: e.message }, 500);
         }
+      });
+    }
+
+    // Uploaded-source endpoints (source-upload feature, slice 1).
+    if (method === 'POST' && p === '/api/source/upload') {
+      return readBody().then(b => {
+        try {
+          if (!sourceIndex) return sendJson({ ok: false, error: 'Source index unavailable.' }, 503);
+          const r = sourceIndex.addFiles(b.projectId || 'default', b.files || {});
+          sendJson({ ok: true, ...r });
+        } catch (e) { sendJson({ ok: false, error: e.message }, 500); }
+      });
+    }
+    if (method === 'POST' && p === '/api/source/context') {
+      return readBody().then(b => {
+        try {
+          if (!sourceIndex) return sendJson({ error: 'Source index unavailable.' }, 503);
+          sendJson(require('./source-index').queryContext(sourceIndex, b || {}));
+        } catch (e) { sendJson({ error: e.message }, 500); }
       });
     }
 
@@ -668,6 +689,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       async (tabId, action) => requestServer('POST', '/api/action', { tabId, action: { type: 'capture_element_screenshot', ...action } }),
       async (tabId, opts) => requestServer('POST', '/api/packed-som', { tabId, ...opts })
     );
+    mcp.setSourceContext((q) => requestServer('POST', '/api/source/context', q));
 
     mcp.setSecurity(SECURITY);
 
@@ -699,6 +721,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setSomStats(require('./som-stats').createStatsStore());
     mcp.setSomCache(somCache);
+    mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q));
 
     // Optional packed-SoM prefetch: pre-capture the packed view shortly after a
     // navigation and warm the cache, so the agent's first capture_packed_som on
