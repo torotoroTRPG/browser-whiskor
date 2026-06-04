@@ -217,6 +217,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       configLog,
       secretGuard,
       somCache,
+      sourceIndex,
+      sourceCorrelations,
       correlator,
       sourceStore,
       conclusionCache,

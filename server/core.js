@@ -50,6 +50,11 @@ class WhiskorCore extends EventEmitter {
     this.secretGuard = opts.secretGuard || { redactMessage(m) { return m; } };
     // Packed-SoM freshness cache (slice 2). Default no-op; real one wired in index.js.
     this.somCache = opts.somCache || { markChanged() {}, evictTab() {}, get() { return null; }, set() {} };
+    // Source-upload correlation (slice 3): when a FRAMEWORK_DOM_MAP carries a
+    // component + runtime debug-source, record the runtime→source link passively
+    // so the map fills in from observation. Both null unless uploaded source exists.
+    this.sourceIndex        = opts.sourceIndex        || null;
+    this.sourceCorrelations = opts.sourceCorrelations || null;
     this.correlator       = opts.correlator       || null;
     this.sourceStore      = opts.sourceStore      || null;
     this._conclusionCache = opts.conclusionCache  || null;
@@ -296,6 +301,11 @@ class WhiskorCore extends EventEmitter {
       case 'FRAMEWORK_DOM_MAP': {
         // Persist to intelligence cache directory
         this._persistIntelligenceData(msg.tabId, 'framework-dom-map.json', msg.payload);
+        // Slice 3: passively record the runtime→source link observed here, so the
+        // correlation map fills in as whiskor watches components, with no agent
+        // round-trip. Only when uploaded source exists and the component reported a
+        // name (debug-source hint used when present for an exact match).
+        this._recordObservedCorrelation(msg.payload);
         this.broadcastToDashboard(msg);
         break;
       }
@@ -593,6 +603,25 @@ class WhiskorCore extends EventEmitter {
 
 
   // ── Intelligence Layer helpers ──────────────────────────────────────────────
+
+  // Slice 3 — record a runtime→source correlation observed in a FRAMEWORK_DOM_MAP
+  // message. Passive + best-effort: needs uploaded source and a named component.
+  // Prefers the React debug-source hint (exact) over a symbol-name match. The
+  // correlation map thus fills in as whiskor watches the page, so the agent's later
+  // get_source_context({component}) resolves instantly with no extra round-trip.
+  _recordObservedCorrelation(payload) {
+    if (!this.sourceIndex || !this.sourceCorrelations) return;
+    const comp = payload && payload.component;
+    if (!comp || !comp.name) return;
+    const projectId = this.sourceIndex.listProjects()[0];
+    if (!projectId) return;
+    try {
+      this.sourceCorrelations.correlate(projectId, comp.name, this.sourceIndex, {
+        file: comp.sourceFile || null,
+        line: typeof comp.sourceLine === 'number' ? comp.sourceLine : null,
+      });
+    } catch (_) { /* best-effort observation; never break routing */ }
+  }
 
   _persistIntelligenceData(tabId, filename, data) {
     const sessionDir = this.cache.getSessionDir ? this.cache.getSessionDir(tabId) : null;

@@ -19,7 +19,7 @@
   - [G. ソースアップロード & 相関](#g-ソースアップロード--相関)
   - [H. 実バグ修正](#h-実バグ修正)
 - [Part 2 — 残作業 (TODO)](#part-2--残作業-todo)
-  - [T1. source-upload Slice 3（sourcemap 厳密ピン留め）](#t1-source-upload-slice-3sourcemap-厳密ピン留め)
+  - [T1. source-upload Slice 3（観測からの相関自動記録 / sourcemap）](#t1-source-upload-slice-3観測からの相関自動記録--sourcemap)
   - [T2. パックドSoM: per-element サムネイル（構想2 richer）](#t2-パックドsom-per-element-サムネイル構想2-richer)
   - [T3. 手動ブラウザ検証（4点）](#t3-手動ブラウザ検証4点)
   - [T4. 秘匿ガード 追加堅牢化](#t4-秘匿ガード-追加堅牢化)
@@ -95,7 +95,8 @@
   - **S2 相関**: `source-correlation.js` で component名→ソース解決（**debug-source(React _debugSource file/line)優先 → 名前一致**、confidence付き、記録）。`get_source_context({component, sourceFile?, sourceLine?})`。agentは `get_framework_state` の component名+_debugSource をそのまま渡せる。
 - **場所**: `server/source-index.js`、`server/source-correlation.js`、`server/mcp/tools/source.js`、`server/index.js`(`/api/source/*`)、`docs/ideas/SOURCE_UPLOAD_CORRELATION.md`。
 - **状態/検証**: ✅ 🧪。
-- **未了**: S3 [T1](#t1-source-upload-slice-3sourcemap-厳密ピン留め)、転送/UI [T7](#t7-source-upload-周辺zip-reader--アップロードui)。
+- **S3 自動記録**: 観測した `FRAMEWORK_DOM_MAP` から相関を受動記録（[T1](#t1-source-upload-slice-3観測からの相関自動記録--sourcemap)）。✅
+- **未了**: 転送/UI [T7](#t7-source-upload-周辺zip-reader--アップロードui)。
 
 ### H. 実バグ修正
 - **config-change-log の非再帰バグ**: `validateChange`/`autoRevert` がネストpatchを処理できず、エージェント設定の安全機構（非推奨警告+自動リバート）が **実運用入力に対して死んでいた** → 両walkerを再帰化。空洞テストが緑で隠蔽していた実例。`server/config-change-log.js`。✅ 🧪。
@@ -104,11 +105,11 @@
 
 ## Part 2 — 残作業 (TODO)
 
-### T1. source-upload Slice 3（sourcemap 厳密ピン留め）
-- **目的**: production(minified)でも実行時→ソースを **file+line で厳密**に当てる。
-- **内容**: ページが配る sourcemap を既存 `source-map-resolver`(VLQ) で解決 → アップロード済みツリーと突き合わせて正確なファイル/行を確定。観測した相関を自動記録（[G S2](#g-ソースアップロード--相関) の `source-correlation` に流す）。`framework-dom-map` はオンデマンド(selector指定)で component+_debugSource を返すので、selector→component→source の **live 経路**も合わせて配線可。
-- **場所(予定)**: `server/source-map-resolver.js`(既存) + `server/source-correlation.js` 拡張 + `framework-dom-map` トリガー配線。
-- **状態/規模**: ⬜ / 中。サーバー側は unit可能、live経路は拡張round-trip。
+### T1. source-upload Slice 3（観測からの相関自動記録 / sourcemap）
+- **目的**: 実行時→ソースの相関を **観測から受動的に**埋め、agent の `get_source_context({component})` を round-trip 無しで即解決させる。
+- **済（✅ 自動記録）**: `core.routeMessage` の `FRAMEWORK_DOM_MAP` 経路で `_recordObservedCorrelation(payload)` を呼び、`component.name`(+`sourceFile`/`sourceLine` の debug-source ヒント)を `source-correlation.correlate()` に流して受動記録する。dev ビルドは `_debugSource` で **exact**、それ以外は symbol 名一致にフォールバック。`source-index`/`source-correlation` を `core` に注入（`index.js` 配線、proxy 不要＝ワーカー側で完結）。検証: `tests/integration/source-correlation-observe.test.js`（name-match / debug-source 優先 / 非アップロード時 no-throw / 反復カウント）。
+- **見送り（sourcemap によるコンポーネント解決）**: production(minified)では React fiber に `_debugSource` が無く、fiber 自体も「このコンポーネントの定義がバンドルの何行か」を持たない。よって *コンポーネント→ソース* を sourcemap で厳密化する経路は **入力データの根拠が無い**ため、憶測のデッドコードは置かない。`source-map-resolver`(VLQ) は既に CSS/スタック起点の解決（`explain_element`）で使用中で、そちらが sourcemap の正当な利用箇所。コンポーネント単位の sourcemap ピン留めが要るなら、まず拡張側で「描画位置の generated line/col + bundle URL」を採取する経路設計が前提（別タスク）。
+- **状態/規模**: ✅（自動記録）。sourcemap-component は意図的に非対応（上記理由）。
 
 ### T2. パックドSoM: per-element サムネイル（構想2 richer）
 - **目的**: 各要素の低画質サムネイルを個別に持ち、要素単位で参照/プリフェッチ。`som-stats`(済) と `som-cache`(済) の上に乗る。
@@ -162,7 +163,7 @@
 ### キーワード → セクション
 - 秘匿 / redaction / パスワード / メアド / JWT / type_secret / スクショ黒塗り → [C](#c-秘匿ガード-secret-guard) / 堅牢化 [T4](#t4-秘匿ガード-追加堅牢化)
 - SoM / packed / 要素キャプチャ / 統計 / プリフェッチ / キャッシュ → [F](#f-パックド-set-of-marks-キャプチャ) / サムネ [T2](#t2-パックドsom-per-element-サムネイル構想2-richer)
-- ソース / upload / 相関 / component→source / sourcemap → [G](#g-ソースアップロード--相関) / [T1](#t1-source-upload-slice-3sourcemap-厳密ピン留め) / [T7](#t7-source-upload-周辺zip-reader--アップロードui)
+- ソース / upload / 相関 / component→source / sourcemap → [G](#g-ソースアップロード--相関) / [T1](#t1-source-upload-slice-3観測からの相関自動記録--sourcemap) / [T7](#t7-source-upload-周辺zip-reader--アップロードui)
 - テスト / 空洞 / hollow / CIガード / captureTools → [B](#b-テスト健全化空洞テスト撲滅--ciガード)
 - e2e / Playwright / 実機 / dashboard WS / route fulfill → [D](#d-e2e-実機検証) / 手動 [T3](#t3-手動ブラウザ検証4点)
 - パネル / Frameworks / Unknown / ツリー展開 → [E](#e-devパネル-frameworks-修正) / [T6](#t6-frameworks-unknown-の根本対処) / 拡張B [T5](#t5-devパネル拡張-b)
@@ -186,7 +187,7 @@
 - `tests/e2e/*.spec.mjs` → [D](#d-e2e-実機検証)
 - `docs/ideas/REDACTION_SECRET_GUARD.md` → [C](#c-秘匿ガード-secret-guard)
 - `docs/ideas/PACKED_SOM_CAPTURE.md` → [F](#f-パックド-set-of-marks-キャプチャ) / [T2](#t2-パックドsom-per-element-サムネイル構想2-richer)
-- `docs/ideas/SOURCE_UPLOAD_CORRELATION.md` → [G](#g-ソースアップロード--相関) / [T1](#t1-source-upload-slice-3sourcemap-厳密ピン留め)
+- `docs/ideas/SOURCE_UPLOAD_CORRELATION.md` → [G](#g-ソースアップロード--相関) / [T1](#t1-source-upload-slice-3観測からの相関自動記録--sourcemap)
 
 ### MCPツール → セクション
 - `capture_packed_som` → [F](#f-パックド-set-of-marks-キャプチャ)
