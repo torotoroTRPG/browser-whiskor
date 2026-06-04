@@ -148,10 +148,10 @@
 ### T4. 秘匿ガード 追加堅牢化（任意）
 - **② 追加パターン（main 9cdae78）**: ✅ 🧪。ssn/ipv4/phone を**個別 config トグル**で追加。誤検出しやすい（IP=エンドポイント, phone=フッター等）ため email/creditCard/jwt と違い**既定 off・`=== true` ゲート**。`privacy.secretGuard.patterns` で必要なものだけ有効化（config に trade-off コメント）。`secret-guard.js`＋config＋テスト。
 - **① 保管元の別経路読取防止**: ✅（実質）。秘密の値は agent 向け面に出ない事を既存テストが担保（`secret-guard-flow.test.js`＝/health は件数のみ・値は出さない、`transport-serverinfo.test.js`）。`resolveSecret` は type_secret(ワーカー→ページ)専用、`listRefs` は名前のみ。
-- **③ スクショ黒塗り v2（ちらつき無し）**: ⬜。今は実ページに一瞬 DOM オーバーレイ→撮影→除去（画面チラつき）。v2 案＝**撮影後に拡張 canvas 上で黒塗り**（ページ非接触・Node 画像処理不要、ロードマップ旧記載の「サーバー側ピクセル」より軽量方針に合う）。両 background 編集。中。
-- **④ `dashboardSeesRaw:true` 実装**: ⬜（**要慎重**）。redaction は `core.routeMessage` 冒頭の単一チョークポイントで in-place→以後 dashboard broadcast も cache も黒塗り＝現状 dead。実装は「dashboard へ生・cache/agent へ黒塗り」へ分離（散在する `broadcastToDashboard` を生コピーへ）。**誤ると agent に漏洩**。安全既定に穴を開ける項目なので最後・要レビュー。
+- **③ スクショ黒塗り v2（ちらつき無し, main 3583e1c）**: ✅。実ページへのオーバーレイをやめ、**撮影後に拡張 canvas 上で黒塗り**（`maskDataUrl`/`maskDataUrlFx`、ページ非接触＝画面チラつき無し、Node 画像処理不要）。rects は document 座標→scroll+dpr で viewport-image px に変換（マスク時のみ executeScript で scroll/dpr 取得）。旧 `drawWhiskorMasks`/`removeWhiskorMasks` 撤去（git 履歴に保存）。サーバー側不変＝e2e 期待値同じ。「チラつき無し」自体は目視確認。
+- **④ `dashboardSeesRaw:true` 実装**: ⬜ **見送り（やる率低め・保留）**。ユーザー「あまり必要を感じない」。redaction は `core.routeMessage` 冒頭の単一チョークポイントで in-place→以後 dashboard broadcast も cache も黒塗り＝現状 dead。実装するなら「dashboard へ生・cache/agent へ黒塗り」へ分離（散在 `broadcastToDashboard` を生コピーへ）だが**誤ると agent 漏洩**＝安全既定に穴。未回収項目として残置。
 - **場所**: `server/secret-guard.js`、`server/core.js`、`extension/background/sw.js`＋`firefox-mv2/background/background.js`(③)。
-- **状態/規模**: 🟡 ②✅①✅／③④残（任意）。
+- **状態/規模**: 🟡 ②✅①✅③✅／④は見送り（やる率低め）。
 
 ### T5. devパネル拡張 B
 - **目的**: devパネルを大幅強化＋agentにも(config許可範囲で)見せる。
