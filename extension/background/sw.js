@@ -346,6 +346,84 @@ function collectElements() {
   return { elements: els, vpWidth: window.innerWidth, vpHeight: window.innerHeight };
 }
 
+// ── Packed Set-of-Marks: crop interactive elements from one viewport bitmap and
+// pack them into a single numbered image (OffscreenCanvas — available in MV3 SW).
+// See docs/ideas/PACKED_SOM_CAPTURE.md.
+async function _blobToDataURL(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return 'data:' + (blob.type || 'image/png') + ';base64,' + btoa(binary);
+}
+
+function _kindFromTag(tag) {
+  if (tag === 'a') return 'link';
+  if (tag === 'input' || tag === 'select' || tag === 'textarea') return 'input';
+  return 'button';
+}
+
+async function buildPackedSom(tabId, windowId, opts) {
+  const max = (opts && opts.max) || 40;
+  const cellMax = (opts && opts.cellMaxPx) || 96;
+  const types = opts && opts.types;
+
+  // Interactive elements (reuse collectElements) + the page's devicePixelRatio.
+  let elements = [];
+  for (const world of ['MAIN', 'ISOLATED']) {
+    try {
+      const r = await chrome.scripting.executeScript({ target: { tabId }, func: collectElements, world });
+      elements = (r && r[0] && r[0].result && r[0].result.elements) || [];
+      if (elements.length) break;
+    } catch (_) { /* try the other world */ }
+  }
+  let dpr = 1;
+  try {
+    const r = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => window.devicePixelRatio || 1 });
+    dpr = (r && r[0] && r[0].result) || 1;
+  } catch (_) {}
+
+  let els = elements.filter((e) => e.w >= 2 && e.h >= 2);
+  if (types && types.length) els = els.filter((e) => types.includes(_kindFromTag(e.tag)));
+  els = els.slice(0, max);
+  if (!els.length) return { dataUrl: null, marks: [], width: 0, height: 0 };
+
+  // Capture the viewport once (CSS-px × dpr) and decode to a bitmap.
+  const shotUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, { format: 'png' });
+  const bitmap = await createImageBitmap(await (await fetch(shotUrl)).blob());
+
+  // Shelf-pack: each element scaled to fit cellMax, wrapped at MAXW.
+  const PAD = 4, MAXW = 800;
+  const cells = els.map((e) => {
+    const scale = Math.min(1, cellMax / Math.max(e.w, e.h, 1));
+    return { e, dw: Math.max(8, Math.round(e.w * scale)), dh: Math.max(8, Math.round(e.h * scale)) };
+  });
+  let cx = PAD, cy = PAD, rowH = 0, usedW = 0;
+  for (const c of cells) {
+    if (cx + c.dw + PAD > MAXW && cx > PAD) { cx = PAD; cy += rowH + PAD; rowH = 0; }
+    c.dx = cx; c.dy = cy;
+    cx += c.dw + PAD; rowH = Math.max(rowH, c.dh); usedW = Math.max(usedW, cx);
+  }
+  const W = Math.min(MAXW, usedW + PAD), H = cy + rowH + PAD;
+
+  const canvas = new OffscreenCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, 0, W, H);
+  const marks = [];
+  cells.forEach((c, i) => {
+    const n = i + 1, e = c.e;
+    const sx = (e.x - e.w / 2) * dpr, sy = (e.y - e.h / 2) * dpr, sw = e.w * dpr, sh = e.h * dpr;
+    try { ctx.drawImage(bitmap, sx, sy, sw, sh, c.dx, c.dy, c.dw, c.dh); } catch (_) {}
+    ctx.fillStyle = 'rgba(255,70,70,0.92)'; ctx.fillRect(c.dx, c.dy, 16, 13);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillText(String(n), c.dx + 3, c.dy + 2);
+    marks.push({ n, text: e.text, selector: e.selector, rect: { x: Math.round(e.x - e.w / 2), y: Math.round(e.y - e.h / 2), w: e.w, h: e.h } });
+  });
+
+  const dataUrl = await _blobToDataURL(await canvas.convertToBlob({ type: 'image/png' }));
+  return { dataUrl, marks, width: W, height: H };
+}
+
 // ── Server → Extension commands ───────────────────────────────────────────────
 
 async function handleServerMessage(msg) {
@@ -569,6 +647,34 @@ async function handleServerMessage(msg) {
           sendToServer({ type: 'SCREENSHOT_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
         } else {
           sendToServer({ type: 'SCREENSHOT_RESULT', reqId, error: e.message });
+        }
+      }
+      break;
+    }
+
+    case 'CAPTURE_PACKED_SOM': {
+      const { reqId, tabId, opts = {} } = msg;
+      try {
+        let windowId;
+        try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
+        if (windowId == null) {
+          sendToServer({ type: 'PACKED_SOM_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+          break;
+        }
+        const packed = await buildPackedSom(tabId, windowId, opts);
+        sendToServer({
+          type: 'PACKED_SOM_RESULT', reqId,
+          dataUrl: packed.dataUrl,
+          marks:   packed.marks,
+          width:   packed.width,
+          height:  packed.height,
+          capturedAt: Date.now(),
+        });
+      } catch (e) {
+        if (isTabGone(e)) {
+          sendToServer({ type: 'PACKED_SOM_RESULT', reqId, ...(await tabGoneInfo(tabId)) });
+        } else {
+          sendToServer({ type: 'PACKED_SOM_RESULT', reqId, error: e.message });
         }
       }
       break;
