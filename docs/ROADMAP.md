@@ -151,9 +151,10 @@
 
 ### T5. devパネル拡張 B
 - **目的**: devパネルを大幅強化＋agentにも(config許可範囲で)見せる。
-- **内容**(大型構想): リアルタイムグラフ / **パネル配置の図解を XML 化** / **ページのフロント実装を丸ごと export** / バック挙動の取得 / config許可内で agent にパネル可視化。
+- **済（UX/堅牢性 quick-win, main 0a94a3b）**: パネルの **HTMLエスケープを全面統一**（ページ由来文字列＝component名/URL/CSS値/token/input type/framework名/JSONダンプを innerHTML 前に必ず `esc()`。`esc` はクォートも対象＝属性安全、framework id は `safeId()`）＝特権パネルへの markup 注入を封鎖。`onOtherFw` の **重複無限増殖を修正**（type 単位で最新保持・再構築）。React ツリー再構築時の **スクロール位置を保持**。両拡張(extension/firefox-mv2)に適用。
+- **残**(大型構想): リアルタイムグラフ / **パネル配置の図解を XML 化** / **ページのフロント実装を丸ごと export** / バック挙動の取得 / config許可内で agent にパネル可視化 / 画像 in-view サムネ([[project_image_asset_correlation]])。
 - **場所(予定)**: `extension/panel/*`、`extension/devtools/*`、サーバー新エンドポイント。
-- **状態/規模**: ⬜ / 特大（要スコープ分割の設計メモから）。
+- **状態/規模**: 🟡 quick-win 済 / 残は特大。
 
 ### T6. Frameworks "Unknown" の根本対処
 - **目的**: パネルで匿名表示になる component の命名を改善。
