@@ -28,6 +28,7 @@
   - [T7. source-upload 周辺（zip reader / アップロードUI）](#t7-source-upload-周辺zip-reader--アップロードui)
   - [T8. GitHub リポジトリ整頓 & リリース](#t8-github-リポジトリ整頓--リリース)
   - [T9. 雑多（ブランチ掃除・バージョン・dashboardSeesRaw 他）](#t9-雑多ブランチ掃除バージョンdashboardseesraw-他)
+  - [T10. EPERM: cache writeJson の rename 失敗（Windows）](#t10-eperm-cache-writejson-の-rename-失敗windows)
 - [Part 3 — 逆引き索引](#part-3--逆引き索引)
 
 ---
@@ -100,6 +101,8 @@
 
 ### H. 実バグ修正
 - **config-change-log の非再帰バグ**: `validateChange`/`autoRevert` がネストpatchを処理できず、エージェント設定の安全機構（非推奨警告+自動リバート）が **実運用入力に対して死んでいた** → 両walkerを再帰化。空洞テストが緑で隠蔽していた実例。`server/config-change-log.js`。✅ 🧪。
+- **packedSoM cache/stats が proxy で死亡**: som-cache(`_cached`)・som-stats(並べ替え/record)を MCP層(capture.js/write.js)に置いていたため、**proxy mode（実運用の通常構成）では setSomCache/setSomStats が未配線＝完全に無効**（HTTP経路もcache見ず・prefetch温めても誰も読まない）。→ ワーカー側 `screenshot-manager.capturePackedSom` にキャッシュ+stats集約、record は `action-executor.execute`(click) へ。全経路(MCP stdio/HTTP/proxy転送)が同一ワーカーcacheを通る構造で再発防止。[[project_proxy_mode_async_cache]] と同型。検証: `tests/unit/screenshot-manager-packed-som.test.js` ＋ 実機e2e(2回目HTTPが`_cached:true`)。✅ 🧪。
+- **非proxyサーバーの起動時クラッシュ（副次発見）**: `index.js:727` の `mcp.setSomCache(somCache)` が別ブロックの `somCache`(206行)を参照不可で `ReferenceError` → `npm start`(非proxy)/e2e が起動不能。proxy mode では当該elseが走らず露見せず。上記修正で727行撤去により解消。✅。
 
 ---
 
@@ -118,12 +121,18 @@
 - **状態/規模**: ⬜ / 大。`docs/ideas/PACKED_SOM_CAPTURE.md` の slice2/3 参照。
 
 ### T3. 手動ブラウザ検証（4点）
-- node では動かせない実機挙動。別pwsh + 拡張ロードで目視/e2e:
-  1. **秘匿スクショ黒塗り**: secrets.local.json + `privacy.secretGuard.enabled=true` → ページに秘密表示 → `capture_screenshot(returnImage:true)` で該当領域が黒塗りか。([C](#c-秘匿ガード-secret-guard))
-  2. **devパネル Frameworks**: Reactページでノードを開いて放置 → 新データ到来後も開いたままか / Unknown が控えめか。([E](#e-devパネル-frameworks-修正))
-  3. **packedSoM プリフェッチ**: `prefetchOnNavigate=true` で遷移後 `capture_packed_som` が `_cached:true` で即返るか。([F](#f-パックド-set-of-marks-キャプチャ))
-  4. **packedSoM の見た目品質**: 詰めた画像の crop 位置・DPR スケールが正しいか（実画面と一致するか）。([F](#f-パックド-set-of-marks-キャプチャ))
-- **状態**: ⬜（実機確認）。
+- node では動かせない実機挙動。別pwsh + 拡張ロードで目視/e2e（実機メモ: **headed必須**＝旧headlessはMV3拡張を読まない、test timeoutは接続待ち60秒より長く）:
+  1. **秘匿スクショ黒塗り**: secrets.local.json + `privacy.secretGuard.enabled=true` → ページに秘密表示 → `capture_screenshot(returnImage:true)` で該当領域が黒塗りか。([C](#c-秘匿ガード-secret-guard))。⬜（config 2段ネストは env 上書き不可＝有効化方法の検討要、後述 T9 系）。
+  2. **devパネル Frameworks**: Reactページでノードを開いて放置 → 新データ到来後も開いたままか / Unknown が控えめか。([E](#e-devパネル-frameworks-修正))。⬜（目視）。
+  3. **packedSoM プリフェッチ / cache**: ✅ cache 機構を実機検証済（2回目HTTPが`_cached:true`、`tests/e2e/packed-som.spec.mjs`）。残: `prefetchOnNavigate=true`(config 2段ネスト)での遷移後即返りの live 確認。([F](#f-パックド-set-of-marks-キャプチャ))
+  4. **packedSoM の見た目品質**: ✅ 実機検証済（PNG 実寸デコードで非空・サイズ健全を確認）。([F](#f-パックド-set-of-marks-キャプチャ))
+- **状態**: 🟡 部分完了（#3 cache/#4 ✅、#1/#2 と #3 prefetch live 残）。
+
+### T10. EPERM: cache writeJson の rename 失敗（Windows）
+- **症状**: 実機e2e中に `[cache] writeJson error: EPERM: operation not permitted, rename '..._index.json.NNN.tmp' -> '_index.json'`。cache-writer のアトミック書き込み（tmp→rename）が Windows で一時的に弾かれる。catch で握り潰すため**非致命的**だが、書き込みが落ちうる。
+- **疑い**: teardown の test-cache 掃除との競合 / AV・インデクサのファイルロック / 同名 rename 競合。
+- **対応案**: rename EPERM/EXDEV/EBUSY を数回・短間隔でリトライ（既存 proxyRetry 思想と同様）、または書込先が消えていれば諦める。`server/cache-writer.js`。
+- **状態**: ⬜（小、優先度低）。
 
 ### T4. 秘匿ガード 追加堅牢化
 - **内容**(任意・`docs/ideas` & 記憶に詳細): ①保管元(.env/secrets.local.json)を別経路で読めない事のテスト ②追加パターン(電話/SSN/IP) ③スクショ **サーバー側ピクセル黒塗り** v2(ユーザー画面のちらつき回避) ④`dashboardSeesRaw:true` 経路の実装（現状 dead オプション。redactをdashboard broadcast後・cache前に分離する必要）。
