@@ -164,9 +164,10 @@
 - **状態/規模**: ⬜ / 中（injected、実機検証要）。
 
 ### T7. source-upload 周辺（zip reader / アップロードUI）
-- **内容**: ①依存ゼロの **zip reader**（既存 `zip-writer.js` の対）でzipアップロード対応 ②ダッシュボードのアップロードUI or `whiskor source add <path>` CLI ③multi-project/identity スコープ ④バック側ソースの扱い(DOM相関弱→検索コンテキスト)。
-- **場所(予定)**: `server/zip-writer.js`(対のreader)、`server/source-index.js`、`server/dashboard.html`。
-- **状態/規模**: ⬜ / 中。`docs/ideas/SOURCE_UPLOAD_CORRELATION.md` Open questions 参照。
+- **済（main f49a8d1）**: ①**依存ゼロ zip reader** `server/zip-reader.js`（zip-writer の対。EOCD+central dir 解析→local header→inflate、store+deflate、maxEntries/maxBytes 上限）。②`/api/source/upload` が `{ zipBase64 }`（base64 zip）も受理→ readZip→addFiles。③**ダッシュボードに「SOURCE UPLOAD」カード**（projectId＋.zip ピッカー、ブラウザで btoa→POST）。検証: `tests/unit/zip-reader.test.js`＋**実機 end-to-end**（別ポート起動でupload→get_source_context が symbol 解決。ネスト env `WHISKOR_SERVER_HTTPPORT` も実機確認）。
+- **残（任意）**: `whiskor source add <path>` CLI／multi-project スコープ UI／バック側ソースの検索コンテキスト化。
+- **場所**: `server/zip-reader.js`、`server/index.js`(`/api/source/upload`)、`server/dashboard.html`。
+- **状態/規模**: ✅ 🧪（核＝zip reader＋upload UI 完了）。残は任意。`docs/ideas/SOURCE_UPLOAD_CORRELATION.md` Open questions 参照。
 
 ### T8. GitHub リポジトリ整頓 & リリース
 - **内容**: `gh repo edit` で About(description/homepage/topics)、README/CONTRIBUTING/SECURITY 整備、GitHub Release ノート。**バージョン**: 機能多数追加なので `npm version minor`(0.6.0→0.7.0) + `git push --follow-tags`(release.yml起動)。
