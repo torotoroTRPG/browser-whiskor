@@ -152,6 +152,7 @@ module.exports = function registerElementCaptureTools(registry) {
             required: ['x', 'y', 'w', 'h'],
           },
           padding:  { type: 'number', description: 'Extra pixels around the element (default: 4)' },
+          maxPx:    { type: 'number', description: 'Cap the thumbnail\'s longer side in px (default: 96). The extension downscales the crop to this.' },
         },
         required: ['tabId'],
       },
@@ -163,6 +164,7 @@ module.exports = function registerElementCaptureTools(registry) {
         selector: args.selector || undefined,
         rect:     args.rect     || undefined,
         padding:  typeof args.padding === 'number' ? args.padding : 4,
+        maxPx:    typeof args.maxPx   === 'number' ? args.maxPx   : 96, // low-res thumbnail
         format:   'jpeg', quality: 60, // a thumbnail — keep it small
       };
       try {

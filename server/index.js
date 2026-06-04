@@ -455,7 +455,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     if (method === 'POST' && p === '/api/element-thumbnail') {
       return readBody().then(async b => {
         try {
-          const opts = { selector: b.selector, rect: b.rect, padding: b.padding, format: b.format, quality: b.quality };
+          const opts = { selector: b.selector, rect: b.rect, padding: b.padding, format: b.format, quality: b.quality, maxPx: b.maxPx };
           const result = await screenshots.captureElementThumbnail(b.tabId, opts);
           sendJson(result);
         } catch (e) {

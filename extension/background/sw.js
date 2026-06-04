@@ -166,7 +166,7 @@ class CollectionScheduler {
 const collectionScheduler = new CollectionScheduler();
 
 
-async function cropImage(dataUrl, rect, padding, format, quality, dpr = 1) {
+async function cropImage(dataUrl, rect, padding, format, quality, dpr = 1, maxPx = 0) {
   // MV3 service workers have no Image/document — decode the captured PNG via
   // fetch → blob → createImageBitmap instead of `new Image()`.
   const srcBlob = await (await fetch(dataUrl)).blob();
@@ -187,9 +187,17 @@ async function cropImage(dataUrl, rect, padding, format, quality, dpr = 1) {
       throw new Error('Crop region is outside the visible viewport');
     }
 
-    const canvas = new OffscreenCanvas(sw, sh);
+    // Optionally downscale to a thumbnail by capping the longer side to maxPx —
+    // crop + downscale in one drawImage (no second decode/encode pass).
+    let dw = sw, dh = sh;
+    if (maxPx && Math.max(sw, sh) > maxPx) {
+      const k = maxPx / Math.max(sw, sh);
+      dw = Math.max(1, Math.round(sw * k));
+      dh = Math.max(1, Math.round(sh * k));
+    }
+    const canvas = new OffscreenCanvas(dw, dh);
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, dw, dh);
 
     const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const blobOpts = format === 'jpeg'
@@ -782,7 +790,7 @@ async function handleServerMessage(msg) {
           quality: format === 'jpeg' ? (opts.quality ?? 85) : undefined,
         });
 
-        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality, dpr);
+        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality, dpr, opts.maxPx);
 
         sendToServer({
           type:       'ELEMENT_CAPTURE_RESULT',

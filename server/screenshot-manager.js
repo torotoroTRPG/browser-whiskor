@@ -165,7 +165,10 @@ function handleResult(msg) {
  * here jpeg compression keeps the payload modest.
  */
 async function captureElementThumbnail(tabId, opts = {}) {
-  const keyBase = opts.selector || (opts.rect ? `rect:${opts.rect.x},${opts.rect.y}` : null);
+  const baseSel = opts.selector || (opts.rect ? `rect:${opts.rect.x},${opts.rect.y}` : null);
+  // Fold the thumbnail size cap into the key so different maxPx requests for the
+  // same element don't collide.
+  const keyBase = baseSel ? `${baseSel}#${opts.maxPx || 0}` : null;
   const sig = (_somThumbs && keyBase) ? _somThumbs.thumbSignature(keyBase, opts.rect || {}) : null;
 
   if (_somThumbs && sig) {

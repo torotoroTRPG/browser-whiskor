@@ -36,12 +36,14 @@ test.describe('Packed Set-of-Marks capture', () => {
       await testPage.goto(HTTP_URL + '/__packed_som__', { waitUntil: 'domcontentloaded' });
 
       // Discover the tab whiskor assigned (poll the session list — no push signal).
+      // The test-cache can hold stale __packed_som__ sessions from earlier runs with
+      // dead tabIds, so pick the most recent match (highest tabId = newest tab).
       let tabId = null;
       for (let i = 0; i < 40 && tabId == null; i++) {
         const { body } = await httpGet(page, '/api/sessions');
         const sessions = Array.isArray(body) ? body : (body && body.sessions) || [];
-        const s = sessions.find((x) => (x.url || '').includes('__packed_som__'));
-        if (s) tabId = s.tabId;
+        const matches = sessions.filter((x) => (x.url || '').includes('__packed_som__'));
+        if (matches.length) tabId = Math.max(...matches.map((s) => s.tabId));
         else await page.waitForTimeout(250);
       }
       expect(tabId, 'whiskor should register a session for the test page').not.toBeNull();
@@ -82,6 +84,22 @@ test.describe('Packed Set-of-Marks capture', () => {
       expect(second.status).toBe(200);
       expect(second.body._cached).toBe(true);
 
+      // Per-element thumbnail (T2): the extension downscales the crop to maxPx, and
+      // a repeat reference to the unchanged element comes from the worker cache.
+      const tSmall = await httpPost(page, '/api/element-thumbnail', { tabId, selector: 'body', maxPx: 48 });
+      expect(tSmall.status).toBe(200);
+      expect(tSmall.body.ok).toBe(true);
+      expect(tSmall.body._cached).toBe(false);
+      // Proof the downscale ran: a full-page 'body' crop re-encoded at 48px is tiny
+      // (hundreds of bytes); a non-downscaled viewport capture would be tens of KB.
+      const smallBytes = b64Bytes(tSmall.body.dataUrl);
+      expect(smallBytes).toBeGreaterThan(0);
+      expect(smallBytes).toBeLessThan(4000);
+
+      // A repeat reference to the unchanged element is served from the worker cache.
+      const tCached = await httpPost(page, '/api/element-thumbnail', { tabId, selector: 'body', maxPx: 48 });
+      expect(tCached.body._cached).toBe(true);
+
       await testPage.close();
     } finally {
       await context.close();
@@ -96,4 +114,10 @@ function pngSize(dataUrl) {
   const buf = Buffer.from(b64, 'base64');
   if (buf.length < 24) return { width: 0, height: 0, bytes: buf.length };
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), bytes: buf.length };
+}
+
+// Approx decoded byte size of a data URL (base64 is ~4/3 of the bytes).
+function b64Bytes(dataUrl) {
+  const b64 = (dataUrl || '').split(',')[1] || '';
+  return Math.round(b64.length * 0.75);
 }
