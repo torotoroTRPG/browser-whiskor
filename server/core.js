@@ -50,6 +50,9 @@ class WhiskorCore extends EventEmitter {
     this.secretGuard = opts.secretGuard || { redactMessage(m) { return m; } };
     // Packed-SoM freshness cache (slice 2). Default no-op; real one wired in index.js.
     this.somCache = opts.somCache || { markChanged() {}, evictTab() {}, get() { return null; }, set() {} };
+    // Per-element thumbnail cache (T2). Same view-aware invalidation signal as
+    // somCache; default no-op, real one wired in index.js.
+    this.somThumbs = opts.somThumbs || { markChanged() {}, evictTab() {} };
     // Source-upload correlation (slice 3): when a FRAMEWORK_DOM_MAP carries a
     // component + runtime debug-source, record the runtime→source link passively
     // so the map fills in from observation. Both null unless uploaded source exists.
@@ -209,7 +212,7 @@ class WhiskorCore extends EventEmitter {
 
     // Invalidate any cached packed-SoM capture for this tab when the page's
     // interactive surface changes (navigation, DOM mutation, scroll/recollect).
-    if (msg.tabId && SOM_CHANGE_TYPES.has(msg.type)) this.somCache.markChanged(msg.tabId);
+    if (msg.tabId && SOM_CHANGE_TYPES.has(msg.type)) { this.somCache.markChanged(msg.tabId); this.somThumbs.markChanged(msg.tabId); }
     this.emit('message', msg, fromWs);
     // Track which tabIds belong to this WebSocket for cleanup + app isolation
     if (msg.tabId && fromWs) {

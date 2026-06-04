@@ -205,12 +205,15 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
     const somCache = require('./som-cache').createSomCache();
     const somStats = require('./som-stats').createStatsStore();
-    // Packed-SoM cache + usage-stats live on the worker (the process that captures
-    // and runs actions), so they serve MCP stdio, HTTP, and the proxy forward
-    // identically. Wiring them in the MCP layer instead would silently disable
-    // them under the proxy (its MCP runs in a separate process). See PACKED_SOM doc.
+    const somThumbs = require('./som-thumbnails').createThumbStore();
+    // Packed-SoM cache + usage-stats + per-element thumbnails live on the worker
+    // (the process that captures and runs actions), so they serve MCP stdio, HTTP,
+    // and the proxy forward identically. Wiring them in the MCP layer instead would
+    // silently disable them under the proxy (its MCP runs in a separate process).
+    // See PACKED_SOM doc.
     screenshots.setSomCache(somCache);
     screenshots.setSomStats(somStats);
+    screenshots.setSomThumbs(somThumbs);
     actions.setSomStats(somStats);
     sourceIndex = require('./source-index').createSourceIndex();
     sourceCorrelations = require('./source-correlation').createCorrelations();
@@ -225,6 +228,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       configLog,
       secretGuard,
       somCache,
+      somThumbs,
       sourceIndex,
       sourceCorrelations,
       correlator,
@@ -440,6 +444,19 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         try {
           const opts = { max: b.max, types: b.types };
           const result = await screenshots.capturePackedSom(b.tabId, opts);
+          sendJson(result);
+        } catch (e) {
+          sendJson({ ok: false, error: e.message }, 500);
+        }
+      });
+    }
+
+    // Per-element thumbnail (T2) — cache-backed single-element crop.
+    if (method === 'POST' && p === '/api/element-thumbnail') {
+      return readBody().then(async b => {
+        try {
+          const opts = { selector: b.selector, rect: b.rect, padding: b.padding, format: b.format, quality: b.quality };
+          const result = await screenshots.captureElementThumbnail(b.tabId, opts);
           sendJson(result);
         } catch (e) {
           sendJson({ ok: false, error: e.message }, 500);
@@ -701,6 +718,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       async (tabId, action) => requestServer('POST', '/api/action', { tabId, action: { type: 'capture_element_screenshot', ...action } }),
       async (tabId, opts) => requestServer('POST', '/api/packed-som', { tabId, ...opts })
     );
+    mcp.setElementThumbnail(async (tabId, opts) => requestServer('POST', '/api/element-thumbnail', { tabId, ...opts }));
     mcp.setSourceContext((q) => requestServer('POST', '/api/source/context', q));
 
     mcp.setSecurity(SECURITY);
@@ -731,6 +749,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       (tabId, active, strategy) => core.triggerExplorer(tabId, active, strategy),
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
+    mcp.setElementThumbnail(screenshots.captureElementThumbnail.bind(screenshots));
     mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q, sourceCorrelations));
 
     // Optional packed-SoM prefetch: pre-capture the packed view shortly after a

@@ -127,8 +127,13 @@ The signal must transfer *across sites and sessions*, so the stat key is the
   packer. (Pixel work is in the extension; the server side and the mark→action
   mapping are unit-testable.)
 - **Slice 2:** per-element LRU cache + lazy capture beyond the cap (view-aware
-  eviction).
-- **Slice 3:** global usage-stats store + prefetch ordering.
+  eviction). *Partly done (T2 Slice A):* worker-side per-element thumbnail cache
+  (`server/som-thumbnails.js`) + `get_element_thumbnail` MCP tool reusing the
+  existing single-element crop, view-aware invalidation, proxy-safe wiring. Remaining:
+  resolution downscale to `cellMaxPx` in the extension canvas (both backgrounds),
+  lazy capture of elements beyond the packed cap, and stats-driven prefetch.
+- **Slice 3:** global usage-stats store + prefetch ordering. *Store + ordering done*
+  (`server/som-stats.js`, applied in packed-SoM); prefetch-by-stats remains.
 
 ## Open questions
 

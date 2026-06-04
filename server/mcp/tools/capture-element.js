@@ -129,6 +129,60 @@ module.exports = function registerElementCaptureTools(registry) {
     },
   });
 
+  // get_element_thumbnail — cache-backed single-element crop (T2 / packed-SoM
+  // slice 2). Same input as capture_element_screenshot, but a repeat reference to
+  // an unchanged element is served from a worker-side view-aware cache (no
+  // re-capture), so the agent can cheaply re-look at or prefetch one element.
+  tools.push({
+    definition: {
+      name: 'get_element_thumbnail',
+      description: [
+        'Get a cropped image of one element, served from a per-element cache when the page has not changed since.',
+        'Cheaper than capture_element_screenshot for repeat looks at the same element, and lets you reference elements one at a time.',
+        'Supply `selector` (preferred) or `rect` (x/y/w/h in CSS px). The image returns as a viewable block; `_cached` says whether it came from cache.',
+      ].join(' '),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:    { type: 'number', description: 'Tab ID from get_sessions' },
+          selector: { type: 'string', description: 'CSS selector of the element (preferred — stable cache key).' },
+          rect:     {
+            type: 'object', description: 'Bounding rect in CSS px (from get_ui_catalog / get_text_coords).',
+            properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
+            required: ['x', 'y', 'w', 'h'],
+          },
+          padding:  { type: 'number', description: 'Extra pixels around the element (default: 4)' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._captureElementThumbnail) return { error: 'Element thumbnail capture not available (no browser connected).' };
+      if (!args.selector && !args.rect) return { error: 'Provide either selector or rect.' };
+      const opts = {
+        selector: args.selector || undefined,
+        rect:     args.rect     || undefined,
+        padding:  typeof args.padding === 'number' ? args.padding : 4,
+        format:   'jpeg', quality: 60, // a thumbnail — keep it small
+      };
+      try {
+        const result = await cb._captureElementThumbnail(args.tabId, opts);
+        if (!result || !result.ok) return { ok: false, error: result && result.error, ...(result && result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+        const response = {
+          ok: true, rect: result.rect, capturedAt: result.capturedAt, _cached: !!result._cached,
+          _note: (result._cached ? 'Reused a cached thumbnail (page unchanged since). ' : '')
+            + (result.rect ? `${result.rect.w}×${result.rect.h}px element.` : ''),
+        };
+        const b64 = (result.dataUrl || '').split(',')[1] || '';
+        const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
+        if (b64) response._mcpImage = { data: b64, mimeType: mimeMatch ? mimeMatch[1] : 'image/jpeg' };
+        return response;
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    },
+  });
+
   registry.registerTools(tools);
 };
 

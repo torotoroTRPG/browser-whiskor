@@ -51,6 +51,10 @@ function setActionCallbacks(callAction, captureScreenshot, captureElement, captu
   registry.setCallbacks({ _callAction: callAction, _captureScreenshot: captureScreenshot, _captureElement: captureElement, _capturePackedSom: capturePackedSom });
 }
 
+function setElementThumbnail(fn) {
+  registry.setCallbacks({ _captureElementThumbnail: fn });
+}
+
 
 function setSourceContext(fn) {
   registry.setCallbacks({ _sourceContext: fn });
@@ -136,6 +140,7 @@ module.exports = {
   startMcpServer,
   setCallbacks,
   setActionCallbacks,
+  setElementThumbnail,
   setSourceContext,
   setSecurity,
   setIntelligenceCallbacks,

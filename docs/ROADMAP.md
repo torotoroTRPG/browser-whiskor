@@ -116,9 +116,10 @@
 
 ### T2. パックドSoM: per-element サムネイル（構想2 richer）
 - **目的**: 各要素の低画質サムネイルを個別に持ち、要素単位で参照/プリフェッチ。`som-stats`(済) と `som-cache`(済) の上に乗る。
-- **内容**: 既存 `capture_element_screenshot` を使い per-element crop をキャッシュ、統計上位を先読み。ビュー連動LRU退避（view外/セッション閉/N手番未参照でドロップ）。**注意**: per-element crop をサーバーで再パックするとNode画像処理が要る（軽量方針と衝突）→ 拡張canvasで詰めるか、サムネは個別配信に留める設計判断が必要。
-- **場所(予定)**: `server/som-cache.js` 拡張 or 新モジュール、`capture-element` 経路、`som-stats`。
-- **状態/規模**: ⬜ / 大。`docs/ideas/PACKED_SOM_CAPTURE.md` の slice2/3 参照。
+- **済（Slice A）**: ワーカー側 per-element サムネイルキャッシュ `server/som-thumbnails.js`（要素署名=selector+8pxサイズバケット、境界付きLRU、view-aware無効化=`som-cache`と同じ markChanged 信号を `core` で発火）＋ MCPツール `get_element_thumbnail`（既存の単一要素クロップ `captureElement` を再利用、jpeg圧縮）。**全経路(MCP stdio/HTTP/proxy転送)で生きるワーカー集約**（packed-som修正と同じ構造、proxy配線漏れを構造的に回避）。core プロファイルに登録。検証: `tests/unit/som-thumbnails.test.js`＋`tests/unit/element-thumbnail.test.js`（キャッシュ/無効化/ツール整形）。起動スモークOK。
+- **残（Slice B/C）**: 拡張canvasでの **解像度ダウンスケール**（`cellMaxPx`、両 background 編集）／パック上限超の要素の **遅延キャプチャ**／`som-stats` 上位の **プリフェッチ**。
+- **場所**: `server/som-thumbnails.js`、`screenshot-manager`(captureElementThumbnail)、`capture-element`(get_element_thumbnail)、`index.js`/`core.js` 配線。`docs/ideas/PACKED_SOM_CAPTURE.md` slice2/3 参照。
+- **状態/規模**: 🟡 Slice A 完了（サーバー側）。残は拡張二重編集＋プリフェッチ。
 
 ### T3. 手動ブラウザ検証（4点）
 - node では動かせない実機挙動。別pwsh + 拡張ロードで目視/e2e（実機メモ: **headed必須**＝旧headlessはMV3拡張を読まない、test timeoutは接続待ち60秒より長く）:

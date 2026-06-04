@@ -26,8 +26,10 @@ function setBroadcast(fn) { _broadcast = fn; }
 // get/set/rank) so a future implementation can be swapped in by re-injecting.
 let _somCache = null;
 let _somStats = null;
+let _somThumbs = null;
 function setSomCache(c) { _somCache = c; }
 function setSomStats(s) { _somStats = s; }
+function setSomThumbs(t) { _somThumbs = t; }
 
 /**
  * Request a screenshot of the given tab.
@@ -154,4 +156,27 @@ function handleResult(msg) {
   p.resolve(result);
 }
 
-module.exports = { setBroadcast, setSomCache, setSomStats, capture, captureElement, capturePackedSom, handleResult };
+/**
+ * Per-element thumbnail capture with a worker-side view-aware cache (T2). Wraps
+ * the existing single-element crop (captureElement) so a repeat reference to an
+ * unchanged element is served from cache instead of re-capturing. Worker-side, so
+ * MCP stdio / HTTP / proxy forward all share it. Resolution downscaling to a
+ * low-quality thumbnail is an extension-canvas refinement left for a later slice;
+ * here jpeg compression keeps the payload modest.
+ */
+async function captureElementThumbnail(tabId, opts = {}) {
+  const keyBase = opts.selector || (opts.rect ? `rect:${opts.rect.x},${opts.rect.y}` : null);
+  const sig = (_somThumbs && keyBase) ? _somThumbs.thumbSignature(keyBase, opts.rect || {}) : null;
+
+  if (_somThumbs && sig) {
+    const hit = _somThumbs.get(tabId, sig);
+    if (hit) return { ok: true, dataUrl: hit.dataUrl, rect: hit.rect, capturedAt: hit.capturedAt, _cached: true };
+  }
+
+  const result = await captureElement(tabId, opts);
+  if (!result || !result.ok) return result;
+  if (_somThumbs && sig) _somThumbs.set(tabId, sig, { dataUrl: result.dataUrl, rect: result.rect });
+  return { ...result, _cached: false };
+}
+
+module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };
