@@ -699,6 +699,24 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setSomStats(require('./som-stats').createStatsStore());
     mcp.setSomCache(somCache);
+
+    // Optional packed-SoM prefetch: pre-capture the packed view shortly after a
+    // navigation and warm the cache, so the agent's first capture_packed_som on
+    // the new page returns instantly. Off by default (avoids capturing for an
+    // agent that never asks). Best-effort; later collection may re-invalidate it.
+    if (_cfg.agentControl?.packedSom?.prefetchOnNavigate === true) {
+      core.on('message', (msg) => {
+        if (!msg || msg.type !== 'PAGE_NAVIGATED' || !msg.tabId) return;
+        const tabId = msg.tabId;
+        setTimeout(async () => {
+          try {
+            const r = await screenshots.capturePackedSom(tabId, {});
+            if (r && r.ok) somCache.set(tabId, r);
+          } catch (_) { /* best-effort prefetch */ }
+        }, 1500);
+      });
+    }
+
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
     mcp.setSecretGuard(secretGuard);
