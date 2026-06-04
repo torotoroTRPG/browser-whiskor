@@ -157,9 +157,22 @@ function createSourceIndex(opts = {}) {
  *   { file, line/... }→ slice that file
  *   (neither)         → list the project's files
  */
-function queryContext(index, q = {}) {
+function queryContext(index, q = {}, correlations = null) {
   const projectId = q.projectId || index.listProjects()[0];
   if (!projectId) return { error: 'No uploaded source. POST files to /api/source/upload first.' };
+
+  // Component → source via correlation (slice 2). `sourceFile`/`sourceLine` are an
+  // optional runtime debug-source hint (e.g. from get_framework_state) for an
+  // exact match; otherwise it falls back to a symbol-name match.
+  if (q.component && correlations) {
+    const r = correlations.correlate(projectId, q.component, index, { file: q.sourceFile, line: q.sourceLine });
+    if (r && r.file) {
+      const sl = index.getSlice(projectId, r.file, { line: r.line || undefined, around: q.around, maxLines: q.maxLines });
+      return { projectId, component: q.component, confidence: r.confidence, ...sl };
+    }
+    return { projectId, component: q.component, confidence: (r && r.confidence) || 'none', matches: (r && r.matches) || [],
+      _note: 'No single source file resolved for this component. Pass `sourceFile`/`sourceLine` (from get_framework_state) or a `file`.' };
+  }
 
   if (q.symbol) {
     const hits = index.findSymbol(projectId, q.symbol);

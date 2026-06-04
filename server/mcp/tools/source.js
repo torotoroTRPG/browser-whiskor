@@ -13,9 +13,12 @@ module.exports = function registerSourceTools(registry) {
       inputSchema: {
         type: 'object',
         properties: {
-          projectId: { type: 'string', description: 'Which uploaded project (default: the only one).' },
-          symbol:    { type: 'string', description: 'Jump to the declaration of this component/function/class name.' },
-          file:      { type: 'string', description: 'Relative path of a file to slice (omit symbol).' },
+          projectId:  { type: 'string', description: 'Which uploaded project (default: the only one).' },
+          component:  { type: 'string', description: 'A framework component name (e.g. from get_framework_state) — resolves to its source file.' },
+          sourceFile: { type: 'string', description: 'Optional exact source path hint for the component (React _debugSource fileName).' },
+          sourceLine: { type: 'number', description: 'Optional source line hint for the component (React _debugSource lineNumber).' },
+          symbol:     { type: 'string', description: 'Jump to the declaration of this component/function/class name.' },
+          file:       { type: 'string', description: 'Relative path of a file to slice (omit symbol).' },
           line:      { type: 'number', description: 'Center the excerpt on this line.' },
           around:    { type: 'number', description: 'Lines of context around `line` (default 30).' },
           from:      { type: 'number', description: '1-based start line (with `to`).' },

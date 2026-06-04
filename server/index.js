@@ -171,6 +171,7 @@ let wss = null;
 let httpServer = null;
 let PROXY_MODE = false;
 let sourceIndex = null; // uploaded-source index (slice 1); created in non-proxy mode
+let sourceCorrelations = null; // runtime→source correlation store (slice 2)
 let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
 (async () => {
@@ -204,6 +205,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
     const somCache = require('./som-cache').createSomCache();
     sourceIndex = require('./source-index').createSourceIndex();
+    sourceCorrelations = require('./source-correlation').createCorrelations();
 
     core = new WhiskorCore({
       cache,
@@ -449,7 +451,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       return readBody().then(b => {
         try {
           if (!sourceIndex) return sendJson({ error: 'Source index unavailable.' }, 503);
-          sendJson(require('./source-index').queryContext(sourceIndex, b || {}));
+          sendJson(require('./source-index').queryContext(sourceIndex, b || {}, sourceCorrelations));
         } catch (e) { sendJson({ error: e.message }, 500); }
       });
     }
@@ -721,7 +723,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setSomStats(require('./som-stats').createStatsStore());
     mcp.setSomCache(somCache);
-    mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q));
+    mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q, sourceCorrelations));
 
     // Optional packed-SoM prefetch: pre-capture the packed view shortly after a
     // navigation and warm the cache, so the agent's first capture_packed_som on

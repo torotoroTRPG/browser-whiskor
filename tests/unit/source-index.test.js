@@ -118,6 +118,14 @@ describe('15.1 queryContext', () => {
   it('errors with no uploaded source', () => {
     assert.match(queryContext(idx(), {}).error, /No uploaded source/);
   });
+
+  it('resolves a component to its source slice via correlations (slice 2)', () => {
+    const { createCorrelations } = require('../../server/source-correlation');
+    const r = queryContext(built(), { component: 'LoginForm', around: 1 }, createCorrelations());
+    assert.strictEqual(r.component, 'LoginForm');
+    assert.strictEqual(r.confidence, 'name-match');
+    assert.ok(r.excerpt.includes('LoginForm'));
+  });
 });
 
 describe('15.1 langOf', () => {
