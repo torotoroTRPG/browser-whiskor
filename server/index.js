@@ -486,7 +486,14 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       return readBody().then(b => {
         try {
           if (!sourceIndex) return sendJson({ ok: false, error: 'Source index unavailable.' }, 503);
-          const r = sourceIndex.addFiles(b.projectId || 'default', b.files || {});
+          // Accept either a JSON file map { files: { path: content } } or a
+          // base64-encoded .zip { zipBase64 } (read with the dependency-free reader).
+          let files = b.files || {};
+          if (b.zipBase64) {
+            const buf = Buffer.from(b.zipBase64, 'base64');
+            files = { ...require('./zip-reader').readZip(buf), ...files };
+          }
+          const r = sourceIndex.addFiles(b.projectId || 'default', files);
           sendJson({ ok: true, ...r });
         } catch (e) { sendJson({ ok: false, error: e.message }, 500); }
       });

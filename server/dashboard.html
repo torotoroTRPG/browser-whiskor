@@ -991,6 +991,15 @@
             <div style="margin-top:21px"><button class="btn btn-accent" id="btn-save-cfg">SAVE</button></div>
           </div>
           <div class="card"><h3>RAW CONFIG</h3><div class="json" id="cfg-raw"></div></div>
+          <div class="card">
+            <h3>SOURCE UPLOAD</h3>
+            <div class="cfg-grid">
+              <div class="fg"><label>PROJECT ID</label><input id="src-project" type="text" value="default" placeholder="default"></div>
+              <div class="fg"><label>.ZIP FILE</label><input id="src-zip" type="file" accept=".zip"></div>
+            </div>
+            <div style="margin-top:12px"><button class="btn btn-accent" id="src-upload">UPLOAD</button></div>
+            <div class="json" id="src-result" style="margin-top:10px"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1164,7 +1173,7 @@
         'stream-el',
         'st-results','st-summary','st-run','st-clear','st-copy','st-copy-logs','st-report',
         'st-scenario-opts','st-scenario-url','st-scenario-auto-tab','st-scenario-progress','st-scenario-sel',
-        'cfg-mode','cfg-plugins','cfg-raw',
+        'cfg-mode','cfg-plugins','cfg-raw','src-project','src-zip','src-upload','src-result',
         'act-url','act-url-go','act-type-text','act-type-go',
         'act-sx','act-sy','act-sdx','act-sdy','act-scroll-go',
         'act-sel','act-hover','act-select-opt','act-sel-val','act-check',
@@ -2733,6 +2742,28 @@
       loadConfig();
     }
 
+    // Upload a .zip of source for the source-upload feature. Reads the file in the
+    // browser, base64-encodes it, and POSTs to /api/source/upload (the server's
+    // dependency-free zip-reader unpacks it). The agent then gets only the relevant
+    // slice via get_source_context.
+    async function uploadSource() {
+      var f = D['src-zip'].files && D['src-zip'].files[0];
+      var res = D['src-result'];
+      if (!f) { res.textContent = 'Pick a .zip file first.'; return; }
+      res.textContent = 'Uploading ' + esc(f.name) + ' …';
+      try {
+        var buf = await f.arrayBuffer();
+        var bytes = new Uint8Array(buf), bin = '';
+        for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        var zipBase64 = btoa(bin);
+        var r = await (await fetch(S.api + '/api/source/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: (D['src-project'].value || 'default').trim(), zipBase64: zipBase64 })
+        })).json();
+        res.textContent = JSON.stringify(r, null, 2);
+      } catch (e) { res.textContent = 'Upload failed: ' + (e && e.message || e); }
+    }
+
     async function triggerCollect() {
       if (!S.tabId) return;
       await fetch(S.api + '/api/gather', {
@@ -3418,6 +3449,7 @@
       document.getElementById('btn-sync').addEventListener('click', refreshSessions);
       document.getElementById('btn-collect').addEventListener('click', triggerCollect);
       document.getElementById('btn-save-cfg').addEventListener('click', saveConfig);
+      D['src-upload'].addEventListener('click', uploadSource);
 
       // Tools toggle
       D['cv-tools-toggle'].addEventListener('click', function() {
