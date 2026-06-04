@@ -154,6 +154,10 @@ function onReact(data) {
 
 function renderReactTree(data) {
   const container = document.getElementById('fw-react');
+  // A fresh REACT_SNAPSHOT rebuilds the whole tree; preserve the panel's scroll
+  // position so the user isn't jumped away from the node they were inspecting.
+  const scroller = container.closest('.panel');
+  const prevScroll = scroller ? scroller.scrollTop : 0;
   container.innerHTML = '';
   if (!data?.componentTree) { container.innerHTML = '<span class="empty">No fiber tree</span>'; return; }
   // Remember which nodes the user expanded/collapsed so a fresh REACT_SNAPSHOT
@@ -210,32 +214,36 @@ function renderReactTree(data) {
     return div;
   }
   container.appendChild(renderNode(data.componentTree, '0'));
+  if (scroller) scroller.scrollTop = prevScroll;
 }
 
 function onVue(data, ver) {
   state.vueData = data;
   const container = document.getElementById('fw-vue');
-  container.innerHTML = `<pre>${JSON.stringify(data, null, 2).slice(0, 3000)}</pre>`;
+  container.innerHTML = `<pre>${esc(JSON.stringify(data, null, 2).slice(0, 3000))}</pre>`;
 }
 
 function onAngular(data) {
   state.angularData = data;
-  document.getElementById('fw-angular').innerHTML = `<pre>${JSON.stringify(data, null, 2).slice(0, 3000)}</pre>`;
+  document.getElementById('fw-angular').innerHTML = `<pre>${esc(JSON.stringify(data, null, 2).slice(0, 3000))}</pre>`;
 }
 
 function onOtherFw(type, data) {
+  // Keep the latest snapshot per framework and rebuild — appending grew the list
+  // with duplicate dumps on every snapshot.
+  if (!state.otherFw) state.otherFw = {};
+  state.otherFw[type] = data;
   const container = document.getElementById('fw-other');
-  const sec = document.createElement('div');
-  sec.innerHTML = `<div class="section-title">${type.replace('_SNAPSHOT','')}</div>
-    <pre>${JSON.stringify(data, null, 2).slice(0, 1500)}</pre>`;
-  if (container.querySelector('.empty')) container.innerHTML = '';
-  container.appendChild(sec);
+  container.innerHTML = Object.keys(state.otherFw).map(t =>
+    `<div class="section-title">${esc(t.replace('_SNAPSHOT',''))}</div>
+     <pre>${esc(JSON.stringify(state.otherFw[t], null, 2).slice(0, 1500))}</pre>`
+  ).join('') || '<span class="empty">None detected</span>';
 }
 
 function onGeneric(data) {
   state.genericData = data;
   const el = document.getElementById('fw-generic');
-  el.innerHTML = `<pre>${JSON.stringify(data, null, 2).slice(0, 3000)}</pre>`;
+  el.innerHTML = `<pre>${esc(JSON.stringify(data, null, 2).slice(0, 3000))}</pre>`;
 }
 
 function onNetRequest(data) {
@@ -273,10 +281,10 @@ function renderNetRequests() {
     const method = (req.method || 'GET').toUpperCase();
     const url    = req.url || '';
     row.innerHTML = `
-      <span class="method ${method}">${method}</span>
+      <span class="method ${safeId(method)}">${esc(method)}</span>
       <span class="net-status status-2" style="min-width:28px;text-align:right;color:var(--dim)">…</span>
-      <span class="net-url" title="${url}">${url}</span>
-      ${req.tokens?.length ? `<span class="token-badge">🔑 ${req.tokens.map(t=>t.type).join(',')}</span>` : ''}
+      <span class="net-url" title="${esc(url)}">${esc(url)}</span>
+      ${req.tokens?.length ? `<span class="token-badge">🔑 ${esc(req.tokens.map(t=>t.type).join(','))}</span>` : ''}
     `;
     container.appendChild(row);
   }
@@ -287,8 +295,8 @@ function renderTokens() {
   if (!state.tokens.length) { el.innerHTML = '<span class="empty">None detected</span>'; return; }
   el.innerHTML = state.tokens.map(t =>
     `<div style="font-family:var(--mono);font-size:10px;padding:2px 5px">
-      <span style="color:var(--purple)">${t.type}</span>
-      <span style="color:var(--dim)">${t.header}: ${t.preview}</span>
+      <span style="color:var(--purple)">${esc(t.type)}</span>
+      <span style="color:var(--dim)">${esc(t.header)}: ${esc(t.preview)}</span>
     </div>`
   ).join('');
 }
@@ -297,7 +305,7 @@ function renderEndpoints() {
   const el = document.getElementById('net-endpoints');
   if (!state.endpoints.size) { el.innerHTML = '<span class="empty">None yet</span>'; return; }
   el.innerHTML = [...state.endpoints].sort().map(e =>
-    `<div style="font-family:var(--mono);font-size:10px;padding:1px 5px;color:var(--green)">${e}</div>`
+    `<div style="font-family:var(--mono);font-size:10px;padding:1px 5px;color:var(--green)">${esc(e)}</div>`
   ).join('');
 }
 
@@ -323,9 +331,9 @@ function renderTextWords(data) {
     row.dataset.text = w.text;
     row.innerHTML = `
       <span class="text-word">${esc(w.text)}</span>
-      <span class="text-coords">(${w.absoluteX},${w.absoluteY}) ${w.width}×${w.height}</span>
-      <span class="text-elem">&lt;${w.element}&gt;</span>
-      <span class="text-style">${w.fontSize}px ${w.fontFamily || ''}</span>
+      <span class="text-coords">(${esc(w.absoluteX)},${esc(w.absoluteY)}) ${esc(w.width)}×${esc(w.height)}</span>
+      <span class="text-elem">&lt;${esc(w.element)}&gt;</span>
+      <span class="text-style">${esc(w.fontSize)}px ${esc(w.fontFamily || '')}</span>
     `;
     container.appendChild(row);
   }
@@ -362,7 +370,7 @@ function onCss(data) {
   const fwEl = document.getElementById('css-frameworks');
   const fws  = data.frameworks || {};
   fwEl.innerHTML = Object.keys(fws).filter(k=>fws[k])
-    .map(k => `<span class="badge">${k}</span>`).join('') || '<span class="empty">None detected</span>';
+    .map(k => `<span class="badge">${esc(k)}</span>`).join('') || '<span class="empty">None detected</span>';
 
   // Colors
   const colorEl = document.getElementById('css-colors');
@@ -370,9 +378,9 @@ function onCss(data) {
   for (const t of (data.tokens?.colors || []).slice(0, 60)) {
     const row = document.createElement('div');
     row.className = 'token-row';
-    row.innerHTML = `<div class="color-swatch" style="background:${t.value}"></div>
-      <span style="color:var(--accent)">${t.prop}</span>
-      <span style="color:var(--dim)">${t.value}</span>`;
+    row.innerHTML = `<div class="color-swatch" style="background:${esc(t.value)}"></div>
+      <span style="color:var(--accent)">${esc(t.prop)}</span>
+      <span style="color:var(--dim)">${esc(t.value)}</span>`;
     colorEl.appendChild(row);
   }
 
@@ -380,15 +388,15 @@ function onCss(data) {
   const spEl = document.getElementById('css-spacing');
   spEl.innerHTML = [...(data.tokens?.spacing||[]),...(data.tokens?.radii||[])]
     .slice(0,40).map(t =>
-      `<div class="token-row"><span style="color:var(--accent)">${t.prop}</span>
-       <span style="color:var(--dim)">${t.value}</span></div>`
+      `<div class="token-row"><span style="color:var(--accent)">${esc(t.prop)}</span>
+       <span style="color:var(--dim)">${esc(t.value)}</span></div>`
     ).join('');
 
   // Fonts
   const ftEl = document.getElementById('css-type');
   ftEl.innerHTML = (data.tokens?.fonts||[]).slice(0,20).map(t =>
-    `<div class="token-row"><span style="color:var(--yellow)">${t.prop}</span>
-     <span style="color:var(--dim)">${t.value}</span></div>`
+    `<div class="token-row"><span style="color:var(--yellow)">${esc(t.prop)}</span>
+     <span style="color:var(--dim)">${esc(t.value)}</span></div>`
   ).join('');
 }
 
@@ -409,8 +417,8 @@ function onUi(data) {
   const inputsEl = document.getElementById('ui-inputs');
   inputsEl.innerHTML = (data.inputs||[]).slice(0,30).map(i =>
     `<div style="padding:2px 5px;font-size:10px;font-family:var(--mono)">
-      <span style="color:var(--yellow)">[${i.type}]</span>
-      <span style="color:var(--dim)">${i.name||i.id||'(unnamed)'}</span>
+      <span style="color:var(--yellow)">[${esc(i.type)}]</span>
+      <span style="color:var(--dim)">${esc(i.name||i.id||'(unnamed)')}</span>
       ${i.placeholder ? `<span style="color:var(--dim)"> "${esc(i.placeholder)}"</span>` : ''}
     </div>`
   ).join('');
@@ -419,7 +427,7 @@ function onUi(data) {
   linksEl.innerHTML = (data.links||[]).slice(0,30).map(l =>
     `<div style="padding:2px 5px;font-size:10px;font-family:var(--mono)">
       <span style="color:var(--accent)">${esc(l.text||'(no text)')}</span>
-      <span style="color:var(--dim)"> → ${l.href?.slice(0,80)}</span>
+      <span style="color:var(--dim)"> → ${esc(l.href?.slice(0,80) || '')}</span>
     </div>`
   ).join('');
 }
@@ -429,8 +437,8 @@ function onFrameworks(data) {
   const el = document.getElementById('ov-frameworks');
   if (!data?.detected?.length) { el.innerHTML = '<span class="empty">None</span>'; return; }
   el.innerHTML = data.detected.map(f => {
-    const cls = f.frameworkId || 'generic';
-    return `<span class="badge ${cls}">${f.name}</span>`;
+    const cls = safeId(f.frameworkId || 'generic');
+    return `<span class="badge ${cls}">${esc(f.name)}</span>`;
   }).join('');
 }
 
@@ -467,7 +475,7 @@ function addToStream(msg) {
   let preview = '';
   try { preview = JSON.stringify(msg.payload || msg).slice(0, 120); }
   catch (_) {}
-  row.innerHTML = `<span class="etype">${msg.type||'?'}</span>
+  row.innerHTML = `<span class="etype">${esc(msg.type||'?')}</span>
     <span class="etime">${time}</span>
     <span class="epayload">${esc(preview)}</span>`;
   list.insertBefore(row, list.firstChild);
@@ -475,6 +483,13 @@ function addToStream(msg) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+// Escape for BOTH text and attribute contexts (quotes too) — panel data is
+// page-controlled and the DevTools panel page is privileged, so an unescaped
+// component name / URL / CSS value must never inject markup.
 function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// Safe identifier for use in a class attribute (e.g. framework id → CSS class).
+function safeId(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, ''); }
