@@ -54,6 +54,10 @@ function setSomStats(store) {
   registry.setCallbacks({ _somStats: store });
 }
 
+function setSomCache(cache) {
+  registry.setCallbacks({ _somCache: cache });
+}
+
 function setNavigateBroadcast(fn) {
   registry.setCallbacks({ _navigateBroadcast: fn });
 }
@@ -135,6 +139,7 @@ module.exports = {
   setCallbacks,
   setActionCallbacks,
   setSomStats,
+  setSomCache,
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,

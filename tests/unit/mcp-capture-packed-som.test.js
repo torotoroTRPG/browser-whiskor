@@ -98,6 +98,33 @@ describe('4.5 capture_packed_som', () => {
     assert.match(res._note, /likely relevance/);
   });
 
+  it('serves a fresh cached capture without re-capturing', async () => {
+    let captured = 0;
+    const cb = {
+      _capturePackedSom: async () => { captured++; return { ok: true, dataUrl: 'data:image/png;base64,QQ==', marks: [] }; },
+      _somCache: {
+        get: () => ({ ok: true, dataUrl: 'data:image/png;base64,QzE=', filePath: '/c.png', marks: [{ n: 1, text: 'Cached', selector: '#c', rect: { w: 1 } }] }),
+        set: () => {},
+      },
+    };
+    const res = await packed.handler({ tabId: 1 }, cb);
+    assert.strictEqual(captured, 0, 'must not re-capture when the cache is fresh');
+    assert.strictEqual(res._cached, true);
+    assert.strictEqual(res.marks[0].text, 'Cached');
+  });
+
+  it('captures and stores when the cache misses', async () => {
+    let stored = null;
+    const cb = {
+      _capturePackedSom: async () => ({ ok: true, dataUrl: 'data:image/png;base64,QQ==', marks: [{ n: 1, text: 'Fresh', selector: '#f', rect: { w: 1 } }] }),
+      _somCache: { get: () => null, set: (tabId, v) => { stored = { tabId, v }; } },
+    };
+    const res = await packed.handler({ tabId: 7 }, cb);
+    assert.strictEqual(res._cached, false);
+    assert.strictEqual(stored.tabId, 7);
+    assert.strictEqual(res.marks[0].text, 'Fresh');
+  });
+
   it('passes through a failed capture', async () => {
     const cb = { _capturePackedSom: async () => ({ ok: false, error: 'tab gone', tabGone: true, liveTabs: [2] }) };
     const res = await packed.handler({ tabId: 9 }, cb);

@@ -119,7 +119,7 @@ function getDefaults() {
     textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
     executeJs:  { captureConsoleDuringExec: true },
     adaptiveCollection: { enabled: false, activeIntervalMs: 5000, quiescentIntervalMs: 30000, quiescentAfterMs: 60000 },
-    agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false },
+    agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false, packedSom: { prefetchOnNavigate: false } },
     privacy: {
       secretGuard: {
         enabled: false,          // opt-in. Redacts the user's secrets from agent/cache/logs.

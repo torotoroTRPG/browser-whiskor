@@ -113,8 +113,15 @@ module.exports = function registerCaptureTools(registry) {
           max:   typeof args.max === 'number' ? args.max : 40,
           types: Array.isArray(args.types) ? args.types : null,
         };
-        const result = await cb._capturePackedSom(args.tabId, opts);
-        if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+        // Freshness cache: reuse the last packed capture if the page hasn't
+        // changed since (avoids a re-capture). Stats ordering still re-applies.
+        let result = (cb._somCache && cb._somCache.get(args.tabId)) || null;
+        const fromCache = !!result;
+        if (!result) {
+          result = await cb._capturePackedSom(args.tabId, opts);
+          if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
+          if (cb._somCache) cb._somCache.set(args.tabId, result);
+        }
 
         const marks = (result.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
 
@@ -137,8 +144,10 @@ module.exports = function registerCaptureTools(registry) {
           filePath: result.filePath,
           count: marks.length,
           marks,
+          _cached: fromCache,
           _note: 'Each mark is an interactive element cropped from the page (the number n matches the badge in the image). To act on one, click its selector (or its rect center) with the click tool.'
-            + (ordered ? ' Marks are ordered by likely relevance (score) from past usage; the image numbering is unchanged.' : ''),
+            + (ordered ? ' Marks are ordered by likely relevance (score) from past usage; the image numbering is unchanged.' : '')
+            + (fromCache ? ' (Reused a cached capture — the page has not changed since.)' : ''),
         };
         const b64 = (result.dataUrl || '').split(',')[1] || '';
         const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
