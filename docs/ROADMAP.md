@@ -117,9 +117,10 @@
 ### T2. パックドSoM: per-element サムネイル（構想2 richer）
 - **目的**: 各要素の低画質サムネイルを個別に持ち、要素単位で参照/プリフェッチ。`som-stats`(済) と `som-cache`(済) の上に乗る。
 - **済（Slice A）**: ワーカー側 per-element サムネイルキャッシュ `server/som-thumbnails.js`（要素署名=selector+8pxサイズバケット、境界付きLRU、view-aware無効化=`som-cache`と同じ markChanged 信号を `core` で発火）＋ MCPツール `get_element_thumbnail`（既存の単一要素クロップ `captureElement` を再利用、jpeg圧縮）。**全経路(MCP stdio/HTTP/proxy転送)で生きるワーカー集約**（packed-som修正と同じ構造、proxy配線漏れを構造的に回避）。core プロファイルに登録。検証: `tests/unit/som-thumbnails.test.js`＋`tests/unit/element-thumbnail.test.js`（キャッシュ/無効化/ツール整形）。起動スモークOK。
-- **残（Slice B/C）**: 拡張canvasでの **解像度ダウンスケール**（`cellMaxPx`、両 background 編集）／パック上限超の要素の **遅延キャプチャ**／`som-stats` 上位の **プリフェッチ**。
-- **場所**: `server/som-thumbnails.js`、`screenshot-manager`(captureElementThumbnail)、`capture-element`(get_element_thumbnail)、`index.js`/`core.js` 配線。`docs/ideas/PACKED_SOM_CAPTURE.md` slice2/3 参照。
-- **状態/規模**: 🟡 Slice A 完了（サーバー側）。残は拡張二重編集＋プリフェッチ。
+- **済（Slice B1）**: 拡張canvasでの **解像度ダウンスケール**。`cropImage` に `maxPx`（長辺上限、既定96）を追加し crop+縮小を1回の drawImage で実施（Chrome `sw.js`/Firefox `background.js` 両編集）。`get_element_thumbnail`/`/api/element-thumbnail`/proxy転送に `maxPx` を配線、署名に畳み込み。実機e2e検証（`body`@48px→~135B、`_cached`）。e2e の tabId 探索も stale セッション耐性化（最新tabId選択）。
+- **残（Slice B2/C）**: パック上限超の要素の **遅延キャプチャ**／`som-stats` 上位の **プリフェッチ**（B3）。
+- **場所**: `server/som-thumbnails.js`、`screenshot-manager`(captureElementThumbnail)、`capture-element`(get_element_thumbnail)、`index.js`/`core.js` 配線、`extension/background/sw.js`＋`firefox-mv2/background/background.js`(cropImage maxPx)。`docs/ideas/PACKED_SOM_CAPTURE.md` slice2/3 参照。
+- **状態/規模**: 🟡 Slice A＋B1 完了。残は遅延キャプチャ(B2)＋プリフェッチ(B3)。
 
 ### T3. 手動ブラウザ検証（4点）
 - node では動かせない実機挙動。別pwsh + 拡張ロードで目視/e2e（実機メモ: **headed必須**＝旧headlessはMV3拡張を読まない、test timeoutは接続待ち60秒より長く）:
