@@ -188,6 +188,7 @@
 - `docs/ideas/REDACTION_SECRET_GUARD.md` → [C](#c-秘匿ガード-secret-guard)
 - `docs/ideas/PACKED_SOM_CAPTURE.md` → [F](#f-パックド-set-of-marks-キャプチャ) / [T2](#t2-パックドsom-per-element-サムネイル構想2-richer)
 - `docs/ideas/SOURCE_UPLOAD_CORRELATION.md` → [G](#g-ソースアップロード--相関) / [T1](#t1-source-upload-slice-3観測からの相関自動記録--sourcemap)
+- `docs/ideas/NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION.md` → 未来構想（ロードマップ外）: 保存/提示分離・AI協調検証・名前空間マップ・production マッピングmode・Rust核
 
 ### MCPツール → セクション
 - `capture_packed_som` → [F](#f-パックド-set-of-marks-キャプチャ)
