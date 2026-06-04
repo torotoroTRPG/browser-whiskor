@@ -688,6 +688,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       (tabId, active, strategy) => core.triggerExplorer(tabId, active, strategy),
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
+    mcp.setSomStats(require('./som-stats').createStatsStore());
     mcp.setSecurity(SECURITY);
     mcp.setConfigLog(configLog);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));

@@ -77,6 +77,27 @@ describe('4.5 capture_packed_som', () => {
     assert.strictEqual(opts.max, 40);
   });
 
+  it('orders marks by usage-stats score when a stats store is present (image numbers unchanged)', async () => {
+    const cb = {
+      _capturePackedSom: async () => ({
+        ok: true,
+        dataUrl: 'data:image/png;base64,QQ==',
+        marks: [
+          { n: 1, text: 'Login', selector: '#l', rect: { x: 0, y: 0, w: 1, h: 1 } },
+          { n: 2, text: 'Cart', selector: '#c', rect: { x: 0, y: 0, w: 1, h: 1 } },
+        ],
+      }),
+      _somStats: { rank: (texts) => texts.map((t) => ({ text: t, label: t.toLowerCase(), score: t === 'Cart' ? 5 : 1 })) },
+    };
+    const res = await packed.handler({ tabId: 1 }, cb);
+    // Cart (score 5) is listed before Login (score 1) ...
+    assert.strictEqual(res.marks[0].text, 'Cart');
+    assert.ok(res.marks[0].score > res.marks[1].score);
+    // ... but its image badge number is unchanged (still 2).
+    assert.strictEqual(res.marks[0].n, 2);
+    assert.match(res._note, /likely relevance/);
+  });
+
   it('passes through a failed capture', async () => {
     const cb = { _capturePackedSom: async () => ({ ok: false, error: 'tab gone', tabGone: true, liveTabs: [2] }) };
     const res = await packed.handler({ tabId: 9 }, cb);

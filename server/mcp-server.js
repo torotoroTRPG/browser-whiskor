@@ -50,6 +50,10 @@ function setActionCallbacks(callAction, captureScreenshot, captureElement, captu
   registry.setCallbacks({ _callAction: callAction, _captureScreenshot: captureScreenshot, _captureElement: captureElement, _capturePackedSom: capturePackedSom });
 }
 
+function setSomStats(store) {
+  registry.setCallbacks({ _somStats: store });
+}
+
 function setNavigateBroadcast(fn) {
   registry.setCallbacks({ _navigateBroadcast: fn });
 }
@@ -126,6 +130,7 @@ module.exports = {
   startMcpServer,
   setCallbacks,
   setActionCallbacks,
+  setSomStats,
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,

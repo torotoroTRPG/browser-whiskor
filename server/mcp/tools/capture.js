@@ -103,12 +103,28 @@ module.exports = function registerCaptureTools(registry) {
         if (!result.ok) return { ok: false, error: result.error, ...(result.tabGone ? { tabGone: true, liveTabs: result.liveTabs } : {}) };
 
         const marks = (result.marks || []).map((m) => ({ n: m.n, text: m.text, selector: m.selector, rect: m.rect }));
+
+        // Usage-stats bias: annotate each mark with a likelihood score and list
+        // the likely targets first. The image numbers (n) are unchanged — only
+        // the marks array order changes — so it never hides or relabels anything.
+        let ordered = false;
+        if (cb._somStats && typeof cb._somStats.rank === 'function') {
+          try {
+            const ranked = cb._somStats.rank(marks.map((m) => m.text));
+            const scoreByText = new Map(ranked.map((r) => [r.text, r.score]));
+            for (const m of marks) m.score = scoreByText.get(m.text) || 0;
+            marks.sort((a, b) => (b.score - a.score) || (a.n - b.n));
+            ordered = marks.some((m) => m.score > 0);
+          } catch (_) { /* stats are best-effort */ }
+        }
+
         const response = {
           ok: true,
           filePath: result.filePath,
           count: marks.length,
           marks,
-          _note: 'Each mark is an interactive element cropped from the page. To act on one, click its selector (or its rect center) with the click tool.',
+          _note: 'Each mark is an interactive element cropped from the page (the number n matches the badge in the image). To act on one, click its selector (or its rect center) with the click tool.'
+            + (ordered ? ' Marks are ordered by likely relevance (score) from past usage; the image numbering is unchanged.' : ''),
         };
         const b64 = (result.dataUrl || '').split(',')[1] || '';
         const mimeMatch = /^data:(image\/\w+);base64,/.exec(result.dataUrl || '');
