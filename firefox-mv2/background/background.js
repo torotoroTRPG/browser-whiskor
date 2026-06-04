@@ -266,15 +266,28 @@ async function buildPackedSomFx(tabId, windowId, opts) {
   const canvas = new OffscreenCanvas(W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#1e1e1e'; ctx.fillRect(0, 0, W, H);
+  // emitThumbs: crop each element into its own small jpeg from the SAME bitmap
+  // (no extra captureVisibleTab) so the server can warm the per-element cache.
+  const emitThumbs = !!(opts && opts.emitThumbs);
   const marks = [];
-  cells.forEach((c, i) => {
-    const n = i + 1, e = c.e;
-    try { ctx.drawImage(bitmap, (e.x - e.w / 2) * dpr, (e.y - e.h / 2) * dpr, e.w * dpr, e.h * dpr, c.dx, c.dy, c.dw, c.dh); } catch (_) {}
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i], n = i + 1, e = c.e;
+    const sx = (e.x - e.w / 2) * dpr, sy = (e.y - e.h / 2) * dpr, sw = e.w * dpr, sh = e.h * dpr;
+    try { ctx.drawImage(bitmap, sx, sy, sw, sh, c.dx, c.dy, c.dw, c.dh); } catch (_) {}
     ctx.fillStyle = 'rgba(255,70,70,0.92)'; ctx.fillRect(c.dx, c.dy, 16, 13);
     ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textBaseline = 'top';
     ctx.fillText(String(n), c.dx + 3, c.dy + 2);
-    marks.push({ n, text: e.text, selector: e.selector, rect: { x: Math.round(e.x - e.w / 2), y: Math.round(e.y - e.h / 2), w: e.w, h: e.h } });
-  });
+    const mark = { n, text: e.text, selector: e.selector, rect: { x: Math.round(e.x - e.w / 2), y: Math.round(e.y - e.h / 2), w: e.w, h: e.h } };
+    if (emitThumbs) {
+      try {
+        const tcv = new OffscreenCanvas(c.dw, c.dh);
+        const tctx = tcv.getContext('2d');
+        tctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, c.dw, c.dh);
+        mark.thumb = await _blobToDataURLFx(await tcv.convertToBlob({ type: 'image/jpeg', quality: 0.6 }));
+      } catch (_) { /* best-effort thumbnail */ }
+    }
+    marks.push(mark);
+  }
   const dataUrl = await _blobToDataURLFx(await canvas.convertToBlob({ type: 'image/png' }));
   return { dataUrl, marks, width: W, height: H };
 }

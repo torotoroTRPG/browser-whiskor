@@ -378,8 +378,9 @@
     "autoRevertConfig":     false,
     "screenshotMarks":      false,
     "packedSom": {
-      "_comment_ja": "capture_packed_som（インタラクティブ要素だけを詰めたSoM画像）の設定。prefetchOnNavigate=true で、ページ遷移後に少し待ってからパックドSoMを先回りキャプチャしキャッシュ→agentの初回呼び出しを即時化（agentがpacked_somを使うワークフロー向け。既定off=無駄キャプチャを避ける）",
-      "prefetchOnNavigate": false
+      "_comment_ja": "capture_packed_som（インタラクティブ要素だけを詰めたSoM画像）の設定。prefetchOnNavigate=true で、ページ遷移後に少し待ってからパックドSoMを先回りキャプチャしキャッシュ→agentの初回呼び出しを即時化（agentがpacked_somを使うワークフロー向け。既定off=無駄キャプチャを避ける）。prefetchThumbs=true で、パックドSoMキャプチャ時に同じ1枚のビットマップから各要素のサムネイルも切り出してper-elementキャッシュを温める（追加キャプチャ無し）→get_element_thumbnail({selector})が即ヒット。既定off",
+      "prefetchOnNavigate": false,
+      "prefetchThumbs": false
     },
     "screenshot": {
       "_comment_ja": "capture_screenshot(フル画面)の既定。returnImageByDefault=false で base64 を返さず filePath のみ（トークン節約）。返す場合は format/quality/maxWidth を適用。capture_element は対象外（小サイズ前提）",

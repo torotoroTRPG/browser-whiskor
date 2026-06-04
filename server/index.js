@@ -214,6 +214,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     screenshots.setSomCache(somCache);
     screenshots.setSomStats(somStats);
     screenshots.setSomThumbs(somThumbs);
+    screenshots.setThumbPrefetch(_cfg.agentControl?.packedSom?.prefetchThumbs === true);
     actions.setSomStats(somStats);
     // type_secret resolves the secret value here on the worker (where secrets live),
     // so it works under the proxy — the agent/proxy only ever carry the ref name.

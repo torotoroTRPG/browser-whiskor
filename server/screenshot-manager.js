@@ -27,9 +27,29 @@ function setBroadcast(fn) { _broadcast = fn; }
 let _somCache = null;
 let _somStats = null;
 let _somThumbs = null;
+let _thumbPrefetch = false;
 function setSomCache(c) { _somCache = c; }
 function setSomStats(s) { _somStats = s; }
 function setSomThumbs(t) { _somThumbs = t; }
+// When on, a packed-SoM capture also emits a per-element thumbnail (cropped from
+// the same bitmap — no extra captureVisibleTab) and warms the thumbnail cache, so
+// a later get_element_thumbnail({selector}) is an instant hit. Off by default.
+function setThumbPrefetch(b) { _thumbPrefetch = !!b; }
+
+// Warm the per-element thumbnail cache from a packed result's marks. Keyed to
+// match get_element_thumbnail's selector default (selector + the default maxPx),
+// so a selector-only lookup hits it.
+const PREFETCH_THUMB_MAXPX = 96; // matches buildPackedSom cellMax + the tool default
+function _storePackedThumbs(tabId, marks) {
+  if (!_somThumbs || !Array.isArray(marks)) return;
+  for (const m of marks) {
+    if (!m || !m.thumb || !m.selector) continue;
+    try {
+      const sig = _somThumbs.thumbSignature(`${m.selector}#${PREFETCH_THUMB_MAXPX}`, {});
+      _somThumbs.set(tabId, sig, { dataUrl: m.thumb, rect: m.rect });
+    } catch (_) { /* best-effort prefetch */ }
+  }
+}
 
 /**
  * Request a screenshot of the given tab.
@@ -128,9 +148,11 @@ async function capturePackedSom(tabId, opts = {}) {
   let base = (_somCache && _somCache.get(tabId)) || null;
   const fromCache = !!base;
   if (!base) {
-    base = await _rawCapturePackedSom(tabId, opts);
+    const wantThumbs = _thumbPrefetch && !!_somThumbs;
+    base = await _rawCapturePackedSom(tabId, wantThumbs ? { ...opts, emitThumbs: true } : opts);
     if (!base || !base.ok) return base; // pass through errors untouched
     if (_somCache) _somCache.set(tabId, base);
+    if (wantThumbs) _storePackedThumbs(tabId, base.marks); // warm the per-element cache
   }
   return _shapePackedResult(base, fromCache);
 }
@@ -198,4 +220,4 @@ async function captureElementThumbnail(tabId, opts = {}) {
   return { ...result, _cached: false };
 }
 
-module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, setMaskProvider, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };
+module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, setThumbPrefetch, setMaskProvider, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };
