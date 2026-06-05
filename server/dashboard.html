@@ -2141,18 +2141,21 @@
     // ── Console ──────────────────────────────────────────────────────────
     async function loadConsole() {
       var d = await fetchSess('raw/console/logs.json');
-      if (!d || !d.logs || !d.logs.length) {
+      // The console-logger writes { entries: [{ level, message, timestamp, stack }] }.
+      var entries = d && (d.entries || d.logs); // d.logs = legacy/mock shape
+      if (!entries || !entries.length) {
         D['con-data'].innerHTML = '<span style="color:var(--muted)">(no logs)</span>';
         return;
       }
       var html = '';
-      for (var i = Math.max(0, d.logs.length - 200); i < d.logs.length; i++) {
-        var l = d.logs[i];
+      for (var i = Math.max(0, entries.length - 200); i < entries.length; i++) {
+        var l = entries[i];
+        var msg = l.message != null ? l.message : l.text; // message = current shape
         var levelCls = l.level === 'error' ? 'color:var(--err)' : l.level === 'warn' ? 'color:var(--warn)' : 'color:var(--text)';
         html += '<div style="padding:4px 8px;box-shadow:inset 0 -0.5px 0 0 var(--border);display:flex;gap:8px">'
               + '<span style="color:var(--muted);font-size:9px;min-width:60px">' + esc(l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '') + '</span>'
               + '<span style="' + levelCls + ';min-width:40px">' + esc(l.level || 'log') + '</span>'
-              + '<span>' + esc(typeof l.text === 'string' ? l.text : JSON.stringify(l.text)) + '</span>'
+              + '<span>' + esc(typeof msg === 'string' ? msg : JSON.stringify(msg)) + '</span>'
               + '</div>';
       }
       D['con-data'].innerHTML = html;

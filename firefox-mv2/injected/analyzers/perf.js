@@ -9,7 +9,11 @@
   registry.register({
     id: 'perf-observer', name: 'Performance Observer', version: '1.0.0',
     runAt: 'document_start', realtime: true, priority: 3,
-    emitType: 'PERF_LCP', cacheTarget: 'perf/',
+    // collect() returns the aggregate metrics; the plugin runner emits them under
+    // this type. The server writes raw/perf/metrics.json on PERF_METRICS (it does
+    // not handle the granular PERF_LCP/CLS/FCP/LONG_TASK realtime emits), so this
+    // MUST be PERF_METRICS or the Perf data never lands. (Was 'PERF_LCP' → dropped.)
+    emitType: 'PERF_METRICS', cacheTarget: 'perf/',
 
     install(api) {
       // LCP
