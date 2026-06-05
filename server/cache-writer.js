@@ -200,9 +200,26 @@ function markFresh(session, pluginId, capturedAt) {
 
 // ── public API ────────────────────────────────────────────────────────────────
 
+// Whiskor's own HTTP port — set at startup so we never capture our own dashboard
+// or API endpoints (the /export download, /api/*) as if they were a real site.
+let _selfPort = null;
+function setSelfOrigin(httpPort) { _selfPort = httpPort ? String(httpPort) : null; }
+function isSelfOrigin(url) {
+  if (!_selfPort || !url) return false;
+  try {
+    const u = new URL(url);
+    const loopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1' || u.hostname === '[::1]';
+    const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+    return loopback && port === _selfPort;
+  } catch (_) { return false; }
+}
+
 async function handleMessage(msg) {
   const { type, tabId, tabUrl, payload, siteVersion } = msg;
   if (!tabId) return;
+  // Don't capture whiskor's own dashboard / API (self-monitoring noise: the
+  // dashboard tab, and a fresh session per /export download).
+  if (isSelfOrigin(tabUrl)) return;
 
   const s = await getSession(tabId, tabUrl, siteVersion || 'default');
   s.updatedAt = Date.now();
@@ -595,8 +612,8 @@ function flushAllSync() {
 module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
-  storeSmartDelta, getSmartDelta, setSessionKeep,
+  storeSmartDelta, getSmartDelta, setSessionKeep, setSelfOrigin,
   loadSessionsFromDisk, flushAllSync,
   // exposed for tests
-  _renameWithRetryAsync, _renameWithRetrySync, RENAME_BACKOFFS_MS,
+  isSelfOrigin, _renameWithRetryAsync, _renameWithRetrySync, RENAME_BACKOFFS_MS,
 };

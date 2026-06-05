@@ -215,6 +215,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     screenshots.setSomStats(somStats);
     screenshots.setSomThumbs(somThumbs);
     screenshots.setThumbPrefetch(_cfg.agentControl?.packedSom?.prefetchThumbs === true);
+    cache.setSelfOrigin(HTTP_PORT); // never capture our own dashboard / API as a site
     actions.setSomStats(somStats);
     // type_secret resolves the secret value here on the worker (where secrets live),
     // so it works under the proxy — the agent/proxy only ever carry the ref name.
