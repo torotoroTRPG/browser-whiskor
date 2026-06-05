@@ -161,10 +161,11 @@
 - **状態/規模**: 🟡 quick-win 済 / 残は特大。
 
 ### T6. Frameworks "Unknown" の根本対処
-- **目的**: パネルで匿名表示になる component の命名を改善。
-- **内容**: adapter(react.js 等)の displayName/name 抽出を強化（minified/匿名対策）。パネルの dim 表示は対症療法済([E](#e-devパネル-frameworks-修正))。
-- **場所(予定)**: `shared/injected/adapters/react.js` 他。
-- **状態/規模**: ⬜ / 中（injected、実機検証要）。
+- **済（main 3941275）**: `react.js` に**段階的な名前リゾルバ** `deriveReactName(fiber)`＝ bippy displayName → host tag → `typeName()`(memo/forwardRef/context/関数名を剥がす) → dev build の `_debugSource` ベース名(LoginForm.tsx→LoginForm) → fiber.tag の**種別ラベル**(Fragment/Memo/Context.Provider/Suspense/Lazy…) → "Anonymous"。**もう "Unknown" は出さない**。導出/種別フォールバック名のノードは `w:1` を持ち、両パネルが dim（`anon`）表示＝実名が目立つ。`__SI_REACT_NAME__` を公開しテスト可能化。
+- **検証**: vm サンドボックスで**実 adapter をロード**し mock fiber(memo/forwardRef/context/関数/_debugSource/匿名)で名前解決をテスト（`tests/unit/react-name-derivation.test.js`）。両拡張へ sync 済。323 unit + 28 integration green。**実機の最終確認は拡張リロード後に get_framework_state で**（injected 変更のため）。
+- **本質的限界**: minified 名は sourcemap 無しでは復元不可＝best-effort（種別ラベルが "Unknown" よりマシ、という設計）。
+- **場所**: `shared/injected/adapters/react.js`、`extension/panel/panel.js`＋`firefox-mv2/panel/panel.js`。
+- **状態/規模**: ✅ 🧪（vue/angular 等 他 adapter への横展開は将来 任意）。
 
 ### T7. source-upload 周辺（zip reader / アップロードUI）
 - **済（main f49a8d1）**: ①**依存ゼロ zip reader** `server/zip-reader.js`（zip-writer の対。EOCD+central dir 解析→local header→inflate、store+deflate、maxEntries/maxBytes 上限）。②`/api/source/upload` が `{ zipBase64 }`（base64 zip）も受理→ readZip→addFiles。③**ダッシュボードに「SOURCE UPLOAD」カード**（projectId＋.zip ピッカー、ブラウザで btoa→POST）。検証: `tests/unit/zip-reader.test.js`＋**実機 end-to-end**（別ポート起動でupload→get_source_context が symbol 解決。ネスト env `WHISKOR_SERVER_HTTPPORT` も実機確認）。
