@@ -179,6 +179,87 @@
           return origBeacon(url, data);
         };
       }
+
+      // ── WebSocket patch ───────────────────────────────────────────────────
+      // Realtime apps (chat, Firebase RTDB, live dashboards) carry their core
+      // traffic over WS, which fetch/XHR hooks never see. Record the connection
+      // as one request entry and stream a *throttled, summarized* frame digest
+      // (counts + bytes + a few string samples) so the volume is visible without
+      // flooding the cache with every frame.
+      if (window.WebSocket) {
+        const OrigWS = window.WebSocket;
+        const PatchedWS = function (url, protocols) {
+          const ws = protocols !== undefined ? new OrigWS(url, protocols) : new OrigWS(url);
+          const reqId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const sampleLen = api.getConfig().options?.network?.wsFrameSampleLen || 200;
+          const stat = { sent: 0, received: 0, sentBytes: 0, recvBytes: 0, sample: [] };
+          let lastFlush = 0;
+
+          api.emit('NETWORK_REQUEST', { reqId, url: String(url), method: 'WS', kind: 'websocket', ts: Date.now() }, true);
+
+          const summary = () => ({ sent: stat.sent, received: stat.received, sentBytes: stat.sentBytes, recvBytes: stat.recvBytes, sample: stat.sample.slice(-4) });
+          const flush = (force) => {
+            const now = Date.now();
+            if (!force && now - lastFlush < 1500) return;
+            lastFlush = now;
+            api.emit('NETWORK_RESPONSE', { reqId, url: String(url), frames: summary(), ts: now }, true);
+          };
+          const note = (dir, data) => {
+            const isStr = typeof data === 'string';
+            const len = isStr ? data.length : (data && (data.byteLength || data.size)) || 0;
+            if (dir === 'in') { stat.received++; stat.recvBytes += len; }
+            else { stat.sent++; stat.sentBytes += len; }
+            if (isStr && stat.sample.length < 64) stat.sample.push({ d: dir, t: data.slice(0, sampleLen) });
+            flush(false);
+          };
+
+          const origSend = ws.send.bind(ws);
+          ws.send = function (data) { try { note('out', data); } catch (_) {} return origSend(data); };
+          ws.addEventListener('message', (ev) => { try { note('in', ev.data); } catch (_) {} });
+          ws.addEventListener('close', (ev) => {
+            api.emit('NETWORK_RESPONSE', { reqId, url: String(url), status: (ev && ev.code) || 1000, frames: summary(), ts: Date.now() }, true);
+          });
+          ws.addEventListener('error', () => {
+            api.emit('NETWORK_ERROR', { reqId, url: String(url), error: 'WebSocket error', ts: Date.now() }, true);
+          });
+          return ws;
+        };
+        PatchedWS.prototype = OrigWS.prototype;
+        ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(k => { try { PatchedWS[k] = OrigWS[k]; } catch (_) {} });
+        window.WebSocket = PatchedWS;
+      }
+
+      // ── EventSource (SSE) patch ───────────────────────────────────────────
+      // Same idea for server-sent events. Captures the default `message` stream
+      // (named events aren't wrapped) as a summarized digest.
+      if (window.EventSource) {
+        const OrigES = window.EventSource;
+        const PatchedES = function (url, init) {
+          const es = init !== undefined ? new OrigES(url, init) : new OrigES(url);
+          const reqId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const sampleLen = api.getConfig().options?.network?.wsFrameSampleLen || 200;
+          const stat = { received: 0, recvBytes: 0, sample: [] };
+          let lastFlush = 0;
+
+          api.emit('NETWORK_REQUEST', { reqId, url: String(url), method: 'SSE', kind: 'eventsource', ts: Date.now() }, true);
+
+          const summary = () => ({ received: stat.received, recvBytes: stat.recvBytes, sample: stat.sample.slice(-4) });
+          es.addEventListener('message', (ev) => {
+            const d = typeof ev.data === 'string' ? ev.data : '';
+            stat.received++; stat.recvBytes += d.length;
+            if (stat.sample.length < 64) stat.sample.push({ d: 'in', t: d.slice(0, sampleLen) });
+            const now = Date.now();
+            if (now - lastFlush >= 1500) { lastFlush = now; api.emit('NETWORK_RESPONSE', { reqId, url: String(url), frames: summary(), ts: now }, true); }
+          });
+          es.addEventListener('error', () => {
+            api.emit('NETWORK_RESPONSE', { reqId, url: String(url), status: es.readyState === 2 ? 'closed' : 'error', frames: summary(), ts: Date.now() }, true);
+          });
+          return es;
+        };
+        PatchedES.prototype = OrigES.prototype;
+        ['CONNECTING', 'OPEN', 'CLOSED'].forEach(k => { try { PatchedES[k] = OrigES[k]; } catch (_) {} });
+        window.EventSource = PatchedES;
+      }
     },
 
     collect(api) { return null; }, // realtime only; no snapshot collect needed

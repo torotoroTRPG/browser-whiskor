@@ -358,10 +358,21 @@ async function handleMessage(msg) {
     }
 
     case 'NETWORK_REQUEST': {
-      const { requestId, method, url: reqUrl, startTime, requestHeaders, requestBody, initiatorType } = payload;
-      const req = { requestId, method, url: reqUrl, startTime, initiatorType, requestHeaders, requestBody, status: null, duration: null, responseHeaders: null, responseBody: null };
-      const idx = s.networkRequests.findIndex(r => r.requestId === requestId);
+      // The page-JS hooks (injected/analyzers/network.js) and mock-data emit the
+      // same event under different field names. Accept both so live fetch/XHR/WS
+      // capture isn't silently dropped (reqId vs requestId, headers vs requestHeaders…).
+      const requestId      = payload.requestId != null ? payload.requestId : payload.reqId;
+      const { method, url: reqUrl } = payload;
+      const startTime      = payload.startTime != null ? payload.startTime : (payload.ts || Date.now());
+      const requestHeaders = payload.requestHeaders || payload.headers || null;
+      const requestBody    = payload.requestBody != null ? payload.requestBody : (payload.bodyPreview != null ? payload.bodyPreview : null);
+      const initiatorType  = payload.initiatorType || payload.kind || null;
+      const req = { requestId, method, url: reqUrl, startTime, initiatorType, requestHeaders, requestBody, tokens: payload.tokens || null, status: null, duration: null, responseHeaders: null, responseBody: null };
+      // Only dedup when we actually have an id; a null id must never collapse all
+      // requests onto the first null-id entry (the old bug that capped totals at 1).
+      const idx = requestId != null ? s.networkRequests.findIndex(r => r.requestId === requestId) : -1;
       if (idx === -1) s.networkRequests.push(req);
+      else s.networkRequests[idx] = { ...s.networkRequests[idx], ...req };
       s.index.summary.networkRequests = s.networkRequests.length;
       markFresh(s, 'network-hook', Date.now());
       await _flushNetwork(s);
@@ -369,14 +380,23 @@ async function handleMessage(msg) {
     }
 
     case 'NETWORK_RESPONSE': {
-      const { requestId, status, duration, responseHeaders, responseBody, tokens } = payload;
-      const req = s.networkRequests.find(r => r.requestId === requestId);
+      const requestId       = payload.requestId != null ? payload.requestId : payload.reqId;
+      const { status }      = payload;
+      const responseHeaders = payload.responseHeaders || payload.headers || null;
+      const responseBody    = payload.responseBody != null ? payload.responseBody : (payload.bodyPreview != null ? payload.bodyPreview : null);
+      const req = requestId != null ? s.networkRequests.find(r => r.requestId === requestId) : null;
       if (req) {
-        req.status = status;
-        req.duration = duration;
-        req.responseHeaders = responseHeaders;
-        req.responseBody = responseBody;
-        req.tokens = tokens;
+        // Guard status: streaming connections (WS/SSE) send throttled mid-stream
+        // frame summaries with no status, which must not wipe the open/close code.
+        if (status != null) req.status = status;
+        // injected sends no duration; derive it from request/response timestamps.
+        req.duration = payload.duration != null ? payload.duration
+          : (payload.ts != null && req.startTime != null ? payload.ts - req.startTime : req.duration ?? null);
+        if (responseHeaders) req.responseHeaders = responseHeaders;
+        if (responseBody != null) req.responseBody = responseBody;
+        // WebSocket / EventSource running frame summary (counts/bytes/samples).
+        if (payload.frames) req.frames = payload.frames;
+        if (payload.tokens) req.tokens = payload.tokens;
       }
       await _flushNetwork(s);
       break;
