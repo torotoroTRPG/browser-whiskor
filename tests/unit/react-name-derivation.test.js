@@ -17,7 +17,19 @@ import vm from 'node:vm';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const SRC = join(__dir, '../../shared/injected/adapters/react.js');
 
-let NAME; // { reactKindLabel, typeName, deriveReactName }
+let NAME;      // { reactKindLabel, typeName, deriveReactName }
+let SERIALIZE; // (fiber, maxNodes) -> { tree, nodes, truncated }
+
+// Build a linear fiber chain of n composite nodes (each named "C").
+function chain(n) {
+  const root = { tag: 1, type: { __dn: 'C' }, child: null, sibling: null };
+  let cur = root;
+  for (let i = 1; i < n; i++) {
+    const c = { tag: 1, type: { __dn: 'C' }, child: null, sibling: null };
+    cur.child = c; cur = c;
+  }
+  return root;
+}
 
 // deriveReactName returns objects built inside the vm realm, so deepStrictEqual
 // would trip on the cross-realm prototype. Compare the fields directly.
@@ -48,7 +60,9 @@ before(() => {
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox);
   NAME = win.__SI_REACT_NAME__;
+  SERIALIZE = win.__SI_REACT_SERIALIZE__;
   assert.ok(NAME && NAME.deriveReactName, 'adapter exposed __SI_REACT_NAME__');
+  assert.ok(typeof SERIALIZE === 'function', 'adapter exposed __SI_REACT_SERIALIZE__');
 });
 
 describe('17.x React name derivation', () => {
@@ -85,5 +99,23 @@ describe('17.x React name derivation', () => {
   it('falls back to a kind label (weak), never bare "Unknown"', () => {
     assertName({ type: {}, tag: 14 }, 'Memo', true);       // anonymous memo wrapper → its kind
     assertName({ type: {}, tag: 1 }, 'Anonymous', true);   // truly nothing → Anonymous (dimmed), not Unknown
+  });
+});
+
+describe('17.y React snapshot node budget (size cap)', () => {
+  it('caps the node count and flags truncation when the tree is large', () => {
+    const r = SERIALIZE(chain(50), 10);
+    assert.strictEqual(r.truncated, true, 'hitting the cap marks truncated');
+    assert.strictEqual(r.nodes, 10, 'exactly the budget of nodes is serialized');
+  });
+
+  it('serializes a small tree whole, without truncation', () => {
+    const r = SERIALIZE(chain(5), 100);
+    assert.strictEqual(r.truncated, false);
+    assert.strictEqual(r.nodes, 5);
+    // Depth chain is intact: root → c → c → c → c
+    let depth = 0, n = r.tree;
+    while (n && n.c) { n = n.c[0]; depth++; }
+    assert.strictEqual(depth, 4);
   });
 });

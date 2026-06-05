@@ -112,14 +112,24 @@
 
   // Exposed for unit tests (and any tooling that wants name resolution).
   window.__SI_REACT_NAME__ = { reactKindLabel: reactKindLabel, typeName: typeName, deriveReactName: deriveReactName };
+  window.__SI_REACT_SERIALIZE__ = function (fiber, maxNodes) {
+    var cap = maxNodes == null ? 5000 : maxNodes;
+    var budget = { nodes: cap, truncated: false };
+    var tree = serializeFiber(fiber, 0, 80, 30, budget);
+    return { tree: tree, nodes: cap - budget.nodes, truncated: budget.truncated };
+  };
 
   // ── Fiber シリアライズ ────────────────────────────────────────────────────
-  function serializeFiber(fiber, depth, maxDepth, maxProps) {
+  function serializeFiber(fiber, depth, maxDepth, maxProps, budget) {
     depth    = depth    == null ? 0  : depth;
     maxDepth = maxDepth == null ? 80 : maxDepth;
     maxProps = maxProps == null ? 30 : maxProps;
+    // Node budget: a production app's fiber tree can serialize to tens of MB. Cap
+    // the total node count so the snapshot stays bounded; mark it truncated when hit.
+    budget   = budget || { nodes: 5000, truncated: false };
 
     if (!fiber || depth > maxDepth) return null;
+    if (budget.nodes <= 0) { budget.truncated = true; return null; }
 
     var nm   = deriveReactName(fiber);
     var name = nm.name;
@@ -128,6 +138,7 @@
     // DOMルートノードをスキップ
     if (B.isHostFiber(fiber) && ['html','head','body','script'].includes(name)) return null;
 
+    budget.nodes--; // committing to a node
     var node = { n: name, t: tag, d: depth };
     if (nm.weak) node.w = 1; // 導出/種別フォールバック名 (実 displayName でない)
 
@@ -171,7 +182,7 @@
     var children = [];
     var child = fiber.child;
     while (child) {
-      var c = serializeFiber(child, depth + 1, maxDepth, maxProps);
+      var c = serializeFiber(child, depth + 1, maxDepth, maxProps, budget);
       if (c) children.push(c);
       child = child.sibling;
     }
@@ -350,13 +361,15 @@
       var cfg      = (api.getConfig().options && api.getConfig().options.react) || {};
       var maxDepth = cfg.maxDepth || 80;
       var maxProps = cfg.maxProps || 30;
+      var maxNodes = cfg.maxNodes || 5000;
 
       // NOTE: use `this` (not `self` — `self` only exists in install()'s closure)
       if (!this._lastRoot || !this._lastRoot.current) return null;
 
       var componentTree = null;
+      var budget = { nodes: maxNodes, truncated: false };
       try {
-        componentTree = serializeFiber(this._lastRoot.current, 0, maxDepth, maxProps);
+        componentTree = serializeFiber(this._lastRoot.current, 0, maxDepth, maxProps, budget);
       } catch (err) {
         api.log('warn', 'react-fiber: serialize failed: ' + err.message);
       }
@@ -369,6 +382,8 @@
         version:     this._reactVersion,
         buildType:   this._buildType,
         componentTree: componentTree,
+        treeNodes:   maxNodes - budget.nodes,   // how many fiber nodes were serialized
+        treeTruncated: budget.truncated,        // true when the node cap was hit
         redux:       sm.redux      || null,
         zustand:     sm.zustand    || null,
         reactQuery:  sm.reactQuery || null,
