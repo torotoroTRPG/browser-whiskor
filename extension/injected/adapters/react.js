@@ -54,6 +54,65 @@
 
   window.__SI_REACT_SAFE_VAL__ = safeVal;
 
+  // ── 名前導出 (Unknown 根治) ────────────────────────────────────────────────
+  // fiber.tag → 人間が読める「種別」ラベル。実コンポーネント名が無いノード
+  // (Fragment / Provider / memo ラッパ 等) を "Unknown" でなく種別で示す。
+  function reactKindLabel(tag) {
+    switch (tag) {
+      case 7:  return 'Fragment';
+      case 8:  return 'Mode';
+      case 9:  return 'Context.Consumer';
+      case 10: return 'Context.Provider';
+      case 11: return 'ForwardRef';
+      case 12: return 'Profiler';
+      case 13: return 'Suspense';
+      case 14: return 'Memo';
+      case 15: return 'Memo';
+      case 16: return 'Lazy';
+      case 18: return 'SuspenseList';
+      case 22: return 'Offscreen';
+      default: return null;
+    }
+  }
+
+  // fiber.type から最善の名前。memo/forwardRef/context を剥がし、最後は関数/クラス
+  // 名にフォールバック (displayName 欠落でも minified 名くらいは残る)。
+  function typeName(type, depth) {
+    depth = depth || 0;
+    if (!type || depth > 4) return null;
+    if (typeof type === 'string')   return type;
+    if (typeof type === 'function') return type.displayName || type.name || null;
+    if (typeof type === 'object') {
+      if (type.displayName) return type.displayName;
+      if (typeof type.render === 'function') return type.render.displayName || type.render.name || null; // forwardRef
+      if (type._context && type._context.displayName) return type._context.displayName;                  // context
+      if (type.type)     return typeName(type.type, depth + 1);     // memo
+      if (type._payload) return typeName(type._payload, depth + 1); // lazy
+    }
+    return null;
+  }
+
+  // { name, weak } を返す。weak=導出/種別フォールバック (実 displayName でない) →
+  // パネルが控えめ表示にできる。
+  function deriveReactName(fiber) {
+    var dn = B.getDisplayName(fiber.type);
+    if (dn && dn !== 'Unknown') return { name: dn, weak: false };
+    if (B.isHostFiber(fiber) && typeof fiber.type === 'string') return { name: fiber.type, weak: false };
+    var tn = typeName(fiber.type, 0);
+    if (tn) return { name: tn, weak: false };
+    var ds = fiber._debugSource || (fiber.type && fiber.type._debugSource);
+    if (ds && ds.fileName) {
+      var base = String(ds.fileName).split(/[\\/]/).pop().replace(/\.[A-Za-z0-9]+$/, '');
+      if (base) return { name: base, weak: true };
+    }
+    var kind = reactKindLabel(fiber.tag);
+    if (kind) return { name: kind, weak: true };
+    return { name: 'Anonymous', weak: true };
+  }
+
+  // Exposed for unit tests (and any tooling that wants name resolution).
+  window.__SI_REACT_NAME__ = { reactKindLabel: reactKindLabel, typeName: typeName, deriveReactName: deriveReactName };
+
   // ── Fiber シリアライズ ────────────────────────────────────────────────────
   function serializeFiber(fiber, depth, maxDepth, maxProps) {
     depth    = depth    == null ? 0  : depth;
@@ -62,15 +121,15 @@
 
     if (!fiber || depth > maxDepth) return null;
 
-    var name = B.getDisplayName(fiber.type) ||
-               (B.isHostFiber(fiber) ? fiber.type : null) ||
-               'Unknown';
+    var nm   = deriveReactName(fiber);
+    var name = nm.name;
     var tag  = fiber.tag;
 
     // DOMルートノードをスキップ
     if (B.isHostFiber(fiber) && ['html','head','body','script'].includes(name)) return null;
 
     var node = { n: name, t: tag, d: depth };
+    if (nm.weak) node.w = 1; // 導出/種別フォールバック名 (実 displayName でない)
 
     // タイミング (Profiler)
     var timings = B.getTimings(fiber);

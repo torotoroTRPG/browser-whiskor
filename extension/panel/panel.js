@@ -182,7 +182,7 @@ function renderReactTree(data) {
     const name = document.createElement('span');
     name.className = 'comp-name';
     name.textContent = node.n || 'Unknown';
-    if (!node.n) name.classList.add('anon');
+    if (node.w || !node.n) name.classList.add('anon'); // derived/kind-label name → dim
     label.append(caret, name);
     if (node.n?.match(/^[a-z]/)) {
       const tag = document.createElement('span');
