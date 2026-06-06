@@ -264,6 +264,9 @@ class WhiskorCore extends EventEmitter {
       case 'VUE3_SNAPSHOT':
       case 'ANGULAR_SNAPSHOT':
       case 'SVELTE_SNAPSHOT':
+      case 'PREACT_SNAPSHOT':
+      case 'ALPINE_SNAPSHOT':
+      case 'SOLID_SNAPSHOT':
         await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         if (this.correlator) {
@@ -281,6 +284,14 @@ class WhiskorCore extends EventEmitter {
           const newChains = this.correlator.addMessage(msg);
           if (newChains.length) this._persistCausalChains(msg.tabId, newChains);
         }
+        break;
+
+      // Failed requests (CORS, connection refused, WS/SSE errors) → cache + dashboard.
+      // Not fed to the correlator: an error is the absence of a response, not a
+      // causal signal. Previously dropped entirely, so failures were invisible.
+      case 'NETWORK_ERROR':
+        await this.cache.handleMessage(msg);
+        this.broadcastToDashboard(msg);
         break;
 
       // ── Intelligence Layer messages ─────────────────────────────────────

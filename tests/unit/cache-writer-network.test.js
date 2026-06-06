@@ -122,3 +122,28 @@ describe('review #2 — WebSocket frame summaries', () => {
     assert.strictEqual(r.duration, 1000, 'ts(6000) - startTime(5000)');
   });
 });
+
+describe('review #2 — NETWORK_ERROR is captured, not dropped', () => {
+  const ETAB = 443322;
+  const EURL = 'https://app.example.test/err';
+  const send = (type, payload) => cw.handleMessage({ type, tabId: ETAB, tabUrl: EURL, payload });
+  const find = (url) => cw.readSessionFile(ETAB, 'raw/network/requests.json').requests.find(r => r.url === url);
+
+  it('marks an in-flight request as errored (matched by id)', async () => {
+    await send('NETWORK_REQUEST', { reqId: 'e1', method: 'GET', url: '/api/flaky', ts: 1000 });
+    await send('NETWORK_ERROR', { reqId: 'e1', url: '/api/flaky', error: 'Failed to fetch', ts: 1080 });
+    const r = find('/api/flaky');
+    assert.strictEqual(r.error, 'Failed to fetch');
+    assert.strictEqual(r.status, 'error');
+    assert.strictEqual(r.duration, 80, 'derived from ts - startTime');
+  });
+
+  it('keeps a minimal entry when the error has no recorded request', async () => {
+    await send('NETWORK_ERROR', { reqId: 'orphan', method: 'POST', url: '/api/orphan', error: 'CORS', ts: 2000 });
+    const r = find('/api/orphan');
+    assert.ok(r, 'orphan failure should still be visible');
+    assert.strictEqual(r.status, 'error');
+    assert.strictEqual(r.error, 'CORS');
+    assert.strictEqual(r.method, 'POST');
+  });
+});

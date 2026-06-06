@@ -258,7 +258,10 @@ async function handleMessage(msg) {
       break;
     }
 
-    case 'VUE_SNAPSHOT': {
+    // vue3.js emits VUE3_SNAPSHOT; VUE_SNAPSHOT is the legacy alias (no current
+    // producer). Handle both so Vue 3 state actually lands in the cache.
+    case 'VUE_SNAPSHOT':
+    case 'VUE3_SNAPSHOT': {
       const fp = path.join(s.dir, 'raw/vue/snapshot.json');
       await writeJsonAsync(fp, payload);
       s.index.files.raw.vue_snapshot = 'raw/vue/snapshot.json';
@@ -287,6 +290,30 @@ async function handleMessage(msg) {
       await writeJsonAsync(fp, payload);
       s.index.files.raw.svelte_snapshot = 'raw/svelte/snapshot.json';
       markFresh(s, 'svelte', payload.capturedAt);
+      break;
+    }
+
+    case 'PREACT_SNAPSHOT': {
+      const fp = path.join(s.dir, 'raw/preact/snapshot.json');
+      await writeJsonAsync(fp, payload);
+      s.index.files.raw.preact_snapshot = 'raw/preact/snapshot.json';
+      markFresh(s, 'preact', payload.capturedAt);
+      break;
+    }
+
+    case 'ALPINE_SNAPSHOT': {
+      const fp = path.join(s.dir, 'raw/alpine/snapshot.json');
+      await writeJsonAsync(fp, payload);
+      s.index.files.raw.alpine_snapshot = 'raw/alpine/snapshot.json';
+      markFresh(s, 'alpine', payload.capturedAt);
+      break;
+    }
+
+    case 'SOLID_SNAPSHOT': {
+      const fp = path.join(s.dir, 'raw/solid/snapshot.json');
+      await writeJsonAsync(fp, payload);
+      s.index.files.raw.solid_snapshot = 'raw/solid/snapshot.json';
+      markFresh(s, 'solid', payload.capturedAt);
       break;
     }
 
@@ -398,6 +425,30 @@ async function handleMessage(msg) {
         if (payload.frames) req.frames = payload.frames;
         if (payload.tokens) req.tokens = payload.tokens;
       }
+      await _flushNetwork(s);
+      break;
+    }
+
+    case 'NETWORK_ERROR': {
+      const requestId = payload.requestId != null ? payload.requestId : payload.reqId;
+      const req = requestId != null ? s.networkRequests.find(r => r.requestId === requestId) : null;
+      if (req) {
+        req.error = payload.error || 'error';
+        if (req.status == null) req.status = 'error';
+        if (req.duration == null && payload.ts != null && req.startTime != null) req.duration = payload.ts - req.startTime;
+      } else {
+        // Error fired without a recorded request — keep a minimal failed entry so
+        // the failure is still visible rather than silently dropped.
+        s.networkRequests.push({
+          requestId, url: payload.url, method: payload.method || null,
+          startTime: payload.ts || Date.now(), initiatorType: null,
+          requestHeaders: null, requestBody: null, tokens: null,
+          status: 'error', duration: null, responseHeaders: null, responseBody: null,
+          error: payload.error || 'error',
+        });
+        s.index.summary.networkRequests = s.networkRequests.length;
+      }
+      markFresh(s, 'network-hook', Date.now());
       await _flushNetwork(s);
       break;
     }
