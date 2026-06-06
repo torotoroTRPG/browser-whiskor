@@ -2657,12 +2657,28 @@
 
     // ── Framework ─────────────────────────────────────────────────────────
     async function loadFW() {
-      var files = ['raw/react/snapshot.json','raw/vue/snapshot.json','raw/angular/snapshot.json','raw/svelte/snapshot.json','raw/dom/snapshot.json'];
-      for (var i = 0; i < files.length; i++) {
-        var d = await fetchSess(files[i]);
-        if (d) { D['fw-data'].textContent = JSON.stringify(d, null, 2); return; }
+      // Data-driven: probe every supported framework and show only the ones that
+      // actually have a snapshot. A page never has all of these, so the absent ones
+      // simply don't appear (no empty panels), and newly-wired adapters
+      // (preact/alpine/solid/vue2) show up without further changes.
+      var FW = [
+        ['React',         'raw/react/snapshot.json'],
+        ['Vue 3',         'raw/vue/snapshot.json'],
+        ['Vue 2',         'raw/vue/vue2-snapshot.json'],
+        ['Angular',       'raw/angular/snapshot.json'],
+        ['Svelte',        'raw/svelte/snapshot.json'],
+        ['Preact',        'raw/preact/snapshot.json'],
+        ['Alpine',        'raw/alpine/snapshot.json'],
+        ['Solid',         'raw/solid/snapshot.json'],
+        ['DOM (generic)', 'raw/dom/snapshot.json'],
+      ];
+      var results = await Promise.all(FW.map(function(f) { return fetchSess(f[1]); }));
+      var out = '';
+      for (var i = 0; i < FW.length; i++) {
+        if (!results[i]) continue;
+        out += (out ? '\n\n' : '') + '=== ' + FW[i][0] + ' ===\n' + JSON.stringify(results[i], null, 2);
       }
-      D['fw-data'].textContent = '(unavailable)';
+      D['fw-data'].textContent = out || '(unavailable)';
     }
 
     // ── Network ──────────────────────────────────────────────────────────

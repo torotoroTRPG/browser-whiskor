@@ -166,9 +166,13 @@ async function getSession(tabId, url, siteVersion) {
     const siteDir = (siteVersion || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
     const dir = path.join(CACHE_ROOT, siteDir, `${tabId}-${sessionId}`);
 
-    for (const sub of ['raw/react','raw/vue','raw/angular','raw/svelte','raw/dom',
-                        'raw/visual','raw/network','raw/css','raw/ui',
-                        'raw/accessibility','raw/storage','raw/perf','raw/console','raw/sources']) {
+    // Framework dirs (react/vue/angular/svelte/preact/alpine/solid) are NOT
+    // pre-created: a page uses at most one or two frameworks, so pre-making them
+    // all leaves empty noise dirs. writeJsonAsync creates the parent on demand when
+    // a snapshot actually lands. Only dirs that nearly always receive data are made
+    // up front.
+    for (const sub of ['raw/dom', 'raw/visual', 'raw/network', 'raw/css', 'raw/ui',
+                        'raw/accessibility', 'raw/storage', 'raw/perf', 'raw/console', 'raw/sources']) {
       await fsp.mkdir(path.join(dir, sub), { recursive: true });
     }
 
