@@ -43,16 +43,20 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (62 tools, configurable visibility)                 │
+│  MCP Layer (66 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
 │  mcp/transport.js       ← stdio JSON-RPC transport             │
-│  mcp/tools/read.js      ← 18 read tools (sessions, DOM, etc.) │
-│  mcp/tools/write.js     ← 16 write tools (click, type, drag — observe opt.) │
+│  mcp/tools/read*.js     ← 22 read tools (sessions, DOM, states)│
+│  mcp/tools/write.js     ← 17 write tools (click, type, type_secret — observe opt.) │
 │  mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close) │
-│  mcp/tools/capture.js   ← 2 capture tools (screenshot, refresh)│
+│  mcp/tools/capture*.js  ← 5 capture tools (screenshot, element,│
+│                           packed SoM, thumbnail, refresh)      │
 │  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
+│  mcp/tools/intelligence.js ← 6 intelligence tools              │
+│  mcp/tools/source.js    ← get_source_context (uploaded source) │
+│  mcp/tools/replay.js    ← replay_session                       │
 │                                                                │
 │  Tool visibility: per-tool on/off, category toggle, presets    │
 │  Config: server/configs/mcp-tools.json                         │
@@ -65,11 +69,18 @@ AI Agent (Claude / Cursor / etc.)
 │                                                                │
 │  cache-writer.js       ← Disk persistence, freshness tracking  │
 │  action-executor.js    ← Action routing to extension           │
-│  screenshot-manager.js ← Screenshot capture + SoM overlay      │
+│  screenshot-manager.js ← Screenshots + element crops + packed SoM │
+│  secret-guard.js       ← Server-side secret redaction (opt-in) │
+│  som-stats.js / som-cache.js / som-thumbnails.js ← packed-SoM  │
+│                          usage stats, freshness cache, thumbs  │
+│  source-index.js       ← Uploaded source storage + slicing     │
+│  source-correlation.js ← Runtime ↔ source correlation          │
+│  zip-writer.js / zip-reader.js ← dependency-free ZIP I/O       │
 │  config-change-log.js  ← Config audit, validation, auto-revert │
 │  config-loader.js      ← config.json + .env + mcp-tools.json   │
 │  delta-engine.js       ← Smart delta aggregation, motion clustering │
 │  pattern-registry.js   ← UI pattern storage + lookup (ref IDs) │
+│  correlator.js         ← Time-series causal-candidate chains   │
 │                                                                │
 │  state-store.js        ← State graph + LRU + gzip + backward compat wrapper │
 │  state-fingerprint.js  ← FNV32 hash engine                     │
@@ -87,7 +98,7 @@ AI Agent (Claude / Cursor / etc.)
 │   raw/accessibility│    │ injected/state-reporter.js           │
 │   raw/storage/     │    │ injected/plugin-system.js            │
 │   raw/console/     │    │ injected/adapters/ (9 frameworks)    │
-│   raw/perf/        │    │ injected/analyzers/ (13 analyzers)   │
+│   raw/perf/        │    │ injected/analyzers/ (15 analyzers)   │
 │   raw/css/         │    │ lib/bippy.iife.js                    │
 │   raw/dom/         │    └──────────────────────────────────────┘
 │   raw/react_*.json │
@@ -133,13 +144,13 @@ See `docs/archive/v0.3.6-improvements.md` for the rationale and the dual-hash im
 ### Installation
 
 ```bash
-cd browser-whiskor-v3
+cd browser-whiskor
 npm install
-node server/index.js
+npm start          # supervised (auto-restart); raw worker: npm run start:raw
 ```
 
 > **Note on Machine Learning Models:** 
-> On first startup, the server will automatically download the ONNX model (~50MB) for Semantic Search from Hugging Face Hub. This is a one-time download and takes 30-60 seconds depending on your connection. **No Hugging Face account or login is required.** The model is cached in `.model-cache/`.
+> On first startup, the server will automatically download the ONNX model (~50MB) for Semantic Search from Hugging Face Hub (`intelligence.miniLM.downloadOnStart`, on by default). This is a one-time download and takes 30-60 seconds depending on your connection. **No Hugging Face account or login is required.** The model is cached in `.model-cache/`.
 > 
 > If the automatic download fails, you can manually run: `npm run download-model`
 
@@ -158,7 +169,7 @@ node server/index.js
   "mcpServers": {
     "browser-whiskor": {
       "command": "node",
-      "args": ["/path/to/browser-whiskor-v3/server/index.js"]
+      "args": ["/path/to/browser-whiskor/server/index.js", "--mcp"]
     }
   }
 }
@@ -250,21 +261,21 @@ Warning codes:
 
 ---
 
-## MCP Tools (62 tools)
+## MCP Tools (66 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
-| **core** (14) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, click, type_text, navigate_to | Always loaded | Never |
+| **core** (16) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, capture_packed_som, get_element_thumbnail, click, type_text, navigate_to | Always loaded | Never |
 | **debug** (+6) | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10 turns |
 | **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
-| **advanced-actions** (+11) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
+| **advanced-actions** (+12) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, type_secret, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
 | **tabs** (+4) | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6 turns |
-| **intelligence** (+4) | explain_element, why_did_this_change, get_source_file, detect_site_updates | "explain", "why", "source", "cause" | 5 turns |
+| **intelligence** (+5) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context | "explain", "why", "source", "cause" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
 
@@ -291,6 +302,7 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `get_sessions` | Active tabs (tabId, URL, data freshness) |
 | `get_index` | Session file listing with summaries |
 | `get_text_coords` | Text + absolute coordinates with fuzzy search and similarity scoring |
+| `find_target` | Resolve a description ("search box", "送信") to ranked click candidates — combines UI catalog + text-coords, fuzzy-ranks (MiniLM when available), returns click coordinates, selector hint and clickability |
 | `get_viewport` | Current viewport size and scroll position |
 | `get_framework_state` | Component tree + state for detected framework |
 | `get_network` | Captured HTTP requests/responses |
@@ -329,6 +341,7 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | `click` | Click by selector, text, or coordinates |
 | `right_click` | Right-click (context menu) by selector, text, or coordinates |
 | `type_text` | Text input (React synthetic-event aware; physical `code`/`keyCode` + CJK/IME composition; trusted via CDP when high-fidelity input is enabled) |
+| `type_secret` | Type a registered secret by **ref name only** — the agent never sees the value; the worker resolves it from `secrets.local.json` and injects it directly (see Secret Guard) |
 | `press_key` | Keyboard shortcuts (trusted via CDP when high-fidelity input is enabled) |
 | `hover` | Hover (dropdowns, tooltips) |
 | `scroll_page` | Scroll to position or element |
@@ -357,10 +370,11 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 | Tool | Description |
 |------|-------------|
 | `explain_element` | Explain why an element has its current CSS appearance (selector, specificity, cascade, sourcemap) |
-| `why_did_this_change` | Correlate a UI change with network events and framework transitions |
+| `why_did_this_change` | Candidate causal chains for a recent DOM change, correlated from preceding network responses and framework transitions. Each chain carries an `evidence` object explaining its confidence — chains are ranked hypotheses, not proven causes |
 | `analyze_click` | Analyze a click target's React/Vue event handlers before clicking; also reports `relatedInputs` / `relatedInputsTip` — input fields the action likely depends on (so you fill them first instead of hitting a validation alert) |
 | `get_source_file` | Retrieve source file content by URL or hash |
 | `detect_site_updates` | Cross-session: detect which CSS/JS files have changed |
+| `get_source_context` | Slice context out of user-uploaded project source: by file/line range, by symbol, or by observed component name (see Source Upload & Correlation) |
 
 ### Capture
 
@@ -368,6 +382,8 @@ Instead of exposing all 62 tools at once, browser-whiskor uses **dynamic profile
 |------|-------------|
 | `capture_screenshot` | Screenshot — always saved to disk (`filePath`); returns a **viewable image content block** when `returnImage=true` (default off to save tokens, configurable via `agentControl.screenshot.returnImageByDefault`). Optional numbered markers (SoM) |
 | `capture_element_screenshot` | Element-level screenshot by selector or rect with padding |
+| `capture_packed_som` | Crop **only the interactive elements** out of one real screenshot, shelf-pack them into a single numbered image (Set-of-Marks), and click by number — far fewer pixels/tokens than a full screenshot. Freshness-aware server cache; marks are ordered by usage statistics |
+| `get_element_thumbnail` | Low-res thumbnail of a single element by selector (long-edge cap, default 96px), with a view-aware cache. A packed capture can pre-warm these (`agentControl.packedSom.prefetchThumbs`) |
 | `refresh_data` | Trigger data collection + wait for completion |
 
 ### Control
@@ -484,17 +500,25 @@ This design keeps token usage low while giving AI agents a clear understanding o
 ## HTTP API
 
 ```
-GET  http://localhost:7892/health             → Connection status
+GET  http://localhost:7892/health             → Connection status (+ identity, secret-guard counts)
 GET  http://localhost:7892/api/config         → Current config
 POST http://localhost:7892/api/config         → Change config
 GET  http://localhost:7892/api/sessions       → Session list
+GET  http://localhost:7892/api/sessions/:tabId → Session detail (DELETE removes it)
 POST http://localhost:7892/api/collect        → Manual collection
 POST http://localhost:7892/api/screenshot     → Screenshot
+POST http://localhost:7892/api/packed-som     → Packed Set-of-Marks capture
+POST http://localhost:7892/api/element-thumbnail → Per-element thumbnail
 POST http://localhost:7892/api/action         → Execute action
+POST http://localhost:7892/api/embed          → Text embedding (MiniLM)
+POST http://localhost:7892/api/source/upload  → Upload project source (files or base64 zip)
+POST http://localhost:7892/api/source/context → Query uploaded source slices
 GET  http://localhost:7892/api/graphs         → State graph listing
 GET  http://localhost:7892/export             → Download session cache as a ZIP (optional ?tabId= scopes to one session)
 GET  http://localhost:7892/                   → Dashboard
 ```
+
+Full request/response details: `docs/http-api-reference.md`.
 
 > **PowerShell / Windows note:** When using the HTTP API from PowerShell, be aware that `curl` is an alias for `Invoke-WebRequest` and backslash escaping in double-quoted strings works differently than bash. Use single quotes for the JSON body, or use `Invoke-RestMethod` instead:
 > ```powershell
@@ -509,11 +533,11 @@ GET  http://localhost:7892/                   → Dashboard
 **Server dependencies:**
 - **`ws`** (^8.18.0) — WebSocket server
 - **`@xenova/transformers`** (^2.0.0) — ONNX-based semantic search (MiniLM model, added in v0.3.2)
-- **`playwright`** (^1.60.0) — E2E testing only (not required for runtime)
+- **`@playwright/test`** (^1.60.0, devDependency) — E2E testing only (not required for runtime)
 
 **Extension side:** Zero-dependency vanilla JS.
 
-> **Note:** The semantic search feature uses a local ONNX model (~50MB) that is automatically downloaded during `npm install` via the `postinstall` script. No external API calls or authentication required. Model is cached in `.model-cache/`.
+> **Note:** The semantic search feature uses a local ONNX model (~50MB), downloaded automatically on first server start (`intelligence.miniLM.downloadOnStart`) or manually via `npm run download-model`. No external API calls or authentication required. Model is cached in `.model-cache/`.
 
 ## Agent Config Control
 
@@ -602,20 +626,55 @@ The agent can then say "click element 1" instead of dealing with raw coordinates
 - **OffscreenCanvas** is used in the MV3 Service Worker (no DOM manipulation)
 - Element collection uses a single `querySelectorAll` in the content script
 
+## Packed Set-of-Marks (`capture_packed_som`)
+
+A full screenshot spends most of its pixels (and the agent's tokens) on whitespace. `capture_packed_som` crops **only the interactive elements** out of one real `captureVisibleTab` bitmap, shelf-packs the crops into a single compact image, and numbers them — the agent clicks by mark number, same as regular SoM, at a fraction of the size.
+
+- **Server-side cache**, invalidated by page-change signals (navigation, DOM mutations), so repeat calls on an unchanged page are instant (`_cached: true`).
+- **Usage statistics** (`som-stats.js`, time-decayed) reorder the marks list by click likelihood; image numbering stays stable.
+- **Per-element thumbnails**: `get_element_thumbnail({selector, maxPx})` crops + downscales a single element in the extension canvas, with its own view-aware cache. A packed capture can pre-warm this cache from the same bitmap (`agentControl.packedSom.prefetchThumbs`) — zero extra captures.
+- **Prefetch on navigation** (`agentControl.packedSom.prefetchOnNavigate`, default off): capture shortly after each navigation so the agent's first call returns instantly.
+
+## Secret Guard (opt-in redaction)
+
+Threat model: *you don't necessarily trust the agent.* Secret Guard hides user secrets (passwords, emails, tokens) from the agent, logs, cache, and dashboard. Detection and replacement happen **server-side only** — secret values are never sent into the page, so XSS or a malicious site cannot steal the redaction list.
+
+- **Known values**: secrets registered in `secrets.local.json` (git-ignored) or `WHISKOR_SECRETS` are replaced with `[WHISKOR_REDACTED type=.. hint=.. reason=..]` tokens at a single choke point before anything is cached, broadcast, or returned.
+- **Patterns**: email, credit card (Luhn), JWT by default when enabled; ssn / ipv4 / phone are individually opt-in (`privacy.secretGuard.patterns`) because they false-positive easily. Key-name based redaction (`password`, `api_key`, …) catches unregistered values.
+- **`type_secret`**: the agent sends only a **ref name**; the worker resolves the real value and types it into the page. The value never appears in tool results, logs, or cache.
+- **Screenshot masking**: redacted text rectangles are blacked out on the extension canvas after capture (no page overlay, no flicker).
+- **Observability**: `GET /health` reports counts only; MCP `serverInfo` advertises active redaction so the agent knows to expect tokens and use `type_secret`.
+
+Enable with `privacy.secretGuard.enabled: true` (default off). See `secrets.local.json.example` and `docs/ideas/REDACTION_SECRET_GUARD.md`.
+
+## Source Upload & Correlation
+
+Upload the target site's source (frontend, backend, or any slice of it) and whiskor correlates it with runtime observation, so the agent can pull **just the relevant source lines** instead of the whole project:
+
+1. **Upload**: `POST /api/source/upload` with files or a base64 zip (dependency-free zip reader; node_modules/binaries excluded, size-capped), or the dashboard's SOURCE UPLOAD card.
+2. **Correlate**: component names from `get_framework_state` resolve to source files — dev builds via React `_debugSource` (exact file/line), otherwise by symbol-name match with a confidence tier. Observed `FRAMEWORK_DOM_MAP` data records correlations passively as you browse.
+3. **Query**: `get_source_context({component})` / `({file, line})` / `({symbol})` returns a bounded excerpt (line range, symbol surroundings, or capped full text).
+
+See `docs/ideas/SOURCE_UPLOAD_CORRELATION.md` for the design notes.
+
 ## Testing & Quality
 
-**262 automated tests** run via `npm test` (237 unit, 20 integration, 5 stress), plus 83 Playwright E2E specs (`npm run test:e2e`).
+**406 automated tests** run via `npm test` (373 unit, 28 integration, 5 stress), plus 9 Playwright E2E spec files (`npm run test:e2e`) that drive a real browser with the extension loaded.
 
 | Category | Count | Scope |
 |----------|-------|-------|
-| **Unit** | 237 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, Canvas math |
-| **Integration** | 20 | Server ↔ Client flows, error recovery, multi-tab |
+| **Unit** | 373 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, secret guard, packed SoM, correlator |
+| **Integration** | 28 | Server ↔ Client flows, error recovery, multi-tab, source correlation |
 | **Stress** | 5 | Large payloads (5000+ words), long sessions |
-| **E2E (Playwright)** | 83 | Dashboard, interactions, MCP tools, resilience, state machine, full pipeline |
+| **E2E (Playwright)** | 9 spec files | Real-browser: injected collection, executor round-trip, packed SoM, secret masking, dashboard |
 
-> **Note:** The Playwright E2E specs (`tests/e2e/`) exercise the dashboard, MCP tools, interactions, resilience, and a full-pipeline scenario in a real browser. They require a live environment and are not part of `npm test`; core pipeline correctness is also covered by the unit/integration suites.
+Two structural guards keep the suite honest:
+- **Hollow-test guard** (`scripts/_check-hollow-tests.js`, in CI and `validate.ps1`): a unit test that never imports production code fails the build — tests must exercise the real modules.
+- **Producer/consumer contract test** (`tests/unit/injected-server-contract.test.js`): statically cross-checks every injected `emit` type against a server consumer, so adding a page-side producer without wiring the server fails immediately instead of silently dropping data.
 
-**Pre-push validation:** Run `.\scripts\validate.ps1` to check YAML syntax, shared/ sync status, and file structure before committing.
+> **Note:** The Playwright E2E specs require a live environment (headed browser + extension) and are not part of `npm test`.
+
+**Pre-push validation:** Run `.\scripts\validate.ps1` to check YAML syntax, shared/ sync status, version consistency, file structure, and test integrity before committing.
 
 ## License
 

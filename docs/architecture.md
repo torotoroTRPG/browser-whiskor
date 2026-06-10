@@ -34,7 +34,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  LAYER 1 : MCP Server  ( server/mcp/ )                                       │
 │                                                                              │
-│    62 tools available, organized in a layered architecture:                  │
+│    66 tools available, organized in a layered architecture:                  │
 │                                                                              │
 │    mcp-server.js          ← Entry point, wires all layers together           │
 │    mcp/registry.js        ← Tool registration, filtering, preset management  │
@@ -42,16 +42,20 @@
 │    tool-manager.js        ← Dynamic profile management, auto-load/unload     │
 │    mcp/tools/read.js      ← Entry point → 22 read tools (split into         │
 │    read-basic.js, read-data.js, read-state.js, read-helpers.js)             │
-│    mcp/tools/write.js     ← 16 write tools (navigate_to → reload_page;      │
-│                             observe option on interaction tools)            │
+│    mcp/tools/write.js     ← 17 write tools (navigate_to → reload_page,      │
+│                             type_secret; observe option on interaction      │
+│                             tools)                                          │
 │    mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close_tab)        │
-│    mcp/tools/capture.js   ← 3 capture tools (screenshot, refresh_data,      │
-│                             capture_element)                                │
-│    mcp/tools/capture-element.js ← element screenshot crop+encode            │
+│    mcp/tools/capture.js   ← 3 capture tools (screenshot, packed SoM,        │
+│                             refresh_data)                                   │
+│    mcp/tools/capture-element.js ← 2 element tools (element screenshot,      │
+│                             get_element_thumbnail)                          │
 │    mcp/tools/control.js   ← 10 control tools (set_config → profile_status)  │
-│    mcp/tools/intelligence.js ← 5 intelligence tools                       │
+│    mcp/tools/intelligence.js ← 6 intelligence tools                       │
 │    (explain_element, why_did_this_change, analyze_click,                   │
-│     get_source_file, detect_site_updates)                                  │
+│     get_source_file, detect_site_updates, get_state_map_visual)            │
+│    mcp/tools/source.js    ← get_source_context (uploaded source slices)    │
+│    mcp/tools/replay.js    ← replay_session                                 │
 │                                                                              │
 │    ┌──────────────────┬──────────────────────────────────────────────────┐  │
 │    │  READ (22)       │ get_sessions, get_index, get_text_coords,        │  │
@@ -63,19 +67,22 @@
 │    │                  │ pin_state, get_delta, list_patterns,              │  │
 │    │                  │ lookup_pattern, find_target                      │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  WRITE (16)      │ navigate_to, click, right_click, type_text,      │  │
-│    │                  │ press_key, hover, scroll_page, mouse_scroll,     │  │
-│    │                  │ drag, select_option, check_box, execute_js,      │  │
-│    │                  │ wait_for_element, go_back/forward, reload_page   │  │
+│    │  WRITE (17)      │ navigate_to, click, right_click, type_text,      │  │
+│    │                  │ type_secret, press_key, hover, scroll_page,      │  │
+│    │                  │ mouse_scroll, drag, select_option, check_box,    │  │
+│    │                  │ execute_js, wait_for_element, go_back/forward,   │  │
+│    │                  │ reload_page                                      │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  TABS (4)        │ list_tabs, switch_tab, open_tab, close_tab       │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  CAPTURE (3)     │ capture_screenshot (± SoM marks), refresh_data,   │
-│                  │ capture_element_screenshot (selector/rect/padding)  │  │
+│    │  CAPTURE (5)     │ capture_screenshot (± SoM marks),                │  │
+│    │                  │ capture_packed_som, get_element_thumbnail,       │  │
+│    │                  │ capture_element_screenshot, refresh_data         │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
-│    │  INTELLIGENCE (5)│ explain_element, why_did_this_change,            │  │
+│    │  INTELLIGENCE (8)│ explain_element, why_did_this_change,            │  │
 │    │                  │ analyze_click, get_source_file,                  │  │
-│    │                  │ detect_site_updates                              │  │
+│    │                  │ detect_site_updates, get_state_map_visual,       │  │
+│    │                  │ get_source_context, replay_session               │  │
 │    ├──────────────────┼──────────────────────────────────────────────────┤  │
 │    │  CONTROL (10)    │ set_config, get_config_changes, trigger_collect, │  │
 │    │                  │ trigger_explorer, navigate_to_state,             │  │
@@ -120,8 +127,8 @@
 │    │  Clickability          extension/       Element clickability pre-    │  │
 │    │  Analyzer             clickability.js   check + obstruction analysis │  │
 │    ├──────────────────────────────────────────────────────────────────────┤  │
-│    │  Time-series           server/          Network→DOM causal chains   │  │
-│    │  Correlator           correlator.js     with confidence scoring      │  │
+│    │  Time-series           server/          Network→DOM causal candidates│  │
+│    │  Correlator           correlator.js     with evidence-based scoring  │  │
 │    ├──────────────────────────────────────────────────────────────────────┤  │
 │    │  Source Map            server/          Compiled→original source     │  │
 │    │  Resolver             source-map-       file/line (VLQ decode)       │  │

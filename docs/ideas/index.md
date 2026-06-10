@@ -30,7 +30,7 @@
 - [x] MiniLM ONNX model for multilingual semantic similarity
 - [x] Fuzzy text matching with token Jaccard + character bigram
 - [x] Background worker pool for async embedding
-- [x] Automatic model download (~50MB) via `postinstall`
+- [x] Automatic model download (~50MB) on first server start (`intelligence.miniLM.downloadOnStart`)
 
 **Status:** ✅ 実装済み (v0.3.2)
 

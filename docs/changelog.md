@@ -4,6 +4,35 @@ All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
 
+## [Unreleased]
+
+### Added
+
+- **Secret Guard** (`privacy.secretGuard`, default off) — server-side redaction that hides user secrets from the agent, logs, cache, and dashboard. Known values from `secrets.local.json` / `WHISKOR_SECRETS` are replaced with `[WHISKOR_REDACTED ...]` tokens at a single choke point (`core.routeMessage`); pattern detection covers email / credit card (Luhn) / JWT, with ssn / ipv4 / phone individually opt-in; key-name redaction catches unregistered values. `type_secret` lets the agent type a secret by **ref name only** — the worker resolves the value (`action-executor`), so it never appears agent-side. Screenshots are masked on the extension canvas after capture (no page overlay, no flicker). `GET /health` reports counts only; MCP `serverInfo` advertises active redaction — including under the proxy, which asks the worker's `/health` at initialize time.
+- **Packed Set-of-Marks capture** — `capture_packed_som` crops only the interactive elements out of one real screenshot, shelf-packs them into a single numbered image, and lets the agent click by mark number at a fraction of a full screenshot's pixels/tokens. Includes a freshness-aware worker-side cache (invalidated by page-change signals), time-decayed usage statistics that order marks by click likelihood, per-element thumbnails (`get_element_thumbnail`, long-edge downscale in the extension canvas, view-aware cache), thumbnail pre-warming from the packed bitmap (`prefetchThumbs`), and optional capture-on-navigation (`prefetchOnNavigate`).
+- **Source upload & correlation** — upload the target site's source (`POST /api/source/upload`, files or base64 zip via a dependency-free zip reader; dashboard SOURCE UPLOAD card) and query bounded slices with `get_source_context` by file/line, symbol, or observed component name. Component→source resolution prefers React `_debugSource` (exact file/line in dev builds) and falls back to symbol-name matching with an evidence-tiered confidence; observed `FRAMEWORK_DOM_MAP` data records correlations passively.
+- **Real-browser E2E** — Playwright specs that load the actual extension (headed) and verify injected collection, executor round-trips, packed-SoM capture quality and caching, and secret masking against a live server.
+- **Producer/consumer contract test** — statically cross-checks every injected `emit` type against a server consumer (core routing / cache-writer cases), so a new page-side producer without server wiring fails the suite instead of silently dropping data. Intentionally-unconsumed types live in an allowlist that is itself verified against the code.
+- **Hollow-test CI guard** — unit tests that never import production code fail the build (`scripts/_check-hollow-tests.js`, wired into CI and `validate.ps1`); about half the unit suite previously tested inline re-implementations instead of the real modules and was rewritten.
+- **React component name resolution** — the React adapter derives names through a staged resolver (displayName → host tag → memo/forwardRef/context unwrapping → dev `_debugSource` basename → fiber-tag kind labels), so trees no longer show "Unknown"; derived/kind-fallback names render dimmed in the dev panel.
+
+### Fixed
+
+- **Network capture field-name drift** — the page-side producer emits `reqId`/`headers`/`bodyPreview`/`ts` while the cache consumer read `requestId`/`requestHeaders`/`requestBody`/`startTime`, so every request deduplicated onto a single null id (`totalRequests: 1`). The cache now normalizes both namings; WebSocket / EventSource connections and `NETWORK_ERROR` (failed fetch/XHR) are captured too.
+- **Dropped framework snapshots** — Vue 3 / Alpine / Preact / Solid adapters emitted snapshots that core/cache never consumed (4 of 9 adapters silently dead); Web Vitals observers (`PERF_LCP/CLS/FCP`) emitted to nowhere and are now folded into `PERF_METRICS`.
+- **Self-capture noise** — the worker no longer records its own dashboard tab or `/export` downloads as page sessions (loopback host + own port are excluded).
+- **React snapshot size** — node count is capped so giant trees can't blow up the cache or the agent's context.
+- **Correlator confidence carried no information** — every causal chain scored a uniform ~0.66 under a single rule. Confidence is now evidence-based: mutating HTTP methods score higher, static-asset responses lower, and competing candidates dilute each other — with every factor recorded in a `chain.evidence` object so the number is auditable. Docs and the `why_did_this_change` description now present chains as ranked hypotheses, not proven causes.
+- **Config-change-log id collisions** — `addChange` minted ids as `length + 1`, which collides after the 7-day prune shrinks the array; `markReverted` could then flip an old entry and leave the new change active, defeating the auto-revert safety net. Ids are now `max(id) + 1`. (Separately, nested patches were previously invisible to validation/auto-revert — both walkers are recursive now.)
+- **Proxy-mode wiring gaps** — screenshot masking, packed-SoM cache/stats, and `type_secret` lived in the MCP layer and silently did nothing under the proxy (the production configuration). All three moved to worker-side choke points that every path (MCP stdio / HTTP / proxy) goes through; the serverInfo redaction notice now reaches the proxy too.
+- **Windows cache rename failures** — the atomic-write `rename` occasionally hits transient `EPERM`/`EBUSY` (AV/indexer locks); it now retries with a short backoff and silently gives up only when the destination is gone.
+- **`npm test` on Node 24** — `node --test <dir>` resolves the directory as an entry module on newer Node and crashes; the npm scripts now go through `scripts/_run-tests.js`, which expands directories to explicit file lists (works on every Node version; CI runs per-file and is unaffected).
+
+### Changed
+
+- **Dashboard framework display is data-driven** — framework dirs are created on demand instead of pre-created empty, and the dashboard shows what actually arrived (fixes silently empty Console / Perf tabs and missing preact/alpine/solid/vue2 panels).
+- **Repository housekeeping** — merged work branches deleted (local + remote, `main` only remains); release history trimmed to the latest version per user request (private repository).
+
 ## [0.6.0] — 2026-06-03
 
 ### Added

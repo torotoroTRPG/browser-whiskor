@@ -8,7 +8,7 @@ browser-whiskor v3 (現在)          browser-whiskor v4+ (未来)
 ══════════════════════════════════  ══════════════════════════════════
   LLM Agent                           LLM Agent
   ───────────                         ───────────
-  MCP Server (62 tools)               MCP Server (85+ tools)
+  MCP Server (66 tools)               MCP Server (85+ tools)
   │                                    │
   ├─ Read (21)                         ├─ Read (21)
   ├─ Write (16)                        ├─ Write (17)

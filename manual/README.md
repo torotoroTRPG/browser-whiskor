@@ -434,7 +434,7 @@ Invoke-RestMethod "http://localhost:7892/api/sessions/1/tools"
 
 ---
 
-# MCP ツールリファレンス (全62ツール)
+# MCP ツールリファレンス (全66ツール)
 
 MCP は Model Context Protocol。stdio 経由の JSON-RPC で動作します。
 
@@ -459,7 +459,7 @@ $req = @{
 $req | node server/index.js --mcp
 ```
 
-## READ (21 ツール) — 情報取得
+## READ (22 ツール) — 情報取得
 
 ### 基本セッション
 
@@ -480,6 +480,7 @@ $req | node server/index.js --mcp
 | ツール | 必須パラメータ | 説明 |
 |--------|---------------|------|
 | `get_ui_catalog` | `tabId` | 全操作可能要素 (ボタン・リンク・入力欄) |
+| `find_target` | `tabId`, `query` | 説明文 ("検索ボックス", "送信") からクリック候補をランク付きで解決 |
 | `get_accessibility` | `tabId` | ARIA アクセシビリティツリー |
 | `get_dom_snapshot` | `tabId` | DOM ツリー (role/tag/text で絞り込み可) |
 
@@ -522,7 +523,7 @@ $req | node server/index.js --mcp
 | `list_patterns` | `tabId` | タブの全既知パターン一覧 |
 | `get_delta` | `tabId` | 最新のUI変更差分 (smart delta) |
 
-## WRITE (16 ツール) — 画面操作
+## WRITE (17 ツール) — 画面操作
 
 ### ナビゲーション
 
@@ -549,6 +550,7 @@ $req | node server/index.js --mcp
 | ツール | 必須パラメータ | 説明 |
 |--------|---------------|------|
 | `type_text` | `tabId`, `text` | テキスト入力 (1文字ずつ) |
+| `type_secret` | `tabId`, `ref` | 登録済み秘密値を ref 名で入力 (値は agent に見えない。secret guard 有効時) |
 | `press_key` | `tabId`, `key` | キーボードショートカット |
 | `select_option` | `tabId`, `selector` | セレクトボックス選択 |
 | `check_box` | `tabId`, `selector` | チェックボックスON/OFF |
@@ -566,12 +568,14 @@ $req | node server/index.js --mcp
 | `open_tab` | (なし) | 新規タブを開く (`url` / `active` 任意)。新 `tabId` を返す |
 | `close_tab` | `tabId` | タブを閉じる |
 
-## CAPTURE (3 ツール) — 取得
+## CAPTURE (5 ツール) — 取得
 
 | ツール | 必須パラメータ | 説明 |
 |--------|---------------|------|
 | `capture_screenshot` | `tabId` | スクリーンショット (全画面) |
 | `capture_element_screenshot` | `tabId` | 要素スクリーンショット (切り抜き) |
+| `capture_packed_som` | `tabId` | インタラクティブ要素だけを1枚に詰めた番号付き画像 (パックドSoM)。キャッシュ付き |
+| `get_element_thumbnail` | `tabId`, `selector` | 単一要素の低解像度サムネイル (`maxPx` 既定96) |
 | `refresh_data` | `tabId` | データ収集をリフレッシュ |
 
 ## CONTROL (10 ツール) — 制御
@@ -599,6 +603,12 @@ $req | node server/index.js --mcp
 | `get_source_file` | `tabId`, `url` | CSS/JS ソースファイル取得 |
 | `detect_site_updates` | (なし) | 前回訪問からの更新検出 |
 | `get_state_map_visual` | (なし) | ASCII ステートグラフ |
+
+## SOURCE (1 ツール) — アップロード済ソース
+
+| ツール | 必須パラメータ | 説明 |
+|--------|---------------|------|
+| `get_source_context` | (いずれか) | アップロード済ソースのスライス取得。`component`(観測コンポーネント名) / `file`+`line` / `symbol` で引ける |
 
 ## REPLAY (1 ツール) — リプレイ
 
