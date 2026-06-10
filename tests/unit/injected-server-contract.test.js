@@ -13,6 +13,10 @@
  * types (ACTION_RESULT, SCREENSHOT_RESULT, control/result messages) are produced in
  * sw.js, not here, and are out of scope.
  */
+// @allow-no-prod-import: static contract checker — reads the production sources
+// (shared/injected + server/core.js + server/cache-writer.js) with fs and
+// cross-checks emit types against consumers; injected files cannot be require()d
+// in node, so there is nothing to import.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
