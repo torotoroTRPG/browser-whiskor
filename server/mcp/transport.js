@@ -58,6 +58,30 @@ function buildServerInfo(identity, redaction) {
   return info;
 }
 
+// Resolve the redaction status shown in serverInfo. Standalone mode wires the
+// live guard object (`_secretGuard`, read synchronously); the proxy process has
+// no in-process guard — the secrets live in the worker — so it wires
+// `_redactionStatus`, an async provider that asks the worker's /health (counts
+// only). Without this, serverInfo silently omitted the redaction notice under
+// the proxy (T11b). Any provider failure degrades to "no notice", never an
+// initialize error — the notice is informational.
+async function resolveRedaction(cbs = {}) {
+  if (typeof cbs._redactionStatus === 'function') {
+    try {
+      const r = await cbs._redactionStatus();
+      return (r && r.active)
+        ? { active: true, knownValues: r.knownValues || 0, patterns: r.patterns || 0, refs: r.refs || 0 }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  const sg = cbs._secretGuard;
+  return (sg && sg.active)
+    ? { active: true, knownValues: sg.count || 0, patterns: sg.patternCount || 0, refs: sg.refCount || 0 }
+    : null;
+}
+
 // ── MCP stdio transport ───────────────────────────────────────────────────────
 // `identity` (optional) = { instanceId, name } from config.json identity section,
 // surfaced in serverInfo so an agent talking to several whiskor servers can tell
@@ -79,10 +103,7 @@ function startMcpServer(identity = null) {
       let result;
 
       if (method === 'initialize') {
-        const sg = registry.getCallbacks()._secretGuard;
-        const redaction = (sg && sg.active)
-          ? { active: true, knownValues: sg.count || 0, patterns: sg.patternCount || 0, refs: sg.refCount || 0 }
-          : null;
+        const redaction = await resolveRedaction(registry.getCallbacks());
         result = {
           protocolVersion: '2024-11-05',
           capabilities:    { tools: {} },
@@ -113,4 +134,4 @@ function startMcpServer(identity = null) {
   process.stderr.write(`[whiskor:mcp] MCP server ready — ${registry.getToolNames().length} tools registered\n`);
 }
 
-module.exports = { startMcpServer, buildServerInfo };
+module.exports = { startMcpServer, buildServerInfo, resolveRedaction };

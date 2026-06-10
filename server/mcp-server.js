@@ -72,6 +72,12 @@ function setSecretGuard(guard) {
   registry.setCallbacks({ _secretGuard: guard });
 }
 
+// Async serverInfo redaction provider for processes that don't hold the guard
+// in-process (the MCP proxy asks the worker's /health). See transport.resolveRedaction.
+function setRedactionStatus(fn) {
+  registry.setCallbacks({ _redactionStatus: fn });
+}
+
 function setStartupWarnings(warnings) {
   registry.setCallbacks({ _startupWarnings: warnings });
 }
@@ -147,6 +153,7 @@ module.exports = {
   setNavigateBroadcast,
   setConfigLog,
   setSecretGuard,
+  setRedactionStatus,
   setStartupWarnings,
   setMcpToolsConfig,
   getMcpToolsConfig,

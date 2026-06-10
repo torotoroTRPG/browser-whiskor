@@ -755,6 +755,20 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setConfigLog(proxyConfigLog);
     mcp.setNavigateBroadcast(() => {});
 
+    // T11(b): the proxy process holds no secret guard — the secrets live in the
+    // worker — so serverInfo's redaction notice was silently absent under the
+    // proxy. Ask the worker's /health (counts only, never values) at initialize
+    // time, bounded so a down worker can't stall the MCP handshake (the notice
+    // is informational; on any failure it is simply omitted, as before).
+    mcp.setRedactionStatus(async () => {
+      const health = await Promise.race([
+        requestServer('GET', '/health'),
+        new Promise((resolve) => { const t = setTimeout(() => resolve(null), 2000); if (t.unref) t.unref(); }),
+      ]).catch(() => null);
+      const sg = health && health.secretGuard;
+      return (sg && sg.active) ? sg : null;
+    });
+
     // Expose proxyCache to intelligence callbacks (correlator and sourceStore remain null since calculations are on target server)
     mcp.setIntelligenceCallbacks(null, null, proxyCache);
 
