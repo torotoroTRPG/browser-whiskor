@@ -1,11 +1,14 @@
 /**
  * server/correlator.js
  *
- * Intelligence Layer: Time-series Correlator.
+ * Time-series correlator.
  *
- * Builds deterministic, bounded causal candidates from timestamped browser
- * events.  It is intentionally conservative: chains below the confidence floor
- * are discarded, and every emitted chain records the rule that produced it.
+ * Builds deterministic, bounded causal CANDIDATES from timestamped browser
+ * events.  Temporal proximity is correlation, not proven causation — chains
+ * are hypotheses ranked by evidence strength, and each chain records both the
+ * rule that produced it and an `evidence` object explaining its confidence
+ * (so the number is auditable rather than asserted).  It is intentionally
+ * conservative: chains below the confidence floor are discarded.
  *
  * CORRELATION WINDOWS:
  *
@@ -18,7 +21,14 @@
  *    - >5000ms: 0.00 confidence (too distant, rejected)
  *
  *    When a framework transition is detected between network response and DOM
- *    change, confidence is boosted to 1.0 (confirmed causal chain).
+ *    change, confidence is raised to 0.95 (strongest tier; never 1.0 — the
+ *    chain is still an inference, not an observation).
+ *
+ *    On top of the temporal base, per-response evidence shifts the score
+ *    (see scoreChainEvidence): mutating HTTP methods (+), static-asset
+ *    responses like images/fonts (−), and many candidate responses competing
+ *    for the same DOM change (− per-candidate ambiguity).  Without this the
+ *    score collapsed to a uniform ~0.66 across all chains (review #4).
  *
  * 2. Framework → DOM: 100ms default window (_correlateFrameworkEvent)
  *    - Base confidence: 0.85
@@ -191,7 +201,8 @@ class TimeSeriesCorrelator {
     for (const response of responses) {
       const deltaMs = domEvent.timestamp - response.timestamp;
       const frameworkEvents = buffer.between(response.timestamp, domEvent.timestamp, 'framework_transition');
-      const confidence = scoreNetworkToDom(deltaMs, frameworkEvents.length > 0);
+      const { confidence, evidence } =
+        scoreChainEvidence(response, deltaMs, frameworkEvents.length > 0, responses.length);
 
       if (confidence < this.options.confidenceFloor) continue;
 
@@ -201,6 +212,7 @@ class TimeSeriesCorrelator {
         tabId: domEvent.tabId,
         timestamp: domEvent.timestamp,
         confidence,
+        evidence,
         rule: frameworkEvents.length > 0 ? 'network_framework_dom' : 'network_dom_temporal',
         deltaMs,
         network: {
@@ -266,6 +278,7 @@ class TimeSeriesCorrelator {
         tabId: snapshotEvent.tabId,
         timestamp: snapshotEvent.timestamp,
         confidence,
+        evidence: { temporal: confidence, deltaMs, candidates: baseDomEvents.length },
         rule: 'framework_dom_temporal',
         deltaMs,
         network: null,
@@ -393,6 +406,54 @@ function scoreNetworkToDom(deltaMs, frameworkConfirmed) {
   return 0;
 }
 
+// Evidence-based adjustments layered over the temporal base score.  Every
+// factor that moves the number is recorded in the returned `evidence` object,
+// so a chain's confidence is auditable instead of asserted.  (Review #4: the
+// temporal score alone collapsed to a uniform ~0.66 on real pages because
+// most responses land in the 0.5-0.7 decay band.)
+const STATIC_ASSET_RE = /\.(png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|map)([?#]|$)/i;
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function scoreChainEvidence(response, deltaMs, frameworkConfirmed, candidateCount) {
+  const temporal = scoreNetworkToDom(deltaMs, frameworkConfirmed);
+  const evidence = {
+    temporal,
+    deltaMs,
+    frameworkConfirmed: !!frameworkConfirmed,
+    candidates: candidateCount,
+  };
+  let confidence = temporal;
+
+  // A write round-trip immediately before a DOM change is stronger causal
+  // evidence than a read — polling GETs fire constantly on busy pages.
+  if (MUTATING_METHODS.has(String(response.method || '').toUpperCase())) {
+    evidence.mutatingMethod = 0.05;
+    confidence += 0.05;
+  }
+
+  // Image/font responses don't drive DOM updates; temporal proximity to one
+  // is coincidence, not causation.  (.js and .css are NOT penalized — lazy
+  // chunks and stylesheet swaps genuinely change the page.)
+  if (STATIC_ASSET_RE.test(String(response.url || ''))) {
+    evidence.staticAsset = -0.2;
+    confidence -= 0.2;
+  }
+
+  // When several responses compete for the same DOM change, the temporal
+  // signal is ambiguous — each candidate is individually less likely to be
+  // the cause.
+  if (candidateCount > 1) {
+    const penalty = Math.min(0.12, round2(0.04 * (candidateCount - 1)));
+    evidence.ambiguity = -penalty;
+    confidence -= penalty;
+  }
+
+  return {
+    confidence: Math.min(0.95, Math.max(0, round2(confidence))),
+    evidence,
+  };
+}
+
 function selectorMatchesChain(selector, chain) {
   const samples = chain?.dom?.sampleSelectors || [];
   return samples.some(s => s === selector || s.includes(selector) || selector.includes(s));
@@ -416,5 +477,6 @@ module.exports = {
   TimeSeriesCorrelator,
   normalizeMessage,
   scoreNetworkToDom,
+  scoreChainEvidence,
   selectorMatchesChain,
 };

@@ -217,7 +217,7 @@ module.exports = function registerIntelligenceTools(registry) {
   tools.push({
     definition: {
       name: 'why_did_this_change',
-      description: 'Returns the most likely causal chains explaining why a DOM element changed recently. Looks up network responses and framework state transitions that preceded the change. Returns up to 3 chains sorted by confidence.',
+      description: 'Returns candidate causal chains for a recent DOM element change, correlated from network responses and framework state transitions that preceded it. Chains are hypotheses ranked by evidence-based confidence (each chain carries an `evidence` object explaining its score), not proven causes. Returns up to 3 chains sorted by confidence.',
       inputSchema: {
         type: 'object',
         properties: {
