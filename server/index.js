@@ -37,6 +37,7 @@ const { TimeSeriesCorrelator } = require('./correlator');
 const sourceStore = require('./source-store');
 const conclusionCache = require('./conclusion-cache');
 const AppRegistry = require('./app-registry');
+const { checkOrigin } = require('./http-origin-guard');
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -351,20 +352,22 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     }
 
     const origin = req.headers['origin'] || '';
-    const serverOrigin = `http://${HOST}:${HTTP_PORT}`;
-    const httpAllowedOrigins = SECURITY.allowedMcpOrigins.includes('*')
-      ? [serverOrigin]
-      : SECURITY.allowedMcpOrigins;
-    if (httpAllowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else if (!origin) {
-      res.setHeader('Access-Control-Allow-Origin', serverOrigin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', 'none'); // browser will reject
-    }
+    const { allow: originAllowed, acao } = checkOrigin(origin, {
+      host: HOST, httpPort: HTTP_PORT, allowedMcpOrigins: SECURITY.allowedMcpOrigins,
+    });
+    res.setHeader('Access-Control-Allow-Origin', acao);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+
+    if (!originAllowed) {
+      // Cross-origin request from a page outside allowedMcpOrigins. The ACAO
+      // header above only blocks the page from reading this response — it does
+      // not stop "simple" (no-preflight) requests from being delivered, so
+      // reject here before the body is read or any action is dispatched.
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ error: `Origin not allowed: ${origin}` }));
+    }
 
     const sendJson = (data, status = 200) => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
