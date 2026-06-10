@@ -180,7 +180,8 @@
 - **状態/規模**: ⬜ / 小（公開総仕上げ局面で）。
 
 ### T9. 雑多（ブランチ掃除・バージョン・dashboardSeesRaw 他）
-- マージ済み feature ブランチの削除（oss-readiness / feature/secret-guard / test/e2e-injected-coverage / fix/frameworks-panel-tree / feature/packed-som-capture / feature/som-cache-prefetch / feature/source-upload-correlation / feature/source-correlation-slice2）。
+- ✅ **ブランチ掃除（2026-06-10）**: マージ済み11本（ROADMAP記載8本＋docs/roadmap・integration・test-audit-fixes）をローカル/リモートとも削除。全ヘッドが main の祖先であることを `merge-base --is-ancestor` で検証してから実施。残りは main のみ。
+- ✅ **過去リリース掃除（2026-06-10、ユーザー指示）**: v0.3.0〜v0.5.4 の19リリースをタグごと削除（private リポジトリ・全て現行に置換済みのため）。迷子タグ `v3.2.0`（v0.3.0期コミットへの誤タグ）も削除。**残置は v0.6.0（Latest）のみ**、ローカル/リモートのタグも v0.6.0 のみ。
 - per-identity 統計バケット（packed-som stats を identity 付き whiskor で分離）。
 - `MODULE_TYPELESS_PACKAGE_JSON` 警告（無害。`tests/` を ESM 扱いにする小細工は任意）。
 
