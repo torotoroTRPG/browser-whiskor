@@ -84,8 +84,12 @@ function save() {
 }
 
 function addChange(entry) {
+  // max(id)+1, not length+1: the 7-day prune shrinks the array while old ids
+  // survive in it, so length+1 can collide with an existing id — and then
+  // markReverted(id) flips the OLD entry, leaving the new change active.
+  const nextId = changes.reduce((m, c) => Math.max(m, c.id || 0), 0) + 1;
   changes.push({
-    id: changes.length + 1,
+    id: nextId,
     timestamp: Date.now(),
     reverted: false,
     ...entry,

@@ -57,6 +57,27 @@ describe('8.2 change lifecycle', () => {
     assert.ok(!log.getActiveChanges().some(c => c.note === marker),
       'a reverted change must drop out of the active list');
   });
+
+  test('ids never collide after pruning shrinks the array (max+1, not length+1)', () => {
+    // Simulate the post-prune state: few entries, but with a high surviving id.
+    // length+1 would mint an id that already exists, and markReverted would
+    // then flip the wrong (old) entry.
+    const all = log._getAll();
+    const highId = all.reduce((m, c) => Math.max(m, c.id || 0), 0) + 1000;
+    all.push({ id: highId, timestamp: Date.now(), reverted: true, patch: {}, warnings: [] });
+
+    const marker = `__collide_${Date.now()}_${Math.random()}`;
+    log.addChange({ patch: { server: { wsPort: 7891 } }, warnings: [], note: marker });
+
+    const added = log.getActiveChanges().find(c => c.note === marker);
+    assert.ok(added, 'change must be added');
+    assert.strictEqual(added.id, highId + 1, 'new id must exceed every surviving id');
+    assert.strictEqual(all.filter(c => c.id === added.id).length, 1, 'id must be unique');
+
+    log.markReverted(added.id);
+    assert.ok(!log.getActiveChanges().some(c => c.note === marker),
+      'markReverted must hit the entry it minted, not an older one');
+  });
 });
 
 describe('8.2 autoRevertIfNeeded', () => {
