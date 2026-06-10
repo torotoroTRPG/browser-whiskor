@@ -43,7 +43,8 @@
 - **内容**: MIT `LICENSE`（著作権 butterflycurtain）、`package.json` に license/repository/homepage/bugs、`playwright` を dependencies→devDependencies（利用者の数百MB DL解消）、`extracted/`(298MB重複) と `tests/tmp/` の追跡解除、`.gitignore` 整備（`secrets.local.json` 等）。
 - **場所**: `LICENSE`, `package.json`, `.gitignore`。
 - **状態/検証**: ✅。
-- **未了**: README/CONTRIBUTING/SECURITY とリポジトリ About は [T8](#t8-github-リポジトリ整頓--リリース)。
+- **追補（2026-06-10 ドキュメント完全更新）**: README 全面更新（66ツール・packed SoM/secret guard/source upload セクション新設・テスト数406・HTTP API一覧）、`CONTRIBUTING.md`/`SECURITY.md` 新設、CLAUDE.md/architecture.md/http-api-reference.md/manual/README.md/tests/README.md のツール数・エンドポイント・コマンド整合、changelog に `[Unreleased]`、一回性レポート3本（IMPLEMENTATION-PROGRESS/update-report/TEST-REPORT）を `docs/archive/` へ移動。
+- **未了**: リポジトリ About/topics は [T8](#t8-github-リポジトリ整頓--リリース)。
 
 ### B. テスト健全化（空洞テスト撲滅 + CIガード）
 - **目的**: 「実装を呼ばず自前の玩具をテストする空洞テスト」を排除し、テストを本物にする。
@@ -176,8 +177,9 @@
 - **状態/規模**: ✅ 🧪（核＝zip reader＋upload UI 完了）。残は任意。`docs/ideas/SOURCE_UPLOAD_CORRELATION.md` Open questions 参照。
 
 ### T8. GitHub リポジトリ整頓 & リリース
-- **内容**: `gh repo edit` で About(description/homepage/topics)、README/CONTRIBUTING/SECURITY 整備、GitHub Release ノート。**バージョン**: 機能多数追加なので `npm version minor`(0.6.0→0.7.0) + `git push --follow-tags`(release.yml起動)。
-- **状態/規模**: ⬜ / 小（公開総仕上げ局面で）。
+- **内容**: `gh repo edit` で About(description/homepage/topics)、GitHub Release ノート。**バージョン**: 機能多数追加なので `npm version minor`(0.6.0→0.7.0) + `git push --follow-tags`(release.yml起動)。リリースノートの種は changelog の `[Unreleased]` に集約済み。
+- **済（2026-06-10）**: README/CONTRIBUTING/SECURITY 整備は完了（[A](#a-oss-品質化) 追補参照）。gh 操作は torotoroTRPG アカウントのトークンが必要な点に注意。
+- **状態/規模**: 🟡 残りは About/topics + リリース実施のみ / 小（公開総仕上げ局面で）。
 
 ### T9. 雑多（ブランチ掃除・バージョン・dashboardSeesRaw 他）
 - ✅ **ブランチ掃除（2026-06-10）**: マージ済み11本（ROADMAP記載8本＋docs/roadmap・integration・test-audit-fixes）をローカル/リモートとも削除。全ヘッドが main の祖先であることを `merge-base --is-ancestor` で検証してから実施。残りは main のみ。
