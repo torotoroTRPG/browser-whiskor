@@ -1,6 +1,6 @@
 {
   "name": "browser-whiskor",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Agent-grade browser instrumentation with MCP server",
   "license": "MIT",
   "homepage": "https://github.com/torotoroTRPG/browser-whiskor#readme",
