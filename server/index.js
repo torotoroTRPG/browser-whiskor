@@ -44,6 +44,7 @@ const args      = process.argv.slice(2);
 const VERBOSE   = args.includes('--verbose');
 const MOCK      = args.includes('--mock');
 const MCP_MODE  = args.includes('--mcp');
+const STATIC_TOOLS_FLAG = args.includes('--static-tools');
 
 // ── Load config.json (+ .env overrides) ──────────────────────────────────────
 const _cfg = loadConfig();
@@ -832,6 +833,15 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     const sid = envSid || `mcp-${Date.now()}`;
     if (envSid) log('info', `[mcp] Using fixed session id from env: ${sid}`);
     mcp.setSessionId(sid);
+
+    // Static tools mode: every profile permanently visible (no dynamic
+    // load/unload), for MCP clients that fetch tools/list once and never follow
+    // tools/list_changed. requiresConfig gates and mcp-tools.json enabled flags
+    // still apply. Enable via config mcpServer.staticTools or --static-tools.
+    if (STATIC_TOOLS_FLAG || _cfg.mcpServer?.staticTools === true) {
+      toolManager.setStaticMode(true);
+      log('info', '[mcp] Static tools mode — all profiles permanently visible (dynamic load/unload disabled)');
+    }
   }
   mcp.initToolManager();
 

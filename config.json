@@ -17,6 +17,12 @@
     "_comment_ja": "このサーバーインスタンスの説明的な識別子 — ラベルであってセキュリティではない（127.0.0.1のローカル通信に暗号化は不要。LAN公開するなら appIsolation のトークンを使う）。GET /health と MCP serverInfo で公開され、複数の whiskor を別ポート/別マシンで並走させたときにクライアントや人がログ上で区別できる。単一の既定インスタンスならここは触らなくてよい。instanceId が null のときは whiskor-<hostname>-<httpPort> に自動導出 — 同じ host:port には2つ立てられないので host:port 単位で必ず一意になり、共有デフォルトの衝突は起きない。config か WHISKOR_IDENTITY_INSTANCEID / WHISKOR_IDENTITY_NAME で上書き可。"
   },
 
+  "mcpServer": {
+    "staticTools": false,
+    "_comment_en": "staticTools=true exposes every tool profile permanently over MCP (no dynamic load/unload). For MCP clients that fetch tools/list once and ignore tools/list_changed notifications. Security gates (security.allowExecuteJs etc.) and the per-tool enabled flags in server/configs/mcp-tools.json still apply — this widens visibility, never permissions. Also available as the --static-tools CLI flag or WHISKOR_MCPSERVER_STATICTOOLS=true.",
+    "_comment_ja": "staticTools=true で全ツールプロファイルをMCPに常時公開する（動的load/unloadなし）。tools/listを起動時に一度しか取得せず tools/list_changed 通知に追従しないMCPクライアント向け。セキュリティゲート（security.allowExecuteJs等）と server/configs/mcp-tools.json の個別enabled設定は引き続き適用される＝可視範囲を広げるだけで権限は広げない。--static-tools フラグや WHISKOR_MCPSERVER_STATICTOOLS=true でも有効化可。"
+  },
+
   "resilience": {
     "_comment_en": "Crash resilience. npm start / start.ps1 run the worker under scripts/supervisor.js by default, so an unclean exit auto-restarts (raw worker: npm run start:raw / start.ps1 -NoSupervisor). proxyRetry makes an MCP proxy process transparently retry HTTP forwards while the worker restarts, so instructions arriving during the brief downtime are not lost (only connection-level failures are retried; a refused connection never reached the worker, so re-sending cannot double-execute an action).",
     "_comment_ja": "クラッシュ耐性。npm start / start.ps1 はデフォルトで scripts/supervisor.js 配下でワーカーを起動し、異常終了時に自動再起動する（生起動は npm run start:raw / start.ps1 -NoSupervisor）。proxyRetry は MCPプロキシがワーカー再起動中のHTTP転送を透過的に再試行し、ダウン中に来た指示を取りこぼさない（再試行するのは接続レベルの失敗のみ。接続拒否はワーカーに届いていないので再送で操作が二重実行されることはない）。",

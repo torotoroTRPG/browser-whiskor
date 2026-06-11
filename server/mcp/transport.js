@@ -82,56 +82,85 @@ async function resolveRedaction(cbs = {}) {
     : null;
 }
 
+// Fingerprint of the currently visible toolset, used to detect when a tools/call
+// changed tool visibility as a side effect (profile auto-load, idle unload,
+// explicit load_profile/unload_profile).
+function visibleToolsKey() {
+  try { return registry.getFilteredTools().map(t => t.name).sort().join(','); }
+  catch { return ''; }
+}
+
+// ── Request handling (transport-agnostic, testable) ──────────────────────────
+// Takes one raw stdio line and returns the JSON-RPC messages to write to stdout,
+// response first, then any notifications. Returns [] for blank/unparseable lines
+// and for client notifications that need no reply.
+async function handleLine(line, identity = null) {
+  const trimmed = String(line).trim();
+  if (!trimmed) return [];
+
+  let request;
+  try { request = JSON.parse(trimmed); }
+  catch { return []; }
+
+  const { id, method, params } = request;
+  const out = [];
+
+  try {
+    let result;
+
+    if (method === 'initialize') {
+      const redaction = await resolveRedaction(registry.getCallbacks());
+      result = {
+        protocolVersion: '2024-11-05',
+        capabilities:    { tools: { listChanged: true } },
+        serverInfo:      buildServerInfo(identity, redaction),
+      };
+    } else if (method === 'notifications/initialized') {
+      return [];
+    } else if (method === 'tools/list') {
+      result = { tools: registry.getFilteredTools() };
+    } else if (method === 'tools/call') {
+      // Dynamic profiles can change the visible toolset as a side effect of this
+      // very call. Clients that cache tools/list (i.e. don't re-fetch on every
+      // turn) would otherwise never see dynamically loaded tools — notify them.
+      const before = visibleToolsKey();
+      const toolResult = await registry.callTool(params.name, params.arguments || {});
+      result = { content: toContentBlocks(toolResult) };
+      if (visibleToolsKey() !== before) {
+        out.push({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+      }
+    } else {
+      result = {};
+    }
+
+    out.unshift({ jsonrpc: '2.0', id, result });
+    return out;
+  } catch (err) {
+    return [{ jsonrpc: '2.0', id, error: { code: -32603, message: err.message } }];
+  }
+}
+
 // ── MCP stdio transport ───────────────────────────────────────────────────────
 // `identity` (optional) = { instanceId, name } from config.json identity section,
 // surfaced in serverInfo so an agent talking to several whiskor servers can tell
 // which instance answered. Falls back to the plain product name when unset.
 function startMcpServer(identity = null) {
+  // From here on, stdout is the JSON-RPC channel. Any stray console.log — e.g.
+  // the "[cache] ..." lines from cache-writer when this process runs standalone
+  // (no separate worker on :7892) — would reach the client as a corrupt message
+  // ("Ignoring non-JSON line on stdout"). Reroute bare console.log/info to
+  // stderr; console.warn/error already go there.
+  console.log  = (...a) => console.error(...a);
+  console.info = (...a) => console.error(...a);
+
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
   rl.on('line', async (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    let request;
-    try { request = JSON.parse(trimmed); }
-    catch { return; }
-
-    const { id, method, params } = request;
-
-    try {
-      let result;
-
-      if (method === 'initialize') {
-        const redaction = await resolveRedaction(registry.getCallbacks());
-        result = {
-          protocolVersion: '2024-11-05',
-          capabilities:    { tools: {} },
-          serverInfo:      buildServerInfo(identity, redaction),
-        };
-      } else if (method === 'notifications/initialized') {
-        return;
-      } else if (method === 'tools/list') {
-        result = { tools: registry.getFilteredTools() };
-      } else if (method === 'tools/call') {
-        const toolResult = await registry.callTool(params.name, params.arguments || {});
-        result = { content: toContentBlocks(toolResult) };
-      } else {
-        result = {};
-      }
-
-      const response = JSON.stringify({ jsonrpc: '2.0', id, result });
-      process.stdout.write(response + '\n');
-    } catch (err) {
-      const errResponse = JSON.stringify({
-        jsonrpc: '2.0', id,
-        error: { code: -32603, message: err.message },
-      });
-      process.stdout.write(errResponse + '\n');
-    }
+    const messages = await handleLine(line, identity);
+    for (const m of messages) process.stdout.write(JSON.stringify(m) + '\n');
   });
 
   process.stderr.write(`[whiskor:mcp] MCP server ready — ${registry.getToolNames().length} tools registered\n`);
 }
 
-module.exports = { startMcpServer, buildServerInfo, resolveRedaction };
+module.exports = { startMcpServer, handleLine, buildServerInfo, resolveRedaction };

@@ -50,6 +50,21 @@ function sanitizeSessionId(id) {
 // sessionId -> { activeProfiles: Set, turnCount: number, lastUsed: Map<profile, turn>, toolHistory: Array }
 const sessions = new Map();
 
+// Static tools mode (mcpServer.staticTools / --static-tools): every profile is
+// permanently visible, nothing loads or unloads. For MCP clients that fetch
+// tools/list once and never follow tools/list_changed. requiresConfig gates
+// (allowExecuteJs / allowAgentConfig) and the mcp-tools.json enabled flags are
+// still honored — static widens visibility, never permissions.
+let _staticMode = false;
+
+function setStaticMode(enabled) {
+  _staticMode = enabled === true;
+}
+
+function isStaticMode() {
+  return _staticMode;
+}
+
 // ── Duplicate Detection Settings ─────────────────────────────────────────────
 const DUPLICATE_THRESHOLD = 3; // Same tool+args repeated this many times
 const DUPLICATE_WINDOW = 10;   // Look back this many turns
@@ -201,6 +216,17 @@ function getVisibleTools(sessionId, allTools, config) {
   const profiles = loadProfiles();
   const visible = new Set();
 
+  if (_staticMode) {
+    // Every profile, permanently — but getAllToolsForProfile still applies the
+    // requiresConfig security gates, so e.g. execute_js stays hidden while
+    // allowExecuteJs is false.
+    for (const profileName of Object.keys(profiles)) {
+      for (const t of getAllToolsForProfile(profileName, profiles, config)) visible.add(t);
+    }
+    for (const t of ALWAYS_VISIBLE_TOOLS) visible.add(t);
+    return allTools.filter(t => visible.has(t.definition.name));
+  }
+
   for (const profileName of session.activeProfiles) {
     const tools = getAllToolsForProfile(profileName, profiles, config);
     for (const t of tools) visible.add(t);
@@ -223,6 +249,10 @@ function loadProfile(sessionId, profileName, allTools, config, isAuto = false) {
 
   if (!profiles[profileName]) {
     return { success: false, error: `Unknown profile: ${profileName}` };
+  }
+
+  if (_staticMode) {
+    return { success: true, loadedTools: [], note: 'Static tools mode — every profile is already permanently visible.' };
   }
 
   if (session.activeProfiles.has(profileName)) {
@@ -254,6 +284,10 @@ function loadProfile(sessionId, profileName, allTools, config, isAuto = false) {
  */
 function unloadProfile(sessionId, profileName, allTools) {
   const session = ensureSession(sessionId);
+
+  if (_staticMode) {
+    return { success: false, error: 'Static tools mode — profiles cannot be unloaded. Disable mcpServer.staticTools to use dynamic profiles.' };
+  }
 
   if (profileName === 'core') {
     return { success: false, error: 'Cannot unload core profile' };
@@ -349,9 +383,14 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
 
   session.turnCount++;
 
+  // Static mode: nothing loads or unloads, so trigger detection (1), idle decay
+  // (2) and long-active warnings (3) are all moot. Duplicate detection (0) and
+  // the minScoreOverride reset (4) still apply — they are orthogonal to
+  // tool visibility.
+
   // 1. Auto-detect triggers from the last tool call (name + argument text).
   //    Argument scanning can be disabled via agentControl.argTriggerDetection.
-  if (lastToolCall) {
+  if (!_staticMode && lastToolCall) {
     const { name: callName, argsText: rawArgsText } = buildTriggerText(lastToolCall);
     const argsEnabled = config?.agentControl?.argTriggerDetection !== false;
     const argsText = argsEnabled ? rawArgsText : '';
@@ -371,7 +410,7 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
   }
 
   // 2. Check idle profiles for auto-unload
-  for (const profileName of [...session.activeProfiles]) {
+  for (const profileName of _staticMode ? [] : [...session.activeProfiles]) {
     if (profileName === 'core') continue;
     const profile = profiles[profileName];
     if (!profile || !profile.autoUnload) continue;
@@ -386,7 +425,7 @@ function processTurn(sessionId, lastToolCall, allTools, config) {
   }
 
   // 3. Issue warnings for long-active profiles
-   for (const profileName of session.activeProfiles) {
+   for (const profileName of _staticMode ? [] : session.activeProfiles) {
      if (profileName === 'core') continue;
      const profile = profiles[profileName];
      if (!profile || !profile.autoUnload) continue;
@@ -453,6 +492,20 @@ function getProfileStatus(sessionId) {
   const status = {};
   const available = [];
 
+  if (_staticMode) {
+    for (const [name, profile] of Object.entries(profiles)) {
+      status[name] = { active: true, idleTurns: 0, description: profile.description || '' };
+    }
+    return {
+      staticMode: true,
+      note: 'Static tools mode — every profile is permanently visible; load/unload are no-ops.',
+      turnCount: session.turnCount,
+      profiles: status,
+      available,
+      alwaysVisible: [...ALWAYS_VISIBLE_TOOLS],
+    };
+  }
+
   for (const name of session.activeProfiles) {
     status[name] = {
       active: true,
@@ -493,10 +546,13 @@ function cleanupSession(sessionId) {
  */
 function resetAll() {
   sessions.clear();
+  _staticMode = false;
 }
 
 module.exports = {
    initSession,
+   setStaticMode,
+   isStaticMode,
    getVisibleTools,
    loadProfile,
    unloadProfile,

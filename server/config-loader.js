@@ -129,6 +129,7 @@ function stripComments(obj) {
 function getDefaults() {
   return {
     server:     { wsPort: 7891, httpPort: 7892, host: '127.0.0.1' },
+    mcpServer:  { staticTools: false },
     security:   { allowExecuteJs: false, allowActions: true, allowScreenshots: true, allowExplorer: true, executeJsTimeoutMs: 15000, actionTimeoutMs: 15000, allowedMcpOrigins: ['*'] },
     collection: { staleThresholdMs: 30000, pollingIntervalMs: 0, maxConsoleLogs: 2000, maxNetworkRequests: 500, networkBodyMaxBytes: 4096, maxReactStateHistory: 100 },
     plugins:    { 'react-fiber': true, 'vue3': true, 'text-coords': true, 'network-hook': true, 'ui-catalog': true, 'css-analyzer': true, 'perf-analyzer': true, 'accessibility': true, 'console-logger': true, 'storage-reader': true },
