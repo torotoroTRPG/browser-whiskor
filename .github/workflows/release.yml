@@ -182,9 +182,27 @@ jobs:
       - name: Generate release notes
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
-          cat <<'MARKDOWN' > release-notes.md
-          ## browser-whiskor v${{ needs.check-version.outputs.version }}
 
+          # Pull this version's section out of docs/changelog.md so the release
+          # notes show what changed, not just install instructions.
+          awk -v ver="$VERSION" '
+            index($0, "## [") == 1 {
+              if (capture) exit
+              if (index($0, "[" ver "]") == 4) { capture=1; next }
+              next
+            }
+            capture { print }
+          ' docs/changelog.md > changelog-section.md
+
+          if [ ! -s changelog-section.md ]; then
+            echo "::warning::No docs/changelog.md section found for [$VERSION] — release notes will omit it." >&2
+          fi
+
+          {
+          echo "## browser-whiskor v${{ needs.check-version.outputs.version }}"
+          echo ""
+          cat changelog-section.md
+          cat <<'MARKDOWN'
           ### Downloads
           | Package | File | Contains |
           |---------|------|----------|
@@ -207,6 +225,7 @@ jobs:
 
           > **Note:** Firefox build requires `extensions.experiments.enabled = true` in `about:config` for devtools support.
           MARKDOWN
+          } > release-notes.md
 
       - name: Create or update release
         uses: softprops/action-gh-release@v2
