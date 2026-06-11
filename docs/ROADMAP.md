@@ -185,8 +185,9 @@
 
 ### T8. GitHub リポジトリ整頓 & リリース
 - **内容**: `gh repo edit` で About(description/homepage/topics)、GitHub Release ノート。**バージョン**: 機能多数追加なので `npm version minor`(0.6.0→0.7.0) + `git push --follow-tags`(release.yml起動)。リリースノートの種は changelog の `[Unreleased]` に集約済み。
-- **済（2026-06-10）**: README/CONTRIBUTING/SECURITY 整備は完了（[A](#a-oss-品質化) 追補参照）。gh 操作は torotoroTRPG アカウントのトークンが必要な点に注意。
-- **状態/規模**: 🟡 残りは About/topics + リリース実施のみ / 小（公開総仕上げ局面で）。
+- **済（2026-06-10）**: README/CONTRIBUTING/SECURITY 整備は完了（[A](#a-oss-品質化) 追補参照）。About/description/topics は確認時点で既に設定済みだった。
+- **済（2026-06-11）**: レビュー#2（[I](#i-保守境界の明文化レビュー2-2026-06-11)）の docs を含めて `npm version minor` で **0.7.0** へ。`git push --follow-tags` で release.yml 起動 → CI（auto-sync/verify-sync/run-tests）・Release（chrome/firefox/full ZIP + SHA256SUMS）とも green。[v0.7.0](https://github.com/torotoroTRPG/browser-whiskor/releases/tag/v0.7.0)。
+- **状態/規模**: ✅。
 
 ### T9. 雑多（ブランチ掃除・バージョン・dashboardSeesRaw 他）
 - ✅ **ブランチ掃除（2026-06-10）**: マージ済み11本（ROADMAP記載8本＋docs/roadmap・integration・test-audit-fixes）をローカル/リモートとも削除。全ヘッドが main の祖先であることを `merge-base --is-ancestor` で検証してから実施。残りは main のみ。
