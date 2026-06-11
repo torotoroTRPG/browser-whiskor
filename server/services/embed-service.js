@@ -52,7 +52,7 @@ function computeTextHash(text) {
  */
 async function initialize(config) {
   const mlCfg = config?.intelligence?.searchClassifier?.miniLM || {};
-  const modelName = mlCfg.model || 'paraphrase-multilingual-MiniLM-L12-v2';
+  const modelName = mlCfg.model || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
   const cacheDir = mlCfg.modelCacheDir || '.model-cache';
 
   // 1. Initialize load monitor

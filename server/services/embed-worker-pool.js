@@ -76,7 +76,7 @@ function _createWorker() {
 
     _worker.postMessage({
       type: 'init',
-      modelName: _config?.modelName || 'paraphrase-multilingual-MiniLM-L12-v2',
+      modelName: _config?.modelName || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
       cacheDir: _config?.cacheDir || '.model-cache'
     });
   });

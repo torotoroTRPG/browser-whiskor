@@ -11,7 +11,7 @@ const path = require('path');
 
 let _store = new Map();
 let _cacheDir = null;
-let _modelVersion = 'paraphrase-multilingual-MiniLM-L12-v2'; // Default
+let _modelVersion = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'; // Default
 let _lastFlush = 0;
 let _flushTimer = null;
 const MAX_ENTRIES = 10000;

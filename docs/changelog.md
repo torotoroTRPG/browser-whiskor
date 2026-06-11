@@ -6,6 +6,12 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-06-11
+
+### Fixed
+
+- **MiniLM model download — missing `Xenova/` org prefix** — the startup auto-download (`server/index.js`) and the default `modelName`/`modelVersion` fallbacks in `embed-service.js` / `embed-worker-pool.js` / `embed-store.js` referenced the bare model id `paraphrase-multilingual-MiniLM-L12-v2`. `@xenova/transformers` does not infer an org for unprefixed ids, so it requested `https://huggingface.co/paraphrase-multilingual-MiniLM-L12-v2/...` (no such repo) and failed with "Unauthorized access", silently disabling semantic search on first run. All defaults now use the canonical `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, matching `config.json` and `scripts/download-model.js`; the cache-existence check path was corrected to match `@xenova/transformers`'s actual `FileCache` layout (`.model-cache/Xenova/<model>/...`, no `models/` segment). A new test (`tests/unit/embed-model-name-consistency.test.js`) pins all of these to one canonical string.
+
 ## [0.7.1] — 2026-06-11
 
 ### Added

@@ -868,13 +868,13 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       env.cacheDir = cacheDir;
       
       // Check if model is already cached
-      const modelCached = fs.existsSync(path.join(cacheDir, 'models', 'Xenova', 'paraphrase-multilingual-MiniLM-L12-v2'));
-      
+      const modelCached = fs.existsSync(path.join(cacheDir, 'Xenova', 'paraphrase-multilingual-MiniLM-L12-v2'));
+
       if (!modelCached) {
         log('info', '[model] Downloading MiniLM embedding model (first startup, ~50MB)...');
         log('info', '[model] This may take 30-60 seconds depending on your connection.');
         const { pipeline } = require('@xenova/transformers');
-        await pipeline('feature-extraction', 'paraphrase-multilingual-MiniLM-L12-v2', { quantized: true });
+        await pipeline('feature-extraction', 'Xenova/paraphrase-multilingual-MiniLM-L12-v2', { quantized: true });
         log('info', '[model] Model downloaded successfully!');
       } else {
         log('info', '[model] MiniLM embedding model already cached.');
