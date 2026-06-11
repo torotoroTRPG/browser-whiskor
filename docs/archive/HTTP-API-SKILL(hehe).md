@@ -1,3 +1,7 @@
+> **Superseded:** このドキュメントはアイデア段階の原型です（記載のバージョン・起動コマンドは古い）。
+> 現行版はリポジトリ同梱の [`skills/browser-whiskor-http/`](../../skills/browser-whiskor-http/SKILL.md)
+> （SKILL.md + reference.md）を参照。
+
 ---
 name: browser-whiskor
 description: >

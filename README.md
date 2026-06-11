@@ -184,6 +184,21 @@ npm start          # supervised (auto-restart); raw worker: npm run start:raw
 }
 ```
 
+### Dynamic vs Static Tool Exposure
+
+By default the MCP toolset is **dynamic**: only the `core` profile (plus 5 meta tools) is visible, and other profiles load/unload on demand. The server declares the `tools.listChanged` capability and sends `notifications/tools/list_changed` whenever a call changes the visible toolset, so spec-compliant clients stay in sync.
+
+For MCP clients that fetch `tools/list` once and ignore change notifications, enable **static tools mode** — every profile is permanently visible and nothing loads or unloads:
+
+```jsonc
+// config.json
+"mcpServer": { "staticTools": true }
+// or: node server/index.js --mcp --static-tools
+// or: WHISKOR_MCPSERVER_STATICTOOLS=true
+```
+
+Static mode widens *visibility*, never *permissions*: security gates (`security.allowExecuteJs`, `agentControl.allowAgentConfig`) and the per-tool `enabled` flags in `server/configs/mcp-tools.json` still apply, so anything you switched off stays hidden.
+
 ### Proxy Mode (Coexistence with Standalone Server)
 
 If you manually start a standalone Whiskor server (e.g., `node server/index.js` to view the dashboard and manage browser extension connections) and then launch an editor or client that spawns browser-whiskor via MCP, a port conflict (`EADDRINUSE`) would normally occur.
@@ -528,6 +543,8 @@ GET  http://localhost:7892/                   → Dashboard
 ```
 
 Full request/response details: `docs/http-api-reference.md`.
+
+**Agent skill (MCP-free path):** `skills/browser-whiskor-http/` ships a ready-to-use skill that teaches an AI agent the perceive→act workflow over this HTTP API alone. Copy the folder into your agent's skill directory (e.g. `~/.claude/skills/` or a project's `.claude/skills/`) — see `skills/README.md`. Driving the browser over plain HTTP from a CLI agent is often more token-efficient than MCP, since no tool schemas occupy the context window.
 
 > **PowerShell / Windows note:** When using the HTTP API from PowerShell, be aware that `curl` is an alias for `Invoke-WebRequest` and backslash escaping in double-quoted strings works differently than bash. Use single quotes for the JSON body, or use `Invoke-RestMethod` instead:
 > ```powershell

@@ -230,6 +230,7 @@
 - `docs/ideas/NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION.md` → 未来構想（ロードマップ外）: 保存/提示分離・AI協調検証・名前空間マップ・production マッピングmode・Rust核
 - `docs/ideas/IMAGE_ASSET_CORRELATION.md` → 未来構想（exploratory・低優先）: 画像アセット↔構造/セッション対応・個別/選択/全件DL・検索・in-viewリアルタイムdevパネル案
 - `docs/ideas/DEBUG_DASHBOARD_REDESIGN.md` → 未来構想（低優先）: 機能据置でデバッグ特化の見た目を新規＝初期値に、現dashboardはレガシー。現行レビュー所見も記載
+- `docs/ideas/REALTIME_AUDIO_EAR.md` → 未来構想（exploratory・低優先・大型）: リアルタイム音声「耳」(Phase1: 軽量ポーリングでAUDIO_STATE)。Phase2(構想のみ): 再生前バッファ+DSP(ジャンプスケア対策・音量正規化)は別物として切り離し
 
 ### MCPツール → セクション
 - `capture_packed_som` → [F](#f-パックド-set-of-marks-キャプチャ)

@@ -6,7 +6,17 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
-## [0.7.0] — 2026-06-11
+## [0.7.1] — 2026-06-11
+
+### Added
+
+- **`tools/list_changed` notification** — the MCP server now declares the `tools.listChanged` capability and sends `notifications/tools/list_changed` whenever a `tools/call` changes the visible toolset (profile auto-load on first use, idle unload, explicit `load_profile`/`unload_profile`). Previously no notification was ever sent, so MCP clients that fetch `tools/list` once and cache it could never see dynamically loaded tools. The transport's request handling moved into a testable `handleLine()` (`server/mcp/transport.js`).
+- **Static tools mode** — `mcpServer.staticTools: true` (or `--static-tools` / `WHISKOR_MCPSERVER_STATICTOOLS=true`) exposes every tool profile permanently over MCP, with no dynamic load/unload, for clients that ignore change notifications. It widens *visibility*, never *permissions*: `requiresConfig` gates (`allowExecuteJs`, `allowAgentConfig`) and the per-tool `enabled` flags in `mcp-tools.json` still apply. `load_profile`/`unload_profile` become explicit no-ops; `profile_status` reports `staticMode: true`; duplicate-call detection still runs.
+- **`skills/browser-whiskor-http/`** — a repository-shipped, self-contained agent skill (SKILL.md + reference.md) teaching the perceive→act workflow over the HTTP API alone, with every endpoint and action type verified against the current implementation (packed SoM, element thumbnails, `/export`, `secretRef` typing, `focus`/`clear_input`/`analyze_click`). Copy the folder into an agent's skill directory (`skills/README.md`); driving the browser over plain HTTP keeps tool schemas out of the agent's context window. Supersedes the `docs/ideas` prototype, which moved to `docs/archive/` with a pointer.
+
+### Fixed
+
+- **MCP stdout pollution** — modules logging via bare `console.log` (`cache-writer`, `cache-integrity`, …) wrote into the JSON-RPC stdout channel whenever the `--mcp` process ran standalone (no separate worker on :7892), producing repeated "Ignoring non-JSON line on stdout" warnings in MCP clients. `startMcpServer()` now reroutes `console.log`/`console.info` to stderr for the lifetime of the stdio transport.
 
 ### Added
 
