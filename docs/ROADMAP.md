@@ -110,6 +110,12 @@
 - **非proxyサーバーの起動時クラッシュ（副次発見）**: `index.js:727` の `mcp.setSomCache(somCache)` が別ブロックの `somCache`(206行)を参照不可で `ReferenceError` → `npm start`(非proxy)/e2e が起動不能。proxy mode では当該elseが走らず露見せず。上記修正で727行撤去により解消。✅。
 - **秘匿スクショ黒塗りが proxy/HTTP で死亡（セキュリティ）**: マスク計算(`findRedactedRects`)が capture.js(MCP層)のみ＝proxy は `setSecretGuard` 未配線で `cb._secretGuard` undefined、HTTP `/api/screenshot` は `maskRects` を渡さず。**production(proxy)で agent が生スクショ＝秘密が見えていた**。→ ワーカー側 `screenshot-manager.capture` に `setMaskProvider` で集約（全経路が通る）、capture.js から撤去。enabler に config-loader ネスト env 上書き。検証: `tests/unit/screenshot-mask.test.js`＋`tests/unit/config-env-overrides.test.js`、packed-som guard ON 回帰なし。[[project_proxy_mode_async_cache]] と同型。✅ 🧪（実機e2eは headed 接続フレークで保留）。**未了の同根**: write.js `type_secret`・transport serverInfo も proxy で `_secretGuard` 未配線（別途）。
 
+### I. 保守境界の明文化（レビュー#2, 2026-06-11）
+- **目的**: 9フレームワーク×2ブラウザ×15アナライザーという表面積は一人の保守限界に近く、「上流が壊れたとき修復を約束する層」と「ベストエフォート層」の境界が暗黙のままだった（README の Honest Depth Report で深度3段階は既に開示済みだが、ポリシーとしては未整理）。
+- **内容**: README に **Maintenance Policy** 節を新設し、Honest Depth Report の Deep/Medium 区分を「repair-guaranteed (React / Vue 3 / DOM-generic 共通レイヤー)」と「best-effort (Vue 2 / Angular / Svelte / Preact / Alpine.js / SolidJS)」の2層ポリシーとして明文化。**React の "Deep" 評価が Bippy（bundled, `THIRD-PARTY-NOTICES.md`）への依存に立脚している**こと——Bippy が将来の React バージョンで壊れた場合 whiskor 側に独立フォールバックは無い——も明記。CONTRIBUTING.md からこのポリシーへリンクし、best-effort アダプタへの issue は「PRが最短経路、修正タイムラインの保証なし」と案内。
+- **場所**: `README.md`(Maintenance Policy節)、`CONTRIBUTING.md`、`docs/changelog.md`。
+- **状態/検証**: ✅（ドキュメントのみ、コード変更なし）。**これでダッシュボードレビュー外部指摘 #1・#2 の2点とも対応完了**（#1=CSRF修正、#2=本節）。
+
 ---
 
 ## Part 2 — 残作業 (TODO)
@@ -153,7 +159,7 @@
 - **② 追加パターン（main 9cdae78）**: ✅ 🧪。ssn/ipv4/phone を**個別 config トグル**で追加。誤検出しやすい（IP=エンドポイント, phone=フッター等）ため email/creditCard/jwt と違い**既定 off・`=== true` ゲート**。`privacy.secretGuard.patterns` で必要なものだけ有効化（config に trade-off コメント）。`secret-guard.js`＋config＋テスト。
 - **① 保管元の別経路読取防止**: ✅（実質）。秘密の値は agent 向け面に出ない事を既存テストが担保（`secret-guard-flow.test.js`＝/health は件数のみ・値は出さない、`transport-serverinfo.test.js`）。`resolveSecret` は type_secret(ワーカー→ページ)専用、`listRefs` は名前のみ。
 - **③ スクショ黒塗り v2（ちらつき無し, main 3583e1c）**: ✅。実ページへのオーバーレイをやめ、**撮影後に拡張 canvas 上で黒塗り**（`maskDataUrl`/`maskDataUrlFx`、ページ非接触＝画面チラつき無し、Node 画像処理不要）。rects は document 座標→scroll+dpr で viewport-image px に変換（マスク時のみ executeScript で scroll/dpr 取得）。旧 `drawWhiskorMasks`/`removeWhiskorMasks` 撤去（git 履歴に保存）。サーバー側不変＝e2e 期待値同じ。「チラつき無し」自体は目視確認。
-- **④ `dashboardSeesRaw:true` 実装**: ⬜ **見送り（やる率低め・保留）**。ユーザー「あまり必要を感じない」。redaction は `core.routeMessage` 冒頭の単一チョークポイントで in-place→以後 dashboard broadcast も cache も黒塗り＝現状 dead。実装するなら「dashboard へ生・cache/agent へ黒塗り」へ分離（散在 `broadcastToDashboard` を生コピーへ）だが**誤ると agent 漏洩**＝安全既定に穴。未回収項目として残置。
+- **④ `dashboardSeesRaw:true` 実装**: ⬜ **見送り（やる率低め・保留）**。「あまり必要を感じない」。redaction は `core.routeMessage` 冒頭の単一チョークポイントで in-place→以後 dashboard broadcast も cache も黒塗り＝現状 dead。実装するなら「dashboard へ生・cache/agent へ黒塗り」へ分離（散在 `broadcastToDashboard` を生コピーへ）だが**誤ると agent 漏洩**＝安全既定に穴。未回収項目として残置。
 - **場所**: `server/secret-guard.js`、`server/core.js`、`extension/background/sw.js`＋`firefox-mv2/background/background.js`(③)。
 - **状態/規模**: 🟡 ②✅①✅③✅／④は見送り（やる率低め）。
 

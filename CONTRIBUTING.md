@@ -47,6 +47,14 @@ it (`core.routeMessage` + `cache-writer`). The contract test
 (`tests/unit/injected-server-contract.test.js`) fails otherwise — that is it
 working as intended, not an obstacle.
 
+### Adapter support tiers
+
+See [Maintenance Policy](README.md#maintenance-policy) for which framework
+adapters are repair-guaranteed (React, Vue 3, the DOM-generic layer) vs.
+best-effort (Vue 2, Angular, Svelte, Preact, Alpine.js, SolidJS). Bug reports
+against a best-effort adapter are welcome, but a fix isn't guaranteed on any
+timeline — a PR is the fastest path.
+
 ## Coding style
 
 - **CommonJS** (`'use strict'`, `require`/`module.exports`). No ESM in

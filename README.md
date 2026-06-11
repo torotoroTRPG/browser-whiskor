@@ -36,6 +36,15 @@ Not all frameworks are supported equally. Here is the real state of each adapter
 
 **In short:** React and Vue 3 are the most reliable. Everything else is "best effort" with multi-layer detection that works well in dev mode and reasonably in production.
 
+## Maintenance Policy
+
+This is a one-person project instrumenting 9 framework adapters across 2 browsers plus 15 page-side analyzers — more surface than one maintainer can keep equally fresh. Support is split into two tiers, building on the depth ratings above:
+
+- **Repair-guaranteed**: React, Vue 3, and the framework-agnostic DOM/analyzer layer (text coordinates, UI catalog, accessibility, network, DOM snapshot, etc. — these run on every page regardless of framework). Reports against these are treated as priority bugs.
+- **Best-effort**: Vue 2, Angular, Svelte, Preact, Alpine.js, SolidJS — the "Medium"/"Medium-Light" rows above. These work today, but a breaking change in the underlying framework may sit unfixed until someone (maintainer or contributor) hits it. PRs are reviewed promptly.
+
+**A caveat on React's "Deep" rating**: Fiber-tree traversal is delegated to [Bippy](https://github.com/aidenybai/bippy) (bundled — see `THIRD-PARTY-NOTICES.md`). React's repair guarantee assumes Bippy keeps tracking React's internals; if a future React release breaks Bippy before Bippy ships a fix, browser-whiskor's React depth degrades with it — there is no independent fallback Fiber walker. Vue 3 and the DOM-generic layer are implemented directly against stable/public APIs and don't carry this dependency.
+
 ## Architecture
 
 ```

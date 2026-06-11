@@ -6,6 +6,8 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-11
+
 ### Added
 
 - **Secret Guard** (`privacy.secretGuard`, default off) — server-side redaction that hides user secrets from the agent, logs, cache, and dashboard. Known values from `secrets.local.json` / `WHISKOR_SECRETS` are replaced with `[WHISKOR_REDACTED ...]` tokens at a single choke point (`core.routeMessage`); pattern detection covers email / credit card (Luhn) / JWT, with ssn / ipv4 / phone individually opt-in; key-name redaction catches unregistered values. `type_secret` lets the agent type a secret by **ref name only** — the worker resolves the value (`action-executor`), so it never appears agent-side. Screenshots are masked on the extension canvas after capture (no page overlay, no flicker). `GET /health` reports counts only; MCP `serverInfo` advertises active redaction — including under the proxy, which asks the worker's `/health` at initialize time.
@@ -27,6 +29,10 @@ All notable changes to browser-whiskor.
 - **Proxy-mode wiring gaps** — screenshot masking, packed-SoM cache/stats, and `type_secret` lived in the MCP layer and silently did nothing under the proxy (the production configuration). All three moved to worker-side choke points that every path (MCP stdio / HTTP / proxy) goes through; the serverInfo redaction notice now reaches the proxy too.
 - **Windows cache rename failures** — the atomic-write `rename` occasionally hits transient `EPERM`/`EBUSY` (AV/indexer locks); it now retries with a short backoff and silently gives up only when the destination is gone.
 - **`npm test` on Node 24** — `node --test <dir>` resolves the directory as an entry module on newer Node and crashes; the npm scripts now go through `scripts/_run-tests.js`, which expands directories to explicit file lists (works on every Node version; CI runs per-file and is unaffected).
+
+### Security
+
+- **HTTP API localhost CSRF** — `Access-Control-Allow-Origin` only blocked a page from *reading* the response; a `Content-Type: text/plain` + `mode:'no-cors'` request skipped preflight and was still dispatched, so any webpage the instrumented browser visited could drive `/api/action` (click/navigate/type_text/execute_js) on the user's other tabs (`appIsolation` is off by default and was a no-op here). `server/http-origin-guard.js` now rejects with 403 before the body is read whenever `Origin` is present and outside the allowed set; requests without an `Origin` header (same-origin GET, the MCP proxy, curl) are unaffected.
 
 ### Changed
 
