@@ -6,6 +6,12 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-06-12
+
+### Fixed
+
+- **Full bundle release zip omitted `skills/`** — `release.yml`'s full-bundle build listed `server/ extension/ firefox-mv2/ scripts/ docs/ ...` but not `skills/`, so `skills/browser-whiskor-http/` (the HTTP-only agent skill shipped in 0.7.1) was missing from `browser-whiskor-full-*.zip`. Added.
+
 ## [0.8.0] — 2026-06-12
 
 ### Added
