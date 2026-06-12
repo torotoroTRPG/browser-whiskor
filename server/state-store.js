@@ -519,6 +519,7 @@ module.exports = {
   addNodeV2: addNode,
   addEdge,
   getGraph,
+  getOrCreate,
   getAllGraphs,
   getUnvisitedActions,
 

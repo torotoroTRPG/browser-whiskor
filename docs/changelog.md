@@ -6,6 +6,34 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-12
+
+### Added
+
+- **`whk` CLI** (`bin: whk` / `whiskor`, `server/cli.js`) — a single executable for setup, lifecycle management, and an interactive shell. `whk setup` copies `extension/`/`firefox-mv2/` into a managed directory (`~/.whiskor/`, override via `WHISKOR_MANAGED_DIR`) via a staged swap (`server/extension-installer.js`) so a crash mid-copy never leaves a half-written extension; `whk setup --no-start` only syncs files. `whk` (no args) = `whk restart`: sync extension files → ask the running server to reload the extension → stop the old server → start a new one (or just start if nothing was running). `whk stop` sends `POST /api/shutdown` for a graceful stop. `whk server` / `whk mcp` start the worker directly; `whk GET /health` etc. is a thin HTTP client. `scripts/setup.ps1` is the first-run bootstrap (`npm link` if `whk` isn't registered, then `whk setup`).
+- **`whk shell`** — a zero-dependency full-screen TUI (`server/tui/`: `app.js` + `term.js` (ANSI / East-Asian width) + `editor.js` + `scrollback.js` + `highlight.js`) with an output pane, completion popup, line editor, and status bar. Categories (`action`/`capture`/`session`/`state`/`server`/`shell`) behave like folders — Enter/Tab/double-click to open, Esc/`..`/Backspace-on-empty to go back; typing at the root searches everything, inside a folder it filters. With an empty input, ←/→ navigate folders, or open a "field edit" overlay for commands with placeholder args (`detectFields()`/`substituteFields()`) — fill each field with the built-in `LineEditor`, then review the substituted command before sending. TUI-only builtins: `logs [n]`, `export [path]` (saves the transcript), `map [tabId]` (ASCII state-graph), `mouse` (toggle mouse capture so terminal text selection works). `whk shell --classic` (`server/cli-shell.js`) keeps the old inline-prompt shell and is always used for non-TTY/piped input.
+- **Extension self-update via the managed directory** — the extension now sends `EXT_HELLO` (`{browser, version}`) on WS connect; if its manifest version differs from `package.json` (`extensionUpdate.autoReload`, default on), the server asks it to `chrome.runtime.reload()` once per stale version (no reload loop if the files are still old). `POST /api/extension/reload` lets `whk setup` request the same reload after refreshing the managed files while a server is running. Connected extension versions are reported in `GET /health` → `extensions`.
+- **`POST /api/shutdown`** — graceful remote shutdown: flushes caches synchronously and exits 0 (so a supervisor doesn't restart it), used by `whk stop`/`whk restart`.
+- **`GET /api/logs`** — the last 2000 server log lines (`core.js` ring buffer), with `?limit=` and `?level=warn|error` filters; powers the TUI's `logs` builtin.
+- **`GET /api/sessions/:tabId/map`** — ASCII state-graph for a session's tab (`state-visualizer.js`, `?maxNodes=` default 40/max 200), falling back to the largest graph when the session's own `siteVersion` has no nodes.
+- **`GET /api/graphs/:siteVersion/states`** and **`/states/:hash`** — list/inspect nodes of one state graph directly, without a session lookup.
+- **`agentControl.autoSwitchTab`** (default on) — before an action or capture targets a non-active tab, the extension activates it first (`ensureTabActive` in both backgrounds); without this, `captureVisibleTab` photographs the wrong (active) tab. Tab-management actions (`list_tabs`/`switch_tab`/`open_tab`/`close_tab`) are exempt.
+- **`press_key` chords and hold** — `"w+d"` presses multiple non-modifier keys together (all down in order, then up in reverse — previously extra keys were silently dropped); `holdMs` keeps a chord held before release (capped at 5s).
+- **Selector-ambiguity reporting** — when a `selector` matches multiple elements, `click`/`type`/`right_click` pick the first *visible* one and add `selectorMatches`/`selectorPickedIndex`/`selectorNote` to the result so the agent can tighten the selector.
+
+### Fixed
+
+- **Timer-driven smart-delta flushes were silently dropped** — `delta-engine.js`'s `AGGREGATE_INTERVAL` timeout computed a delta but had nowhere to send it (only full-buffer flushes returning through `addFrame` reached storage); `get_delta`/`raw/delta/smart.json` stayed empty for quiet pages. `setFlushSink()` wires the timer path to `cache.storeSmartDelta` (`server/index.js`).
+- **`findByText` mis-clicks on input values** — text matching now scores all label sources (`textContent`/`aria-label`/`placeholder`/`title`/`alt`/ARIA refs) plus an input's `value` as a last resort; case-exact matches outrank case-folded ones, `value` matches are penalized, and invisible elements are excluded before scoring finishes — fixes cases like `text:"NONAME"` landing on a chat input whose current value happened to be "noname".
+- **`clickability` auto-unblock false positives** — after a fix step (close button / Escape / backdrop click / full-screen overlay sibling) removes the tracked obstructor, `verifyTargetClear()` re-checks the *target* itself; if something else (e.g. a lingering backdrop) still covers it, `fixResult` stays non-`success` and `obstructedBy` points at the real blocker instead of reporting a false `success`.
+- **`viewport.json` never existed on non-scrolling pages** — `VIEWPORT_UPDATE` only fires on scroll/resize, but `TEXT_COORDS` carries the same viewport snapshot; the cache writer now persists it from there too.
+- **`/api/sessions/:tabId/states` and state-detail siteVersion drift** — when a session's own `siteVersion` has no nodes, both endpoints now fall back across all graphs (same fallback `list_states`/`get_state_detail` already used over MCP), and `/map` picks the graph with the most nodes.
+
+### Changed
+
+- **`type`/`press_key` error messages** are more actionable (`No target element for type: selector "..." did not match` / `no selector given and nothing is focused`); `press_key` chord results include a `chord` array.
+- Docs (`skills/browser-whiskor-http/`, `CLAUDE.md`) updated for `whk`, `autoSwitchTab`, selector ambiguity, `press_key` chords/hold, and the clickability re-verification behavior.
+
 ## [0.7.2] — 2026-06-11
 
 ### Fixed

@@ -55,9 +55,34 @@
 
   // ── Element finders ──────────────────────────────────────────────────────────
 
+  // Info about the last selector resolution — lets action results surface
+  // ambiguity ("selector matched N elements") so the agent can refine it.
+  let LAST_SELECTOR_INFO = null;
+
   function findBySelector(selector) {
-    try { return document.querySelector(selector); }
-    catch { return null; }
+    LAST_SELECTOR_INFO = null;
+    try {
+      const all = document.querySelectorAll(selector);
+      if (!all.length) return null;
+      if (all.length === 1) return all[0];
+      // Multiple matches: prefer the first visible one — hidden twins (e.g. MUI's
+      // autosize measurement textarea) and closed overlays often match first.
+      let picked = null, pickedIndex = 0;
+      for (let i = 0; i < all.length; i++) {
+        if (isElementVisible(all[i])) { picked = all[i]; pickedIndex = i; break; }
+      }
+      if (!picked) { picked = all[0]; pickedIndex = 0; }
+      LAST_SELECTOR_INFO = { matches: all.length, pickedIndex };
+      return picked;
+    } catch { return null; }
+  }
+
+  // Spreadable note for action results when the selector was ambiguous.
+  function selectorAmbiguity(action) {
+    return (action && action.selector && LAST_SELECTOR_INFO && LAST_SELECTOR_INFO.matches > 1)
+      ? { selectorMatches: LAST_SELECTOR_INFO.matches, selectorPickedIndex: LAST_SELECTOR_INFO.pickedIndex,
+          selectorNote: 'Selector matched multiple elements; first visible one was used. Tighten the selector if this is not the intended target.' }
+      : {};
   }
 
   function escapeRegex(s) {
@@ -77,12 +102,22 @@
     return out.trim();
   }
 
-  function elementText(el) {
-    return (el.textContent || el.value || el.placeholder ||
-            el.getAttribute('aria-label') || refText(el, 'aria-labelledby') ||
-            el.getAttribute('title') || el.getAttribute('alt') ||
-            refText(el, 'aria-describedby') || '')
-      .trim().toLowerCase();
+  // Label-ish text sources of an element, in priority order. `value` (an input's
+  // current content) is included as a last resort but flagged so scoring can
+  // penalise it — page content is not a label and matching it caused real
+  // mis-clicks (e.g. text:"NONAME" landing on a chat input whose value was "noname").
+  function textSources(el) {
+    const attr = (n) => (el.getAttribute && el.getAttribute(n)) || '';
+    return [
+      { t: el.textContent, src: 'text' },
+      { t: attr('aria-label'), src: 'label' },
+      { t: el.placeholder, src: 'label' },
+      { t: refText(el, 'aria-labelledby'), src: 'label' },
+      { t: attr('title'), src: 'label' },
+      { t: attr('alt'), src: 'label' },
+      { t: refText(el, 'aria-describedby'), src: 'label' },
+      { t: typeof el.value === 'string' ? el.value : '', src: 'value' },
+    ];
   }
 
   function isElementVisible(el) {
@@ -95,64 +130,76 @@
   /**
    * Locate an element by its visible text.
    *
-   * Two-pass strategy:
+   * Two passes, both always run, best total score wins:
    *   Pass 1 — explicit interactive elements (links, buttons, form fields, ARIA
-   *            widgets, [onclick], focusable nodes). These are the most likely
-   *            click targets, so a strong match here wins immediately.
+   *            widgets, [onclick], focusable nodes). Likely click targets, so
+   *            they get a small bias — but no longer an early-return win, which
+   *            used to let a case-folded `value` match on an input beat an
+   *            exact-text leaf that pass 2 would have found.
    *   Pass 2 — text-bearing leaf elements (div/span/li/headings with ≤2 element
    *            children). Covers the common SPA pattern of a <div>/<span> carrying
    *            a click handler, which Pass 1's selector list cannot express.
    *
    * Candidates are scored (exact > prefix > word-boundary > substring) and biased
-   * toward concise, visible, leaf-like elements so the label itself is preferred
-   * over a large wrapping container that merely contains the text.
+   * toward concise, leaf-like elements. Case-exact matches outrank case-folded
+   * ones, matches on an input's current `value` are penalised, and invisible
+   * elements are excluded entirely — they cannot be clicked.
    */
   function findByText(text) {
-    const lower = (text || '').toLowerCase().trim();
+    const query = (text || '').trim();
+    const lower = query.toLowerCase();
     if (!lower) return null;
     let wordRe = null;
     try { wordRe = new RegExp('\\b' + escapeRegex(lower) + '\\b'); } catch (_) {}
 
     function score(el) {
-      const t = elementText(el);
-      if (!t) return 0;
-      let s;
-      if (t === lower)                 s = 1.0;
-      else if (t.startsWith(lower))    s = 0.85;
-      else if (wordRe && wordRe.test(t)) s = 0.7;
-      else if (t.includes(lower))      s = 0.55;
-      else return 0;
-      // Prefer elements whose text is mostly the query (the label, not a wrapper).
-      s += (lower.length / Math.max(t.length, 1)) * 0.2;
-      if (isElementVisible(el)) s += 0.1;
+      let s = 0;
+      for (const cand of textSources(el)) {
+        const raw = (typeof cand.t === 'string' ? cand.t : '').trim();
+        if (!raw) continue;
+        const t = raw.toLowerCase();
+        let cs;
+        if (t === lower)                   cs = 1.0;
+        else if (t.startsWith(lower))      cs = 0.85;
+        else if (wordRe && wordRe.test(t)) cs = 0.7;
+        else if (t.includes(lower))        cs = 0.55;
+        else continue;
+        // Prefer elements whose text is mostly the query (the label, not a wrapper).
+        cs += (lower.length / Math.max(t.length, 1)) * 0.2;
+        if (raw === query || raw.includes(query)) cs += 0.15; // case-exact beats case-folded
+        if (cand.src === 'value') cs -= 0.3;                  // field content is not a label
+        if (cs > s) s = cs;
+      }
+      if (s <= 0) return 0;
+      // Visibility check last — it forces layout, so only pay for text matches.
+      if (!isElementVisible(el)) return 0;
       if (el.children.length === 0) s += 0.05;
       return s;
     }
 
     let best = null, bestScore = 0;
+    const consider = (el, bias) => {
+      const sc = score(el);
+      if (sc > 0 && sc + bias > bestScore) { bestScore = sc + bias; best = el; }
+    };
 
-    // Pass 1: explicit interactive elements.
+    // Pass 1: explicit interactive elements (biased — the likely click targets).
     const interactiveSel =
       'button, a, input, textarea, select, label, summary, ' +
       '[role=button], [role=link], [role=tab], [role=menuitem], [role=option], ' +
       '[role=checkbox], [role=radio], [role=switch], [onclick], ' +
       '[tabindex]:not([tabindex="-1"])';
-    for (const el of document.querySelectorAll(interactiveSel)) {
-      const sc = score(el);
-      if (sc > bestScore) { bestScore = sc; best = el; }
-    }
-    if (best && bestScore >= 0.7) return best;
+    for (const el of document.querySelectorAll(interactiveSel)) consider(el, 0.1);
 
     // Pass 2: text-bearing leaf elements (covers clickable div/span/li/etc.).
     for (const el of document.querySelectorAll(
       'div, span, li, td, th, p, h1, h2, h3, h4, h5, h6, strong, b, em'
     )) {
       if (el.children.length > 2) continue; // skip large containers
-      const sc = score(el);
-      if (sc > bestScore) { bestScore = sc; best = el; }
+      consider(el, 0);
     }
 
-    return bestScore > 0 ? best : null;
+    return best;
   }
 
   function findByCoords(x, y) {
@@ -483,6 +530,7 @@
           ok: true,
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
+          ...selectorAmbiguity(action),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -504,12 +552,16 @@
         dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
       }
 
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action) };
     },
 
     type(action) {
       let el = action.selector ? findBySelector(action.selector) : document.activeElement;
-      if (!el || el === document.body) return { ok: false, error: 'No target element for type' };
+      if (!el || el === document.body) {
+        return { ok: false, error: action.selector
+          ? `No target element for type: selector "${action.selector}" did not match`
+          : 'No target element for type: no selector given and nothing is focused. Pass a selector (type focuses it automatically) or focus/click a field first.' };
+      }
       if (action.selector) scrollIntoView(el);
 
       el.focus();
@@ -588,7 +640,7 @@
         if (effectiveSubmit !== 'none') pressEnterCombo(el, effectiveSubmit, false);
         return { ok: true, typedLength: text.length, submitted: effectiveSubmit !== 'none' ? effectiveSubmit : undefined,
                  ...(submitInference ? { submitInference } : {}), ...(useComposition ? { composition: true } : {}),
-                 target: describeTarget(el), currentValue: el.textContent };
+                 ...selectorAmbiguity(action), target: describeTarget(el), currentValue: el.textContent };
       }
 
       if (action.clear) {
@@ -620,22 +672,35 @@
 
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true, typedLength: text.length, submitted: effectiveSubmit !== 'none' ? effectiveSubmit : undefined,
-               ...(submitInference ? { submitInference } : {}), target: describeTarget(el), currentValue: el.value };
+               ...(submitInference ? { submitInference } : {}), ...selectorAmbiguity(action),
+               target: describeTarget(el), currentValue: el.value };
     },
 
-    press_key(action) {
+    async press_key(action) {
       const focused = document.activeElement || document.body || document.documentElement || document;
-      const parts = action.key.split('+');
-      const key   = parts.pop();
-      const ctrl  = parts.includes('Control') || parts.includes('Ctrl');
-      const meta  = parts.includes('Meta') || parts.includes('Command');
-      const shift = parts.includes('Shift');
-      const alt   = parts.includes('Alt');
-      const opts  = { ...keyInfo(key), key, bubbles: true, cancelable: true, ctrlKey: ctrl, metaKey: meta, shiftKey: shift, altKey: alt };
-      focused.dispatchEvent(new KeyboardEvent('keydown',  opts));
-      focused.dispatchEvent(new KeyboardEvent('keypress', opts));
-      focused.dispatchEvent(new KeyboardEvent('keyup',    opts));
-      return { ok: true, key: action.key, target: focused.tagName };
+      // Modifier names set modifier flags; every other part is a real key. More
+      // than one real key is a chord ("w+d"): all go down in order, then come up
+      // in reverse — previously the extra keys were silently dropped.
+      const MODS = { Control: 'ctrl', Ctrl: 'ctrl', Meta: 'meta', Command: 'meta', Cmd: 'meta', Shift: 'shift', Alt: 'alt', Option: 'alt' };
+      const rawParts = action.key === '+' ? ['+'] : action.key.split('+').filter(p => p !== '');
+      const flags = { ctrl: false, meta: false, shift: false, alt: false };
+      const keys = [];
+      for (const p of rawParts) {
+        if (MODS[p]) flags[MODS[p]] = true;
+        else keys.push(p);
+      }
+      if (action.key.length > 1 && action.key.endsWith('++')) keys.push('+'); // "Ctrl++" = Ctrl + literal plus
+      if (!keys.length && rawParts.length) keys.push(rawParts[rawParts.length - 1]); // modifier alone, e.g. "Shift"
+      if (!keys.length) return { ok: false, error: `press_key: no key in "${action.key}"` };
+
+      const evOpts = (key) => ({ ...keyInfo(key), key, bubbles: true, cancelable: true,
+        ctrlKey: flags.ctrl, metaKey: flags.meta, shiftKey: flags.shift, altKey: flags.alt });
+      for (const k of keys) focused.dispatchEvent(new KeyboardEvent('keydown',  evOpts(k)));
+      for (const k of keys) focused.dispatchEvent(new KeyboardEvent('keypress', evOpts(k)));
+      // holdMs: keep the chord held before release (games / long-press UIs). Capped at 5s.
+      if (action.holdMs > 0) await new Promise(r => setTimeout(r, Math.min(action.holdMs, 5000)));
+      for (const k of [...keys].reverse()) focused.dispatchEvent(new KeyboardEvent('keyup', evOpts(k)));
+      return { ok: true, key: action.key, ...(keys.length > 1 ? { chord: keys } : {}), target: focused.tagName };
     },
 
     hover(action) {
@@ -697,6 +762,7 @@
           ok: true,
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
+          ...selectorAmbiguity(action),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -706,7 +772,7 @@
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action) };
     },
 
     analyze_click(action) {

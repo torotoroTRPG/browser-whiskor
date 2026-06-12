@@ -46,6 +46,8 @@ __pycache__/
 # Temporary / local files
 .antigravitycli/
 .mcp.json
+.qwen/
+qwen-code-export-*.html
 2026-05-*
 *-local-command-caveat*
 err.txt

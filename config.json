@@ -34,6 +34,12 @@
     }
   },
 
+  "extensionUpdate": {
+    "autoReload": true,
+    "_comment_en": "When the extension connects with a manifest version that differs from the server's package.json version (manifests track package.json via sync-version), the server asks it once to reload itself (chrome.runtime.reload) so it picks up files refreshed by `whk setup`. Asked at most once per stale version per server process — if the files on disk are still old, you get a warning instead of a reload loop. Set false to only log the mismatch.",
+    "_comment_ja": "拡張機能が接続してきたとき、その manifest バージョンがサーバーの package.json バージョンと違えば（manifest は sync-version で package.json に追従）、`whk setup` で更新されたファイルを拾わせるためにサーバーが一度だけ自己リロード（chrome.runtime.reload）を依頼する。依頼は「古いバージョンごとにプロセス内で一度だけ」— ディスク上のファイルがまだ古い場合はリロードループにならず警告だけになる。false にすると不一致をログに出すのみ。"
+  },
+
   "security": {
     "allowExecuteJs":      false,
     "allowActions":        true,
@@ -384,6 +390,9 @@
     "allowAgentConfig":     false,
     "autoRevertConfig":     false,
     "screenshotMarks":      false,
+    "_comment_autoSwitchTab_en": "autoSwitchTab=true (default): when an action/screenshot targets a tab that is not active, the extension activates that tab first. Set false to operate on background tabs without switching (screenshots of background tabs will show the wrong tab).",
+    "_comment_autoSwitchTab_ja": "autoSwitchTab=true（既定）: アクションやスクリーンショットの対象タブが非アクティブなら、先にそのタブへ自動で切り替える。false でバックグラウンドタブのまま操作（その場合スクリーンショットはアクティブタブが写る点に注意）",
+    "autoSwitchTab":        true,
     "packedSom": {
       "_comment_ja": "capture_packed_som（インタラクティブ要素だけを詰めたSoM画像）の設定。prefetchOnNavigate=true で、ページ遷移後に少し待ってからパックドSoMを先回りキャプチャしキャッシュ→agentの初回呼び出しを即時化（agentがpacked_somを使うワークフロー向け。既定off=無駄キャプチャを避ける）。prefetchThumbs=true で、パックドSoMキャプチャ時に同じ1枚のビットマップから各要素のサムネイルも切り出してper-elementキャッシュを温める（追加キャプチャ無し）→get_element_thumbnail({selector})が即ヒット。既定off",
       "prefetchOnNavigate": false,
@@ -441,7 +450,8 @@
       "security",
       "agentControl",
       "appIsolation",
-      "permissions"
+      "permissions",
+      "extensionUpdate"
     ],
     "warnOnUnauthorized": true,
     "_comment_writable_en":  "agentWritablePaths: paths the agent is allowed to modify. [] means all elements in the array",

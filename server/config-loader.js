@@ -136,6 +136,10 @@ function getDefaults() {
     react:      { maxDepth: 80, maxProps: 30, maxHooks: 25, trackStateTransitions: true, captureRedux: true, captureZustand: true, captureReactQuery: true, debounceMs: 200 },
     textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
     executeJs:  { captureConsoleDuringExec: true },
+    // Auto-reload a stale extension once per version when it connects with a
+    // manifest version differing from the server (after `whk setup` refreshes
+    // the managed extension files). See core.js EXT_HELLO handling.
+    extensionUpdate: { autoReload: true },
     adaptiveCollection: { enabled: false, activeIntervalMs: 5000, quiescentIntervalMs: 30000, quiescentAfterMs: 60000 },
     agentControl: { allowAgentConfig: false, autoRevertConfig: false, screenshotMarks: false, packedSom: { prefetchOnNavigate: false } },
     privacy: {

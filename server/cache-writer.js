@@ -384,6 +384,16 @@ async function handleMessage(msg) {
       s.index.files.raw.text_coords = 'raw/visual/text-coords.json';
       s.index.summary.textWordCount = merged.totalWords || 0;
       markFresh(s, 'text-coords', payload.capturedAt);
+
+      // VIEWPORT_UPDATE only fires on scroll/resize, so on pages that never scroll
+      // viewport.json would never exist. The TEXT_COORDS payload carries the same
+      // viewport snapshot — persist it here so the file exists after every collect.
+      if (payload.viewport) {
+        const vp = { ...payload.viewport, capturedAt: payload.capturedAt || Date.now() };
+        s.viewport = vp;
+        await writeJsonAsync(path.join(s.dir, 'raw/visual/viewport.json'), vp);
+        s.index.files.raw.viewport = 'raw/visual/viewport.json';
+      }
       console.log(`[cache] TEXT_COORDS tabId=${tabId} words=${merged.totalWords} (merged: ${existing.words?.length || 0} old)`);
       break;
     }

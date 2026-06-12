@@ -238,6 +238,11 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     sourceIndex = require('./source-index').createSourceIndex();
     sourceCorrelations = require('./source-correlation').createCorrelations();
 
+    // Timer-driven delta flushes (the common case — quiet pages never fill the
+    // frame buffer) must land in the cache, or get_delta / raw/delta/smart.json
+    // stay empty forever. Full-buffer flushes return through addFrame in core.js.
+    deltaEngine.setFlushSink((tabId, delta) => cache.storeSmartDelta(tabId, delta));
+
     core = new WhiskorCore({
       cache,
       actions,
@@ -432,6 +437,18 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         log('error', `[export] ${e.message}`);
         return sendJson({ ok: false, error: e.message }, 500);
       }
+    }
+
+    // Graceful remote shutdown — lets `whk stop` / `whk restart` stop the
+    // server without hunting down the port owner. Reuses the signal handlers'
+    // shutdown(): buffers are flushed synchronously and the exit code is 0
+    // (clean), so a supervisor stops too instead of restarting (supervisor.js
+    // exit semantics). Loopback-only like every other endpoint.
+    if (method === 'POST' && p === '/api/shutdown') {
+      log('info', '[http] Shutdown requested (POST /api/shutdown)');
+      sendJson({ ok: true, shuttingDown: true });
+      setTimeout(() => shutdown(0, 'api/shutdown'), 150);
+      return;
     }
 
     // Collect endpoint — handled early to avoid bodyPromise issues

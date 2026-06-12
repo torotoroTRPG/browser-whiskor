@@ -19,6 +19,13 @@ const SOM_CHANGE_TYPES = new Set([
   'DOM_SNAPSHOT', 'DOM_GENERIC_SNAPSHOT', 'SHADOW_DOM_SNAPSHOT',
 ]);
 
+// Server version for the extension version handshake (EXT_HELLO). Extension
+// manifests are kept in lockstep with package.json by sync-version, so a
+// differing extension version means its on-disk files are stale.
+const SERVER_VERSION = require('../package.json').version;
+
+const { generateAsciiGraph } = require('./state-visualizer');
+
 class WhiskorCore extends EventEmitter {
   constructor(opts = {}) {
     super();
@@ -30,6 +37,15 @@ class WhiskorCore extends EventEmitter {
     this._tabDisconnectedAt = new Map(); // tabId → timestamp
     this._wsToApp  = new Map();       // WebSocket → appId (null = unregistered/public)
     this._tabToApp = new Map();       // tabId    → appId
+    this._wsToExtInfo = new Map();    // WebSocket → { browser, version } from EXT_HELLO
+    // Recent server log lines (everything routed through index.js log()).
+    // Powers GET /api/logs so the shell/TUI can show and export server logs.
+    this._logBuffer = [];
+    this._logBufferMax = 2000;
+    // Stale versions we already asked to reload — once per version per process.
+    // If the on-disk files are still old, reloading again changes nothing; this
+    // guard turns a would-be reload loop into a single attempt + warning.
+    this._extReloadAskedVersions = new Set();
     // Task 1: deferred buffer — holds TEXT_COORD_DELTA 100ms to let DOM_MUTATION arrive first
     this._deferredDeltas = new Map(); // tabId → { timer, msg }
 
@@ -112,7 +128,12 @@ class WhiskorCore extends EventEmitter {
 
   broadcastLog(level, ...args) {
     const message = args.join(' ');
-    const raw = JSON.stringify({ type: 'LOG_ENTRY', level, message, ts: Date.now() });
+    const ts = Date.now();
+    this._logBuffer.push({ ts, level, message });
+    if (this._logBuffer.length > this._logBufferMax) {
+      this._logBuffer.splice(0, this._logBuffer.length - this._logBufferMax);
+    }
+    const raw = JSON.stringify({ type: 'LOG_ENTRY', level, message, ts });
     for (const ws of this.logSubscribers) {
       if (ws.readyState === 1) ws.send(raw);
     }
@@ -147,6 +168,23 @@ class WhiskorCore extends EventEmitter {
     this.broadcast({ type: 'EXPLORER_CONTROL', tabId, active, strategy: strategy || 'breadth_first' });
   }
 
+  /**
+   * Ask every connected extension to reload itself (chrome.runtime.reload()).
+   * Used after `whk setup` refreshes the managed extension files. Returns the
+   * number of sockets the request was sent to. Carries no paths — the managed
+   * directory never crosses the wire.
+   */
+  requestExtensionReload(reason = 'manual') {
+    const raw = JSON.stringify({ type: 'RELOAD_EXTENSION', reason, serverVersion: SERVER_VERSION });
+    let sent = 0;
+    for (const ws of this.swSockets) {
+      if (ws.readyState === 1) {
+        try { ws.send(raw); sent++; } catch (_) {}
+      }
+    }
+    return sent;
+  }
+
   // ── WebSocket connection handling ───────────────────────────────────────────
 
   /** Returns the appId associated with a given tabId (null if unregistered). */
@@ -171,6 +209,7 @@ class WhiskorCore extends EventEmitter {
     const onDisconnect = () => {
       this.swSockets.delete(ws);
       this._wsToApp.delete(ws);
+      this._wsToExtInfo.delete(ws);
       // Mark all tabs for this ws as disconnected
       const tabs = this._wsToTabs.get(ws);
       if (tabs) {
@@ -470,9 +509,67 @@ class WhiskorCore extends EventEmitter {
         fromWs.send(JSON.stringify({ type: 'PONG', ts: Date.now() }));
         break;
 
+      // Version handshake sent by the extension right after the WS opens.
+      // Manifest versions track package.json (sync-version), so a mismatch
+      // means the extension's on-disk files are stale relative to this server.
+      case 'EXT_HELLO': {
+        const info = { browser: msg.browser || 'unknown', version: msg.version || null };
+        this._wsToExtInfo.set(fromWs, info);
+        if (info.version && info.version !== SERVER_VERSION) {
+          const autoReload = this.globalConfig?.extensionUpdate?.autoReload !== false;
+          if (autoReload && !this._extReloadAskedVersions.has(info.version)) {
+            this._extReloadAskedVersions.add(info.version);
+            console.warn(`[ext] ${info.browser} extension v${info.version} != server v${SERVER_VERSION} — requesting reload to pick up updated files`);
+            try {
+              fromWs.send(JSON.stringify({ type: 'RELOAD_EXTENSION', reason: 'version_mismatch', serverVersion: SERVER_VERSION }));
+            } catch (_) {}
+          } else {
+            console.warn(`[ext] ${info.browser} extension v${info.version} != server v${SERVER_VERSION} — still stale after reload request. Refresh its files (whk setup) and reload it in the browser.`);
+          }
+        }
+        break;
+      }
+
       default:
         this.emit('unknown', msg);
     }
+  }
+
+  /**
+   * Find a state node by hash — try the given siteVersion first, then every
+   * graph. Session siteVersion and graph keys can drift apart (see the
+   * /api/sessions/:tabId/states fallback), so a session-scoped detail lookup
+   * must not miss a node that visibly exists in /api/graphs.
+   */
+  _findStateNode(siteVersion, hash) {
+    const store = this.stateMachine.store;
+    if (!store?.getNodeByHash) return null;
+    const direct = store.getNodeByHash(siteVersion, hash);
+    if (direct) return direct;
+    for (const g of this.stateMachine.getAllGraphs() || []) {
+      const n = store.getNodeByHash(g.siteVersion, hash);
+      if (n) return n;
+    }
+    return null;
+  }
+
+  /**
+   * Resolve a graph siteVersion for /map — try the session's own siteVersion
+   * first, then fall back to the graph with the most nodes (same drift as
+   * /api/sessions/:tabId/states, but a single "best" graph instead of all of them).
+   */
+  _resolveGraphSiteVersion(sessionSiteVersion) {
+    const store = this.stateMachine.store;
+    const own = store?.getGraph?.(sessionSiteVersion);
+    if (own && Object.keys(own.nodes || {}).length > 0) return sessionSiteVersion;
+    const graphs = this.stateMachine.getAllGraphs() || [];
+    if (!graphs.length) return sessionSiteVersion;
+    const best = graphs.reduce((a, b) => (b.nodeCount > a.nodeCount ? b : a));
+    // getAllGraphs() can report graphs loaded straight from disk without
+    // caching them — load it into the in-memory map so generateAsciiGraph
+    // (which reads via getGraph) can actually find it.
+    store?.getOrCreate?.(best.siteVersion);
+    return best.siteVersion;
   }
 
   // ── HTTP request handler (returns response data, doesn't send) ──────────────
@@ -488,6 +585,9 @@ class WhiskorCore extends EventEmitter {
         ok: true,
         identity: this.identity || null,
         wsConnections: this.swSockets.size,
+        // Connected extension(s) as reported by EXT_HELLO — browser + version
+        // only, never an install path.
+        extensions: [...this._wsToExtInfo.values()],
         sessions: this.cache.getSessionList().length,
         pendingActions: this.actions.pendingCount(),
         // Secret-guard status — counts only, never the secret values.
@@ -507,6 +607,25 @@ class WhiskorCore extends EventEmitter {
     if (method === 'POST' && p === '/api/config') {
       this.pushConfig(body);
       return { status: 200, body: { ok: true, config: this.globalConfig } };
+    }
+
+    // Recent server log lines (ring buffer fed by broadcastLog). ?limit=N
+    // caps the count (newest last), ?level=warn returns warn+error only.
+    if (method === 'GET' && p === '/api/logs') {
+      let logs = this._logBuffer;
+      const level = url.searchParams?.get?.('level');
+      if (level === 'warn')  logs = logs.filter(l => l.level === 'warn' || l.level === 'error');
+      if (level === 'error') logs = logs.filter(l => l.level === 'error');
+      const limit = parseInt(url.searchParams?.get?.('limit'), 10);
+      if (Number.isFinite(limit) && limit > 0) logs = logs.slice(-limit);
+      return { status: 200, body: logs };
+    }
+
+    // Ask connected extension(s) to reload themselves — used by `whk setup`
+    // after refreshing the managed extension files while a server is running.
+    if (method === 'POST' && p === '/api/extension/reload') {
+      const sent = this.requestExtensionReload(body?.reason || 'api');
+      return { status: 200, body: { ok: true, sent } };
     }
 
     const pluginM = p.match(/^\/api\/plugins\/([^/]+)\/(enable|disable)$/);
@@ -542,8 +661,14 @@ class WhiskorCore extends EventEmitter {
       const tabId = parseInt(statesM[1]);
       const sessionData = this.cache.getSessionData(tabId);
       if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
-      const siteVersion = sessionData.siteVersion;
-      const states = this.stateMachine.store?.getAllNodesFlat ? this.stateMachine.store.getAllNodesFlat({ siteVersion, limit: 999 }) : [];
+      const store = this.stateMachine.store;
+      if (!store?.getAllNodesFlat) return { status: 200, body: [] };
+      // The session's siteVersion (cache-writer defaults to 'default') and the
+      // graph key (named by the state reporter, e.g. 'v1') historically drift
+      // apart. Rather than answering [] while /api/graphs shows nodes, fall
+      // back to all graphs — same behaviour as the MCP list_states tool.
+      let states = store.getAllNodesFlat({ siteVersion: sessionData.siteVersion, limit: 999 });
+      if (!states.length) states = store.getAllNodesFlat({ limit: 999 });
       return { status: 200, body: states };
     }
 
@@ -554,8 +679,24 @@ class WhiskorCore extends EventEmitter {
       const hash = stateHashM[2];
       const sessionData = this.cache.getSessionData(tabId);
       if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
-      const node = this.stateMachine.store?.getNodeByHash ? this.stateMachine.store.getNodeByHash(sessionData.siteVersion, hash) : null;
+      const node = this._findStateNode(sessionData.siteVersion, hash);
       return node ? { status: 200, body: node } : { status: 404, body: { error: 'State not found' } };
+    }
+
+    // GET /api/sessions/:tabId/map  — ASCII state-graph visualization for a
+    // session's tab (best-effort: falls back to the graph with the most nodes
+    // when the session's own siteVersion has none, same drift as /states above).
+    // ?maxNodes= caps the rendered tree (default 40, max 200).
+    const mapM = p.match(/^\/api\/sessions\/(\d+)\/map$/);
+    if (method === 'GET' && mapM) {
+      const tabId = parseInt(mapM[1]);
+      const sessionData = this.cache.getSessionData(tabId);
+      if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
+      const sv = this._resolveGraphSiteVersion(sessionData.siteVersion);
+      let maxNodes = parseInt(url.searchParams?.get?.('maxNodes'), 10);
+      if (!Number.isFinite(maxNodes) || maxNodes <= 0) maxNodes = 40;
+      maxNodes = Math.min(maxNodes, 200);
+      return { status: 200, body: { siteVersion: sv, graph: generateAsciiGraph(sv, maxNodes) } };
     }
 
     // GET /api/sessions/:tabId/raw/delta/smart.json  — smart delta data (in-memory)
@@ -606,6 +747,28 @@ class WhiskorCore extends EventEmitter {
       this._tabDisconnectedAt.delete(tabId);
       this.broadcastToDashboard({ type: 'SESSION_REMOVED', tabId });
       return { status: 200, body: { ok: true, tabId } };
+    }
+
+    // GET /api/graphs/:siteVersion/states  — nodes of one state graph
+    // (the natural follow-up to GET /api/graphs, no session lookup involved)
+    const graphStatesM = p.match(/^\/api\/graphs\/([^/]+)\/states$/);
+    if (method === 'GET' && graphStatesM) {
+      const sv = decodeURIComponent(graphStatesM[1]);
+      const store = this.stateMachine.store;
+      if (!store?.getGraph || !store.getGraph(sv)) {
+        return { status: 404, body: { error: `No graph for siteVersion "${sv}"` } };
+      }
+      return { status: 200, body: store.getAllNodesFlat({ siteVersion: sv, limit: 999 }) };
+    }
+
+    // GET /api/graphs/:siteVersion/states/:hash  — single node of one graph
+    const graphStateHashM = p.match(/^\/api\/graphs\/([^/]+)\/states\/([^/]+)$/);
+    if (method === 'GET' && graphStateHashM) {
+      const sv = decodeURIComponent(graphStateHashM[1]);
+      const node = this.stateMachine.store?.getNodeByHash
+        ? this.stateMachine.store.getNodeByHash(sv, graphStateHashM[2])
+        : null;
+      return node ? { status: 200, body: node } : { status: 404, body: { error: 'State not found' } };
     }
 
     if (method === 'GET' && p === '/api/graphs') {

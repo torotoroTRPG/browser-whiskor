@@ -161,6 +161,11 @@ function connectWs() {
   try { ws = new WebSocket(wsTarget); } catch { scheduleReconnect(); return; }
   ws.addEventListener('open', () => {
     wsReady = true;
+    // Version handshake — lets the server spot a stale extension (manifest
+    // version tracks package.json) and ask us to reload after `whk setup`.
+    try {
+      ws.send(JSON.stringify({ type: 'EXT_HELLO', browser: 'firefox-mv2', version: browser.runtime.getManifest().version }));
+    } catch (_) {}
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
     while (queue.length) ws.send(queue.shift());
     startPing();
@@ -311,6 +316,24 @@ async function buildPackedSomFx(tabId, windowId, opts) {
   return { dataUrl, marks, width: W, height: H };
 }
 
+// Auto tab switch (agentControl.autoSwitchTab, default ON): when an action or a
+// capture targets a tab that is not active, activate it first. Without this,
+// captureVisibleTab returns the ACTIVE tab's pixels — i.e. a screenshot of the
+// wrong tab — and visibility-dependent page behaviour diverges. Only the tab is
+// activated (within its own window); OS window focus is not stolen.
+async function ensureTabActive(tabId) {
+  try {
+    const { SI_CONFIG } = await browser.storage.local.get('SI_CONFIG');
+    if (SI_CONFIG?.agentControl?.autoSwitchTab === false) return;
+    const tab = await browser.tabs.get(tabId);
+    if (!tab.active) await browser.tabs.update(tabId, { active: true });
+  } catch (_) { /* tab gone — the caller's normal error path reports it */ }
+}
+
+// EXECUTE_ACTION types that manage tabs themselves (or have no page target) —
+// auto-switching before these would be wrong or redundant.
+const NO_AUTO_SWITCH_ACTIONS = new Set(['list_tabs', 'switch_tab', 'open_tab', 'close_tab', 'create_tab']);
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'SET_CONFIG': {
@@ -339,6 +362,7 @@ async function handleServerMessage(msg) {
     case 'EXECUTE_ACTION': {
       const { actionId, tabId, action } = msg;
       try {
+        if (tabId != null && !NO_AUTO_SWITCH_ACTIONS.has(action.type)) await ensureTabActive(tabId);
         let result;
         if (action.type === 'navigate') {
           await browser.tabs.update(tabId, { url: action.url });
@@ -391,6 +415,7 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_SCREENSHOT': {
       const { reqId, tabId, opts } = msg;
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         const tab = await browser.tabs.get(tabId);
 
         let elements = null, vpWidth = null, vpHeight = null;
@@ -456,6 +481,7 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_PACKED_SOM': {
       const { reqId, tabId, opts = {} } = msg;
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         const tab = await browser.tabs.get(tabId);
         const packed = await buildPackedSomFx(tabId, tab.windowId, opts);
         sendToServer({
@@ -472,6 +498,7 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_ELEMENT': {
       const { reqId, tabId, opts = {} } = msg;
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         const tab = await browser.tabs.get(tabId);
         let rect = null;
 
@@ -528,6 +555,13 @@ async function handleServerMessage(msg) {
       break;
     }
     case 'PONG': break;
+    // Server asks us to reload from disk (after `whk setup` refreshed the
+    // managed extension files, or on a version mismatch at connect time).
+    // Temporary add-ons re-read their files on runtime.reload().
+    case 'RELOAD_EXTENSION':
+      console.log('[SI] Reload requested by server (' + (msg.reason || 'manual') + ') — reloading extension');
+      browser.runtime.reload();
+      break;
     case 'REQUEST_STATE_HASH': {
       var code = 'window.postMessage({ __BROWSER_WHISKOR__: true, type: "REQUEST_STATE_HASH", requestId: ' + JSON.stringify(msg.requestId) + ', watchMode: ' + JSON.stringify(msg.watchMode) + ' }, "*");';
       browser.tabs.executeScript(msg.tabId, { code }).catch(function() {});

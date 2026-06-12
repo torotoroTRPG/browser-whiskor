@@ -12,6 +12,10 @@
     "url": "https://github.com/torotoroTRPG/browser-whiskor/issues"
   },
   "main": "server/index.js",
+  "bin": {
+    "whk": "./server/cli.js",
+    "whiskor": "./server/cli.js"
+  },
   "scripts": {
     "start": "node scripts/supervisor.js",
     "start:raw": "node server/index.js",
@@ -20,6 +24,7 @@
     "mock": "node server/index.js --mock",
     "stop": "pwsh -NoProfile -File scripts/stop.ps1",
     "restart": "pwsh -NoProfile -File scripts/restart.ps1",
+    "setup": "pwsh -NoProfile -File scripts/setup.ps1",
     "test": "node scripts/_run-tests.js tests/unit tests/integration tests/stress",
     "test:unit": "node scripts/_run-tests.js tests/unit",
     "test:integration": "node scripts/_run-tests.js tests/integration",

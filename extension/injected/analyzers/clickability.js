@@ -504,6 +504,21 @@
     });
   }
 
+  // A fix step only really succeeded if the TARGET is now clear — the tracked
+  // obstructor disappearing does not guarantee that (e.g. a popover's paper is
+  // removed but its backdrop stays and keeps swallowing clicks). Re-run the
+  // obstruction check on the element itself; if something still covers it,
+  // point the report at the current obstructor so later steps / the agent see
+  // what is actually in the way instead of a false fixResult:"success".
+  function verifyTargetClear(report) {
+    const el = report._el;
+    if (!el || !document.contains(el)) return true; // no live reference — legacy behaviour
+    const obs = checkObstruction(el);
+    if (!obs.obstructed) return true;
+    report.obstructedBy = obs.obstructedBy;
+    return false;
+  }
+
   async function autoUnblockPipeline(report) {
     if (!report.obstructed || !report.canAutoFix || !report.obstructedBy) {
       report.fixResult = 'not_attempted';
@@ -522,7 +537,7 @@
         if (closeBtn) {
           closeBtn.click();
           const removed = await waitForObstructorRemoval(obs.topElement, STEP_TIMEOUT);
-          if (removed) {
+          if (removed && verifyTargetClear(report)) {
             report.fixResult = 'success';
             report.obstructed = false;
             return report;
@@ -544,7 +559,7 @@
           bubbles: true, cancelable: true,
         }));
         const removed = await waitForObstructorRemoval(obs.topElement, STEP_TIMEOUT);
-        if (removed) {
+        if (removed && verifyTargetClear(report)) {
           report.fixResult = 'success';
           report.obstructed = false;
           return report;
@@ -560,7 +575,7 @@
         if (backdrop && document.contains(backdrop)) {
           backdrop.click();
           const removed = await waitForObstructorRemoval(obs.topElement, STEP_TIMEOUT);
-          if (removed) {
+          if (removed && verifyTargetClear(report)) {
             report.fixResult = 'success';
             report.obstructed = false;
             return report;
@@ -582,7 +597,7 @@
           if (r.width >= window.innerWidth * 0.9 && r.height >= window.innerHeight * 0.9) {
             sib.click();
             const removed = await waitForObstructorRemoval(obs.topElement, STEP_TIMEOUT);
-            if (removed) {
+            if (removed && verifyTargetClear(report)) {
               report.fixResult = 'success';
               report.obstructed = false;
               return report;

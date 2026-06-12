@@ -30,6 +30,13 @@ const IGNORED_CHANGE_TYPES = new Set([
 // ── State ─────────────────────────────────────────────────────────────────────
 const tabBuffers = new Map(); // tabId -> { frames: [], timer: null, lastVp: null }
 
+// Timer-driven flushes happen outside any caller, so they need a sink to land
+// in. Without one, an aggregate built on the AGGREGATE_INTERVAL timeout is
+// computed and then dropped — only full-buffer flushes (which return through
+// addFrame) ever reach storage. index.js wires this to cache.storeSmartDelta.
+let flushSink = null; // (tabId, delta) => void
+function setFlushSink(fn) { flushSink = fn; }
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -265,9 +272,12 @@ function addFrame(tabId, frame) {
     return flushBuffer(tabId);
   }
 
-  // タイマーセット（時間切れでもフラッシュ）
+  // タイマーセット（時間切れでもフラッシュ → sink へ届ける）
   if (!buf.timer) {
-    buf.timer = setTimeout(() => flushBuffer(tabId), AGGREGATE_INTERVAL).unref();
+    buf.timer = setTimeout(() => {
+      const delta = flushBuffer(tabId);
+      if (delta && flushSink) flushSink(tabId, delta);
+    }, AGGREGATE_INTERVAL).unref();
   }
 
   return null;
@@ -326,6 +336,7 @@ function resetAll() {
 module.exports = {
   addFrame,
   flushBuffer,
+  setFlushSink,
   getBufferState,
   cleanup,
   resetAll,
@@ -337,4 +348,5 @@ module.exports = {
   VECTOR_TOLERANCE,
   SCROLL_THRESHOLD,
   MAX_BUFFER_SIZE,
+  AGGREGATE_INTERVAL,
 };

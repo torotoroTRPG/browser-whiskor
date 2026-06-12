@@ -56,7 +56,19 @@ await fetch("http://127.0.0.1:7892/api/action", {
 ```
 
 クリックは clickability 解析を内蔵する: 無効要素・遮蔽はエラーで返り、モーダル等の遮蔽は
-設定（`intelligence.clickability.autoUnblock`）に応じて自動解除を試みる。
+設定（`intelligence.clickability.autoUnblock`）に応じて自動解除を試みる。自動解除は
+「対象の前が実際にクリアになったか」を再検証し、解除しきれなければ `Element is obstructed` を返す
+（`clickability.obstructedBy` に遮蔽要素の情報が入る）。
+
+要素解決の規則:
+
+- `text` 指定は**可視のラベル**（textContent / aria-label / placeholder / title 等）を優先する。
+  大文字小文字が一致する候補が優先され、入力欄の現在値（`value`）へのマッチは劣後する。
+  非表示（`display:none` 等）の要素は対象にならない
+- `selector` が複数要素にマッチした場合は最初の**可視**要素が選ばれ、結果に
+  `selectorMatches`（マッチ数）と `selectorPickedIndex` が付く。付いていたらセレクタを見直す
+- React/MUI 等が生成する動的 ID（`#:r5k:` のような形式）は再レンダリングで変わるため
+  セレクタに使わない。`text` / 安定属性（`aria-label`, `name`, `data-*`）/ 座標を使う
 
 ### 入力系
 
@@ -64,13 +76,20 @@ await fetch("http://127.0.0.1:7892/api/action", {
 { type: "type", selector: "input[type=email]", text: "user@example.com", clear: true }
 { type: "type", selector: "input[name=q]", text: "検索語", pressEnter: true }
 { type: "type", selector: "input[type=password]", secretRef: "my-login" }  // secret guard の ref で実値を伏せたまま入力
-{ type: "press_key", key: "Escape" }      // Enter / Tab / ArrowDown など
+{ type: "press_key", key: "Escape" }            // Enter / Tab / ArrowDown など
+{ type: "press_key", key: "Control+Shift+K" }   // 修飾キーコンビネーション
+{ type: "press_key", key: "w+d" }               // 通常キーの同時押し（全キー down → 逆順 up）
+{ type: "press_key", key: "w", holdMs: 500 }    // 押しっぱなし（keyup まで最大5秒保持）
 { type: "focus", selector: "input#name" }
 { type: "clear_input", selector: "input#name" }
 ```
 
-`secretRef` は `privacy.secretGuard.enabled: true` かつ `secrets.local.json` に ref 登録済みのときのみ有効。
-エージェントは ref 名だけを扱い、実値はサーバー（ワーカー）側で解決される。
+- `type` は `selector` 指定時に**自動でフォーカスしてから**入力する。selector 省略時は
+  「現在フォーカス中の要素」に入力するため、事前の `focus` / `click` が必要
+- `press_key` は synthetic イベントのため、ブラウザ既定動作（PageDown でのスクロール等）は
+  発生しない。実スクロールは `scroll` / `mouse_scroll` を使う
+- `secretRef` は `privacy.secretGuard.enabled: true` かつ `secrets.local.json` に ref 登録済みのときのみ有効。
+  エージェントは ref 名だけを扱い、実値はサーバー（ワーカー）側で解決される。
 
 ### ホバー・スクロール・ドラッグ
 
@@ -169,6 +188,7 @@ await post("/api/source/context", { query: "LoginForm" });
 | `security.allowExecuteJs` | **`false`** | 任意JS実行（要明示的な有効化） |
 | `security.allowExplorer` | `true` | 自律探索エンジン |
 | `agentControl.allowAgentConfig` | `false` | エージェントによる設定変更 |
+| `agentControl.autoSwitchTab` | `true` | 非アクティブタブへの操作/キャプチャ時に自動でそのタブへ切り替え |
 | `privacy.secretGuard.enabled` | `false` | 秘匿ガード（サーバー側 redaction） |
 
 設定確認: `GET /api/config`

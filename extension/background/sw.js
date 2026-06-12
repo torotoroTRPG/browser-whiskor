@@ -265,6 +265,11 @@ function connectWs() {
   ws.addEventListener('open', () => {
     clearTimeout(connectTimer);
     wsReady = true;
+    // Version handshake — lets the server spot a stale extension (manifest
+    // version tracks package.json) and ask us to reload after `whk setup`.
+    try {
+      ws.send(JSON.stringify({ type: 'EXT_HELLO', browser: 'chrome-mv3', version: chrome.runtime.getManifest().version }));
+    } catch (_) {}
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
     while (queue.length) ws.send(queue.shift());
     startPing();
@@ -475,6 +480,24 @@ async function buildPackedSom(tabId, windowId, opts) {
 
 // ── Server → Extension commands ───────────────────────────────────────────────
 
+// Auto tab switch (agentControl.autoSwitchTab, default ON): when an action or a
+// capture targets a tab that is not active, activate it first. Without this,
+// captureVisibleTab returns the ACTIVE tab's pixels — i.e. a screenshot of the
+// wrong tab — and visibility-dependent page behaviour diverges. Only the tab is
+// activated (within its own window); OS window focus is not stolen.
+async function ensureTabActive(tabId) {
+  try {
+    const { SI_CONFIG } = await chrome.storage.local.get('SI_CONFIG');
+    if (SI_CONFIG?.agentControl?.autoSwitchTab === false) return;
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active) await chrome.tabs.update(tabId, { active: true });
+  } catch (_) { /* tab gone — the caller's normal error path reports it */ }
+}
+
+// EXECUTE_ACTION types that manage tabs themselves (or have no page target) —
+// auto-switching before these would be wrong or redundant.
+const NO_AUTO_SWITCH_ACTIONS = new Set(['list_tabs', 'switch_tab', 'open_tab', 'close_tab', 'create_tab']);
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
 
@@ -517,6 +540,7 @@ async function handleServerMessage(msg) {
         break;
       }
       try {
+        if (tabId != null && !NO_AUTO_SWITCH_ACTIONS.has(action.type)) await ensureTabActive(tabId);
         let result;
 
         switch (action.type) {
@@ -637,6 +661,7 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_SCREENSHOT': {
       const { reqId, tabId, opts } = msg;
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
         if (windowId == null) {
@@ -720,6 +745,7 @@ async function handleServerMessage(msg) {
     case 'CAPTURE_PACKED_SOM': {
       const { reqId, tabId, opts = {} } = msg;
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
         if (windowId == null) {
@@ -749,6 +775,7 @@ async function handleServerMessage(msg) {
       const { reqId, tabId, opts = {} } = msg;
 
       try {
+        await ensureTabActive(tabId); // captureVisibleTab shoots the ACTIVE tab
         let windowId;
         try { windowId = (await chrome.tabs.get(tabId)).windowId; } catch (_) { windowId = null; }
         if (windowId == null) {
@@ -850,6 +877,14 @@ async function handleServerMessage(msg) {
 
     case 'PONG':
       break; // keepalive ack
+
+    // Server asks us to reload from disk (after `whk setup` refreshed the
+    // managed extension files, or on a version mismatch at connect time).
+    // Unpacked extensions re-read their files on runtime.reload().
+    case 'RELOAD_EXTENSION':
+      console.log('[SI] Reload requested by server (' + (msg.reason || 'manual') + ') — reloading extension');
+      chrome.runtime.reload();
+      break;
 
     case 'REQUEST_STATE_HASH': {
       const { tabId, requestId, watchMode } = msg;

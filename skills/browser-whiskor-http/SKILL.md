@@ -88,6 +88,17 @@ await post("/api/action", { tabId, action: { type: "wait_for_element", selector:
 `analyze_click`（クリック前のドライラン）/ `execute_js`（要 `security.allowExecuteJs: true`）。
 引数の詳細は [reference.md](reference.md)。
 
+操作のポイント:
+
+- **`type` は `selector` を必ず渡す** — selector 指定時は自動でフォーカスしてから入力する。
+  selector 省略時は「現在フォーカス中の要素」に入力するため、事前の `focus` / `click` がないと失敗する
+- **対象タブは自動でアクティブ化される**（`agentControl.autoSwitchTab`、既定 ON）。バックグラウンドの
+  タブに操作やスクリーンショットを要求すると、拡張が先にそのタブへ切り替える
+- **動的 ID をセレクタに使わない** — React/MUI 等は `#:r5k:` のような再レンダリングで変わる ID を
+  生成する。`text` 指定・安定した属性（`aria-label`, `name`, `data-*`）・SoM の座標を使う
+- セレクタが複数要素にマッチした場合は最初の**可視**要素が選ばれ、結果に `selectorMatches` が付く。
+  付いていたら意図した要素か確認し、セレクタを絞り込む
+
 ## 基本サイクル
 
 ```
@@ -106,6 +117,9 @@ await post("/api/action", { tabId, action: { type: "wait_for_element", selector:
 | `fetch` 失敗 | サーバー未起動 | `npm start` |
 | `404 Session not found` | tabId が無効 | `/api/sessions` で再取得 |
 | `Action timed out` | 要素なし・遷移中 | `wait_for_element` 後に再試行 |
+| `Element is obstructed` | ポップオーバー/モーダルが対象を覆っている（自動解除も失敗） | `clickability.obstructedBy` を確認 → `press_key Escape`、遮蔽要素の閉じるボタンをクリック、またはバックドロップ座標を `click(x,y)` |
+| `No target element for type` | selector 未指定でフォーカスも無い | `type` に `selector` を渡す（自動フォーカスされる） |
+| 結果に `selectorMatches` | セレクタが複数要素にマッチ（最初の可視要素を使用） | `target` を確認し、違えばセレクタを絞る |
 | `execute_js is disabled` | `allowExecuteJs: false`（既定） | ユーザーに有効化を確認 |
 | `_warnings: STALE_DATA` | データが古い | `POST /api/collect` |
 | 値が `[WHISKOR_REDACTED ...]` | secret guard 有効 | 実値は見えない仕様。入力は `type` + `secretRef` で |
