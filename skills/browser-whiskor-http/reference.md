@@ -10,7 +10,7 @@
 | `GET /` | ダッシュボード |
 | `GET /api/config` | 現在の設定取得 |
 | `POST /api/config` | 設定変更 |
-| `GET /api/sessions` | セッション一覧 |
+| `GET /api/sessions` | セッション一覧（既定は軽量＝tabId/url/title/dataAge/isStale/summary。`?verbose=1` で各プラグインの freshnessMap も含む） |
 | `GET /api/sessions/:tabId` | 特定セッションの詳細 |
 | `DELETE /api/sessions/:tabId` | セッション削除 |
 | `GET /api/sessions/:tabId/{path}` | キャッシュファイル取得（下記パス一覧） |
@@ -59,6 +59,10 @@ await fetch("http://127.0.0.1:7892/api/action", {
 設定（`intelligence.clickability.autoUnblock`）に応じて自動解除を試みる。自動解除は
 「対象の前が実際にクリアになったか」を再検証し、解除しきれなければ `Element is obstructed` を返す
 （`clickability.obstructedBy` に遮蔽要素の情報が入る）。
+
+クリック後は SPA/Turbo の非同期遷移（fetch→DOM差し替え）も待って状態変化を判定する
+（イベント駆動、最大 ~800ms）。結果の `stateChanged` / `unexpectedBehavior: "no_state_change"`
+はこれを踏まえた値なので、`no_state_change` は「実際に何も変わらなかった」と解釈してよい。
 
 要素解決の規則:
 
@@ -144,7 +148,7 @@ await fetch("http://127.0.0.1:7892/api/action", {
 
 | パス | 内容 |
 |---|---|
-| `raw/visual/text-coords.json` | テキスト座標（単語/ブロック + ピクセル座標） |
+| `raw/visual/text-coords.json` | テキスト座標（単語/ブロック + ピクセル座標）。`textCoords.includeFormValues` 有効時は `formValues`（input/textarea/contentEditable の value + 座標）も含む。password/hidden/決済等の機微フィールドは値を伏せ（`valueOmitted: true`）、載る値も secret-guard で redaction 済み |
 | `raw/visual/viewport.json` | ビューポート情報 |
 | `raw/network/requests.json` | ネットワークリクエスト（status / body 抜粋） |
 | `raw/console/logs.json` | コンソールログ（level / message / ts） |
@@ -190,6 +194,7 @@ await post("/api/source/context", { query: "LoginForm" });
 | `agentControl.allowAgentConfig` | `false` | エージェントによる設定変更 |
 | `agentControl.autoSwitchTab` | `true` | 非アクティブタブへの操作/キャプチャ時に自動でそのタブへ切り替え |
 | `privacy.secretGuard.enabled` | `false` | 秘匿ガード（サーバー側 redaction） |
+| `textCoords.includeFormValues` | `false` | フォーム value 収集（input/textarea の value を text-coords に載せる）。機微フィールドは除外し、値は secret-guard で redaction。エージェントは収集を有効化できない＝ユーザー権限の設定 |
 
 設定確認: `GET /api/config`
 

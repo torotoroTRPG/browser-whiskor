@@ -571,22 +571,32 @@ async function _flushNetwork(session) {
 
 // ── Query API ────────────────────────────────────────────────────────────────
 
-function getSessionList() {
+// opts.brief === true drops the per-plugin freshnessMap, which is the bulk of each
+// entry's size (13-14 plugins × 3 fields). The brief list is for *discovery* (which
+// tabs exist); per-tab freshness detail lives in getSessionData (get_index). Default
+// stays full for backward compatibility — internal callers (/health count, dashboard,
+// capture lookup) are unaffected.
+function getSessionList(opts = {}) {
   const now = Date.now();
-  return [...sessions.entries()].map(([tabId, s]) => ({
-    tabId,
-    url:       s.index.url,
-    title:     s.index.title,
-    createdAt: s.index.createdAt,
-    updatedAt: s.updatedAt,
-    dataAgeMs: now - s.updatedAt,
-    isStale:   (now - s.updatedAt) > STALE_THRESHOLD_MS,
-    keep:      !!s.keep,
-    summary:   s.index.summary,
-    freshnessMap: Object.fromEntries(
+  const brief = opts.brief === true;
+  return [...sessions.entries()].map(([tabId, s]) => {
+    const entry = {
+      tabId,
+      url:       s.index.url,
+      title:     s.index.title,
+      createdAt: s.index.createdAt,
+      updatedAt: s.updatedAt,
+      dataAgeMs: now - s.updatedAt,
+      isStale:   (now - s.updatedAt) > STALE_THRESHOLD_MS,
+      keep:      !!s.keep,
+      summary:   s.index.summary,
+    };
+    if (brief) return entry;
+    entry.freshnessMap = Object.fromEntries(
       Object.entries(s.index.dataFreshness).map(([k, v]) => [k, { capturedAt: v, ageMs: now - v, isStale: (now - v) > STALE_THRESHOLD_MS }])
-    ),
-  }));
+    );
+    return entry;
+  });
 }
 
 function getSessionData(tabId) {

@@ -347,7 +347,8 @@
     "level":            "word",
     "includeHidden":    false,
     "includeOffscreen": false,
-    "maxWords":         5000
+    "maxWords":         5000,
+    "includeFormValues": false
   },
 
   "executeJs": {

@@ -76,9 +76,18 @@ function rectOf(it) {
 function findRedactedRects(textCoords) {
   const rects = [];
   if (!textCoords) return rects;
-  const items = textCoords.words || textCoords.lines || textCoords.blocks || [];
+  // Include opt-in form values: a redacted input/textarea value should be masked in
+  // screenshots too (its content is visible on screen). formValues carry x/y/w/h and
+  // hold the redacted string under `value` rather than `text`.
+  const items = [
+    ...(textCoords.words || textCoords.lines || textCoords.blocks || []),
+    ...(textCoords.formValues || []),
+  ];
   for (const it of items) {
-    if (it && typeof it.text === 'string' && it.text.includes(TOKEN_PREFIX)) {
+    if (!it) continue;
+    const isRedacted = (typeof it.text === 'string' && it.text.includes(TOKEN_PREFIX))
+      || (typeof it.value === 'string' && it.value.includes(TOKEN_PREFIX));
+    if (isRedacted) {
       const r = rectOf(it);
       if (r) rects.push(r);
     }

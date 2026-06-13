@@ -84,7 +84,7 @@ class WhiskorCore extends EventEmitter {
       mode: 'always_on',
       plugins: {},
       options: {
-        textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000 },
+        textCoords: { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000, includeFormValues: false },
         network: { captureBody: true, bodyMaxLength: 4096, captureTokens: true },
         react: { maxDepth: 80, maxProps: 30, maxHooks: 25 },
         console: { levels: ['log', 'warn', 'error', 'info', 'debug'], maxBuffer: 2000 },
@@ -636,7 +636,9 @@ class WhiskorCore extends EventEmitter {
     }
 
     if (method === 'GET' && p === '/api/sessions') {
-      let sessions = this.cache.getSessionList();
+      const verbose = url.searchParams?.get?.('verbose');
+      const brief = !(verbose === '1' || verbose === 'true');
+      let sessions = this.cache.getSessionList({ brief });
       if (appRegistry?.enabled) {
         sessions = sessions.filter(s =>
           appRegistry.canAccess(callerAppId, this.getTabApp(s.tabId))

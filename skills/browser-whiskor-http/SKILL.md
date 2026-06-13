@@ -43,7 +43,8 @@ const health = await (await fetch("http://127.0.0.1:7892/health")).json();
 
 ```javascript
 const sessions = await (await fetch("http://127.0.0.1:7892/api/sessions")).json();
-// 各エントリの tabId / url / title / isStale を見て対象を選ぶ。以降の全操作で tabId が必要。
+// 各エントリの tabId / url / title / isStale / summary を見て対象を選ぶ。以降の全操作で tabId が必要。
+// 既定は軽量。各プラグインの収集時刻（freshnessMap）も要るときは ?verbose=1 を付ける。
 ```
 
 複数タブで迷う場合は URL/title をユーザーに確認する。
@@ -65,6 +66,10 @@ const som = await post("/api/packed-som", { tabId });
 
 // 構造データ（テキスト座標 / UIカタログ / ネットワーク / コンソール等）
 const ui = await fetch(`${BASE}/api/sessions/${tabId}/raw/ui/elements.json`).then(r => r.json());
+
+// フォームの入力値（textarea/input の value）は既定では収集されない。必要なら config の
+// textCoords.includeFormValues を有効化 → collect 後に text-coords.json の formValues を読む
+// （機微フィールドは伏字、secret-guard で redaction 済み）。
 ```
 
 データが古い場合（`isStale: true`）は再収集してから読む:

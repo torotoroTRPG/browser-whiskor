@@ -265,7 +265,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         mode: 'always_on',
         plugins: _cfg.plugins || {},
         options: {
-          textCoords:  { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000, ...(_cfg.textCoords || {}) },
+          textCoords:  { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000, includeFormValues: false, ...(_cfg.textCoords || {}) },
           network:     { captureBody: true, bodyMaxLength: _cfg.collection?.networkBodyMaxBytes ?? 4096, captureTokens: true },
           react:       { maxDepth: 80, maxProps: 30, maxHooks: 25, ...(_cfg.react || {}) },
           console:     { levels: ['log', 'warn', 'error', 'info', 'debug'], maxBuffer: _cfg.collection?.maxConsoleLogs ?? 2000 },
@@ -731,7 +731,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     );
 
     const proxyCache = {
-      getSessionList() { return requestServer('GET', '/api/sessions'); },
+      getSessionList(opts) { return requestServer('GET', opts && opts.brief === false ? '/api/sessions?verbose=1' : '/api/sessions'); },
       getSessionData(tabId) { return requestServer('GET', `/api/sessions/${tabId}`); },
       async readSessionFile(tabId, filename) {
         const res = await requestServer('GET', `/api/sessions/${tabId}/${filename}`);

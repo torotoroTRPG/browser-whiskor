@@ -407,6 +407,72 @@
   }
 
   // ── Plugin ────────────────────────────────────────────────────────────────
+  // ── Form field values (opt-in: config.options.textCoords.includeFormValues) ──
+  // text-coords collects *rendered* text, which excludes the live `value` of
+  // inputs/textareas (a property, not a DOM text node). When the agent opts in we
+  // also harvest those values — defensively. Sensitive fields (password, hidden,
+  // payment, or name/label hinting at a secret) carry NO value, only their type;
+  // any value that does ride along is redacted server-side by secret-guard
+  // (core.js routeMessage → redactDeep) before any log / cache / agent read.
+  const SENSITIVE_FIELD_RE = /pass(word)?|secret|token|cvv|cvc|ssn|otp|\bpin\b/i;
+  const SENSITIVE_AUTOCOMPLETE = new Set([
+    'current-password', 'new-password', 'cc-number', 'cc-csc', 'cc-exp', 'one-time-code',
+  ]);
+  const MAX_FORM_VALUE_LEN = 1000;
+
+  function isSensitiveFormField(el) {
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (type === 'password' || type === 'hidden') return true;
+    const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    if (SENSITIVE_AUTOCOMPLETE.has(ac)) return true;
+    const hay = [el.getAttribute('name'), el.id, el.getAttribute('aria-label')].filter(Boolean).join(' ');
+    return SENSITIVE_FIELD_RE.test(hay);
+  }
+
+  function extractFormValues() {
+    const out = [];
+    let nodes;
+    try {
+      nodes = document.querySelectorAll('input, textarea, [contenteditable=""], [contenteditable="true"]');
+    } catch (_) { return out; }
+    for (const el of nodes) {
+      try {
+        const tag  = el.tagName.toLowerCase();
+        const type = tag === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : tag;
+        // Non-value inputs (button/submit/file/...) carry nothing to read.
+        if (tag === 'input' && /^(button|submit|reset|image|file)$/.test(type)) continue;
+        const rect = el.getBoundingClientRect();
+        const meta = {
+          xpath:       getSimpleXPath(el),
+          element:     tag,
+          type,
+          name:        el.getAttribute('name') || el.id || null,
+          contextHint: getContextHint(el),
+          x: Math.round(rect.left + window.scrollX),
+          y: Math.round(rect.top  + window.scrollY),
+          w: Math.round(rect.width),
+          h: Math.round(rect.height),
+        };
+        if (isSensitiveFormField(el)) {
+          out.push({ ...meta, value: null, valueOmitted: true, reason: 'sensitive-field' });
+          continue;
+        }
+        if (tag === 'input' && (type === 'checkbox' || type === 'radio')) {
+          out.push({ ...meta, value: el.checked ? 'checked' : 'unchecked', checked: !!el.checked });
+          continue;
+        }
+        let v = (tag === 'input' || tag === 'textarea') ? el.value : (el.textContent || '');
+        if (typeof v !== 'string') v = String(v == null ? '' : v);
+        if (v.length > MAX_FORM_VALUE_LEN) {
+          out.push({ ...meta, value: v.slice(0, MAX_FORM_VALUE_LEN), truncated: true });
+        } else {
+          out.push({ ...meta, value: v });
+        }
+      } catch (_) { /* skip problematic element */ }
+    }
+    return out;
+  }
+
   registry.register({
     id: 'text-coords',
     name: 'Text Coordinate Extractor',
@@ -448,7 +514,7 @@
       const lines = aggregateLines(words);
       const blocks = aggregateBlocks(words);
 
-      return {
+      const result = {
         capturedAt:  Date.now(),
         pageUrl:     location.href,
         viewport: {
@@ -465,6 +531,10 @@
         blocks,
         fullText: words.map(w => w.text).join(' '),
       };
+      // Form values are opt-in (config.options.textCoords.includeFormValues) and
+      // minimised at source; whatever rides along is redacted server-side.
+      if (opts.includeFormValues) result.formValues = extractFormValues();
+      return result;
     },
 
     teardown() {

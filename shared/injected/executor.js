@@ -53,6 +53,50 @@
     try { window.__SI_DIALOGS__ = () => DIALOG_LOG.slice(); } catch (_) {}
   })();
 
+  // ── Post-click state settle ───────────────────────────────────────────────────
+  // A click can trigger *async* navigation — SPA/Turbo do `fetch → DOM swap`, which a
+  // fixed short delay misses, so diagnoseClickResult sees the old URL/title and reports
+  // a false `no_state_change` (the GitHub "Releases" Turbo-link bug). Instead of polling,
+  // wait event-driven: a MutationObserver (DOM swap) plus popstate/hashchange (history
+  // nav) fire the instant the page reacts; we resolve as soon as a *meaningful* change is
+  // observable (href / title / dialog count / target detached), or give up after maxWait.
+  // Turbo's pushState emits no event, but its DOM swap does — and by then location.href
+  // is already updated, so the mutation path catches it. A click that genuinely changes
+  // nothing waits out maxWait and is still correctly reported as no_state_change.
+  function waitForClickSettle(fp, el, maxWait = 800) {
+    const changed = () => {
+      try {
+        if (location.href !== fp.url) return true;
+        if (document.title !== fp.title) return true;
+        if (el && !document.contains(el)) return true;
+        const dlg = document.querySelectorAll('[role="dialog"], [role="alertdialog"]').length;
+        if (dlg !== fp.dialogCount) return true;
+      } catch (_) {}
+      return false;
+    };
+    if (changed()) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false, mo = null, timer = null;
+      const cleanup = () => {
+        try { mo && mo.disconnect(); } catch (_) {}
+        try { window.removeEventListener('popstate', check); } catch (_) {}
+        try { window.removeEventListener('hashchange', check); } catch (_) {}
+        if (timer) clearTimeout(timer);
+      };
+      const finish = () => { if (done) return; done = true; cleanup(); resolve(); };
+      const check = () => { if (changed()) finish(); };
+      try {
+        mo = new MutationObserver(check);
+        // childList+subtree で Turbo/SPA の DOM 差し替えを拾う。characterData は
+        // 過剰（title だけ変わる稀ケースはタイムアウト経路で拾える）なので付けない。
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+      } catch (_) {}
+      try { window.addEventListener('popstate', check); } catch (_) {}
+      try { window.addEventListener('hashchange', check); } catch (_) {}
+      timer = setTimeout(finish, maxWait);
+    });
+  }
+
   // ── Element finders ──────────────────────────────────────────────────────────
 
   // Info about the last selector resolution — lets action results surface
@@ -521,8 +565,8 @@
           }
         }
 
-        // Framework re-renders の解決を待つ
-        await new Promise(r => setTimeout(r, 100));
+        // Framework re-render と SPA/Turbo の非同期遷移の解決をイベント駆動で待つ
+        await waitForClickSettle(fp, el);
         const diagnosis = analyzer.diagnoseClickResult(el, fp);
         report.diagnosis = diagnosis;
 
@@ -754,7 +798,9 @@
         const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
         el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
 
-        await new Promise(r => setTimeout(r, 100));
+        // 右クリックは通常ネイティブメニューでDOM/URLが変わらないため待機は短め。
+        // カスタムメニュー(role=menu等)が出る場合はその mutation で早期確定する。
+        await waitForClickSettle(fp, el, 300);
         const diagnosis = analyzer.diagnoseClickResult(el, fp);
         report.diagnosis = diagnosis;
 

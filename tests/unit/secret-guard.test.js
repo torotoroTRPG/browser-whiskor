@@ -106,6 +106,16 @@ describe('12.1 secret-guard — deep + message', () => {
     assert.strictEqual(msg.dataUrl, blob, 'image blob left untouched');
     assert.ok(!JSON.stringify(msg.payload).includes('hunter2'), 'other fields still redacted');
   });
+
+  it('redacts opt-in form values harvested into msg.formValues (value carries the secret)', () => {
+    const g = guardWith('hunter2:password');
+    const msg = { type: 'TEXT_COORDS', tabId: 3, formValues: [
+      { xpath: '/input[1]', element: 'input', type: 'text', value: 'note hunter2 here', x: 0, y: 0, w: 10, h: 10 },
+    ] };
+    g.redactMessage(msg);
+    assert.ok(!JSON.stringify(msg.formValues).includes('hunter2'), 'a secret typed into a form must be redacted');
+    assert.strictEqual(msg.formValues[0].element, 'input', 'non-secret metadata is preserved');
+  });
 });
 
 describe('12.1 secret-guard — pattern detection (no pre-registration)', () => {
@@ -269,6 +279,16 @@ describe('12.1 secret-guard — findRedactedRects (screenshot masking)', () => {
       { text: tok /* no coords */ },
     ] };
     assert.deepStrictEqual(findRedactedRects(tc), [{ x: 1, y: 2, width: 3, height: 4 }]);
+  });
+
+  it('masks redacted form values too (token sits under value; w/h coords)', () => {
+    const tc = { words: [], formValues: [
+      { type: 'text', value: 'safe', x: 0, y: 0, w: 20, h: 10 },
+      { type: 'text', value: `note ${tok}`, x: 60, y: 80, w: 100, h: 16 },
+    ] };
+    const rects = findRedactedRects(tc);
+    assert.strictEqual(rects.length, 1);
+    assert.deepStrictEqual(rects[0], { x: 60, y: 80, width: 100, height: 16 });
   });
 
   it('returns nothing when there is no redacted text', () => {

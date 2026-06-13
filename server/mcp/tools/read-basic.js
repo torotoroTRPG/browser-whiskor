@@ -14,11 +14,17 @@ module.exports = function registerBasicTools(registry) {
   tools.push({
     definition: {
       name: 'get_sessions',
-      description: 'List all active inspection sessions (one per browser tab). Returns tabId, URL, title, data age, staleness flag, and a freshness map showing when each plugin last collected data. Call this first to discover available tabIds.',
-      inputSchema: { type: 'object', properties: {}, required: [] },
+      description: 'List all active inspection sessions (one per browser tab). By default returns a lightweight entry per tab (tabId, URL, title, data age, staleness flag, summary) so scanning many tabs stays cheap. Set verbose:true to also include the per-plugin freshnessMap; for one tab\'s full detail use get_index instead. Call this first to discover available tabIds.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          verbose: { type: 'boolean', description: 'Include the per-plugin freshnessMap for every session (default false). Usually unnecessary — prefer get_index for a single tab\'s detail.' },
+        },
+        required: [],
+      },
     },
     handler: async (args, cb) => {
-      const list = await cb.cache.getSessionList();
+      const list = await cb.cache.getSessionList({ brief: !args?.verbose });
       if (!list || list.length === 0) {
         return {
           sessions: [],
@@ -59,7 +65,7 @@ module.exports = function registerBasicTools(registry) {
    tools.push({
      definition: {
        name: 'get_text_coords',
-       description: 'Get all visible text on the page with absolute pixel coordinates. Use "search" for exact substring match, or "match" for fuzzy similarity search (returns results sorted by score 0.0-1.0). Each item includes a contextHint describing the element role (e.g. "navigation link", "form label", "button"). Set "inViewport: true" to return only text currently within the user\'s visible viewport area. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog).',
+       description: 'Get all visible text on the page with absolute pixel coordinates. Use "search" for exact substring match, or "match" for fuzzy similarity search (returns results sorted by score 0.0-1.0). Each item includes a contextHint describing the element role (e.g. "navigation link", "form label", "button"). Set "inViewport: true" to return only text currently within the user\'s visible viewport area. Use "focusScope" to limit search to a specific subtree (e.g. a modal dialog). Note: textarea/input values are NOT included by default (only rendered text); set "includeFormValues: true" to also get them (redacted server-side).',
        inputSchema: {
          type: 'object',
          properties: {
@@ -72,6 +78,7 @@ module.exports = function registerBasicTools(registry) {
            inViewport: { type: 'boolean', description: 'If true, only return text whose bounding box intersects the current viewport (based on scroll position).' },
            focusScope: { type: 'string', description: 'CSS selector identifying the subtree to search within (e.g. \'[role="dialog"]\'). Elements outside this scope are summarized separately in outOfScopeMatches.' },
            includeSuggestions: { type: 'boolean', description: 'Include fuzzy/semantic _suggestions when search/match finds nothing (default: true; set false to disable).' },
+           includeFormValues: { type: 'boolean', description: 'Also return form field values (textarea/input value, contentEditable text) under formValues, with coordinates. Opt-in: requires config.options.textCoords.includeFormValues=true on the server for collection. Sensitive fields (password/payment/hidden) carry no value (valueOmitted:true); any value is redacted server-side by secret-guard. Default false.' },
          },
          required: ['tabId'],
        },
@@ -80,6 +87,17 @@ module.exports = function registerBasicTools(registry) {
         const cache = cb.cache;
         const raw = await cache.readSessionFile(args.tabId, 'raw/visual/text-coords.json');
         if (!raw) return { error: 'TEXT_COORDS not available. Trigger refresh_data first.' };
+
+        // Form values are opt-in and live under raw.formValues (already redacted
+        // server-side by secret-guard). Pull them out so they never leak through the
+        // `{...raw}` path, and re-attach only when the caller explicitly asks.
+        const _TC = 'text-coords';
+        const formValues = args.includeFormValues === true ? (raw.formValues || []) : null;
+        delete raw.formValues;
+        const finalize = (result) => {
+          if (formValues) result.formValues = formValues;
+          return withFreshness(args.tabId, _TC, result, cache);
+        };
 
         const level      = args.level || 'words';
         const search     = args.search?.toLowerCase();
@@ -250,7 +268,7 @@ module.exports = function registerBasicTools(registry) {
               }
             }
             if (systemMessage) result._systemMessage = systemMessage;
-            return withFreshness(args.tabId, 'text-coords', result, cache);
+            return finalize(result);
           }
 
           let items = (raw[level] || raw.words || []);
@@ -297,7 +315,7 @@ module.exports = function registerBasicTools(registry) {
             }
           }
           if (systemMessage) result._systemMessage = systemMessage;
-          return withFreshness(args.tabId, 'text-coords', result, cache);
+          return finalize(result);
         }
 
         if (level === 'all') {
@@ -310,7 +328,7 @@ module.exports = function registerBasicTools(registry) {
             result.blocks = bArr.filter(b => b.text.toLowerCase().includes(search));
           }
           if (systemMessage) result._systemMessage = systemMessage;
-          return withFreshness(args.tabId, 'text-coords', result, cache);
+          return finalize(result);
         }
 
         let items = raw[level] || raw.words || [];
