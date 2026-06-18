@@ -1,0 +1,23 @@
+MEDIUM  ~36 wide x 14 tall  (a different structure: centered login form)
+
++----------------------------------+
+|              LOGO                |
+|                                  |
+|       Sign in to Example         |
+|                                  |
+|  Email                           |
+|  [1 ...........................] |
+|  Password                        |
+|  [2 ...........................] |
+|  [3] Remember me                 |
+|                                  |
+|       [4    Sign in    ]         |
+|  [5 Forgot password?]            |
++----------------------------------+
+
+LEGEND
+[1] input  email
+[2] input  password
+[3] checkbox  remember me
+[4] button  Sign in
+[5] link  Forgot password?

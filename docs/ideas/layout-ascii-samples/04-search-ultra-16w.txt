@@ -1,0 +1,18 @@
+ULTRA  ~16 wide x 7 tall  ("もう少し荒く" — gross zones only)
+
++--------------+
+|LG [1]    [2] |
++--+-----------+
+|F | res 1240 |
+|36| [4][7][8]|
++--+-[9][10]--+
+|(c) [11][12] |
++--------------+
+
+LEGEND
+[1]search [2]account  left col=filters[3][5][6] (shown "36")
+[4][7][8]=results  [9]Prev [10]Next  [11]Help [12]Settings
+
+NOTE: at this size individual labels are gone — only the *zones*
+survive (search top / filters left / results center / paging +
+footer bottom). Still enough to answer "where is the search box".

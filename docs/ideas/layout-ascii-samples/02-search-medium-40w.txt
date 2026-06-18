@@ -1,0 +1,18 @@
+MEDIUM  ~40 wide x 14 tall  (same page, coarser quantization)
+
++--------------------------------------+
+| LOGO   [1 search.........]    [2 me] |
++--------+-----------------------------+
+| FILTER | Results (1,240)             |
+| [3]Typ | [4] center a div in CSS     |
+| [5]Dat | [7] Flexbox vs Grid         |
+| [6]Lng | [8] CSS Grid guide          |
+|        | [9 Prev]  p1/62  [10 Next]  |
++--------+-----------------------------+
+| (c)2026    [11 Help]   [12 Settings] |
++--------------------------------------+
+
+LEGEND
+[1] input search   [2] button account   [3] filter Type
+[5] filter Date    [6] filter Lang      [4]/[7]/[8] results
+[9] Prev  [10] Next  [11] Help  [12] Settings

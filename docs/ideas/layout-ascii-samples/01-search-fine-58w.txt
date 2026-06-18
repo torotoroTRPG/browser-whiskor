@@ -1,0 +1,33 @@
+FINE  ~58 wide x 20 tall  (one representative web app: search results page)
+
++--------------------------------------------------------+
+| LOGO            [1 search................]      [2 acct]|
++------------+-------------------------------------------+
+| FILTERS    |  Results (1,240)                          |
+|            |                                           |
+| [3] Type   |  [4] How to center a div in CSS           |
+| [5] Date   |      css, flexbox  · 2d ago               |
+| [6] Lang   |                                           |
+|            |  [7] Flexbox vs Grid: when to use which   |
+|            |      layout  · 5d ago                     |
+|            |                                           |
+|            |  [8] CSS Grid complete guide              |
+|            |      grid  · 1w ago                       |
+|            |                                           |
++------------+  [9 Prev]   page 1 of 62   [10 Next]------+
+| (c) 2026 example.com        [11 Help]   [12 Settings]  |
++--------------------------------------------------------+
+
+LEGEND (interactive elements -> click ref:n)
+[1]  input    search box
+[2]  button   account menu
+[3]  button   filter: Type
+[4]  link     result: "How to center a div in CSS"
+[5]  button   filter: Date
+[6]  button   filter: Lang
+[7]  link     result: "Flexbox vs Grid..."
+[8]  link     result: "CSS Grid complete guide"
+[9]  button   pagination Prev
+[10] button   pagination Next
+[11] link     Help
+[12] link     Settings

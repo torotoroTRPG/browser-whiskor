@@ -1,0 +1,16 @@
+COARSE  ~22 wide x 9 tall  (login form; labels shrink, structure holds)
+
++--------------------+
+|        LOGO        |
+|     Sign in        |
+| Email              |
+| [1 ..............] |
+| Pass               |
+| [2 ..............] |
+| [3] remember       |
+|   [4  Sign in  ]   |
+| [5 forgot?]        |
++--------------------+
+
+LEGEND
+[1]email [2]password [3]remember [4]Sign in [5]forgot password

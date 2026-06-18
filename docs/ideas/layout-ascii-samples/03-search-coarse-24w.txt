@@ -1,0 +1,16 @@
+COARSE  ~24 wide x 9 tall  (same page; result titles collapse to refs)
+
++----------------------+
+|LOGO [1...]      [2me] |
++----+-----------------+
+|FILT| Results(1240)   |
+|[3] | [4] center div  |
+|[5] | [7] flex v grid |
+|[6] | [8] grid guide  |
++----+--[9] p1/62 [10]-+
+|(c) [11] [12]         |
++----------------------+
+
+LEGEND
+[1]search [2]account [3]Type [5]Date [6]Lang
+[4][7][8]=results  [9]Prev [10]Next [11]Help [12]Settings
