@@ -19,6 +19,18 @@ const SOM_CHANGE_TYPES = new Set([
   'DOM_SNAPSHOT', 'DOM_GENERIC_SNAPSHOT', 'SHADOW_DOM_SNAPSHOT',
 ]);
 
+// Browser-internal pages where content scripts cannot run by policy — a tab on
+// one of these has no whiskor session and never can, so get_sessions reports it
+// as 'restricted' (not an actionable "reload me"). Used by getUninstrumentedTabs.
+const RESTRICTED_URL_RE = /^(chrome|chrome-extension|edge|brave|about|view-source|devtools|moz-extension|resource|chrome-search|chrome-untrusted):/i;
+function isRestrictedUrl(url) {
+  const u = String(url || '');
+  if (!u) return true; // no URL we can act on
+  if (RESTRICTED_URL_RE.test(u)) return true;
+  // The web stores also block content scripts.
+  return /^https?:\/\/(chrome\.google\.com\/webstore|chromewebstore\.google\.com|microsoftedge\.microsoft\.com\/addons)/i.test(u);
+}
+
 // Server version for the extension version handshake (EXT_HELLO). Extension
 // manifests are kept in lockstep with package.json by sync-version, so a
 // differing extension version means its on-disk files are stale.
@@ -38,6 +50,8 @@ class WhiskorCore extends EventEmitter {
     this._wsToApp  = new Map();       // WebSocket → appId (null = unregistered/public)
     this._tabToApp = new Map();       // tabId    → appId
     this._wsToExtInfo = new Map();    // WebSocket → { browser, version } from EXT_HELLO
+    this._tabInventory = [];          // latest full browser tab list (TAB_INVENTORY push)
+    this._tabInventoryAt = 0;         // when it was last reported
     // Recent server log lines (everything routed through index.js log()).
     // Powers GET /api/logs so the shell/TUI can show and export server logs.
     this._logBuffer = [];
@@ -192,6 +206,30 @@ class WhiskorCore extends EventEmitter {
     return this._tabToApp.get(tabId) ?? null;
   }
 
+  /**
+   * Tabs that exist in the browser (last TAB_INVENTORY push) but have no whiskor
+   * session — i.e. the agent can't see or act on them via get_sessions. Each is
+   * classified so the agent knows whether it's actionable:
+   *   - 'restricted'   : a browser-internal page (chrome://, extensions, web store,
+   *                      about:, view-source, devtools) — content scripts can't run
+   *                      there by browser policy. Not fixable.
+   *   - 'reload_needed': a normal page with no session — usually opened before the
+   *                      extension loaded; reloading the tab instruments it.
+   * @param {number[]} sessionTabIds - tabIds that DO have a session
+   * @returns {Array<{tabId, url, title, reason}>}
+   */
+  getUninstrumentedTabs(sessionTabIds) {
+    const have = new Set(sessionTabIds || []);
+    return (this._tabInventory || [])
+      .filter(t => t && typeof t.tabId === 'number' && !have.has(t.tabId))
+      .map(t => ({
+        tabId: t.tabId,
+        url:   t.url || '',
+        title: t.title || '',
+        reason: isRestrictedUrl(t.url) ? 'restricted' : 'reload_needed',
+      }));
+  }
+
   handleSWConnect(ws, config, appId = null) {
     this.swSockets.add(ws);
     this._wsToApp.set(ws, appId);
@@ -270,6 +308,15 @@ class WhiskorCore extends EventEmitter {
           this.logSubscribers.add(fromWs);
           fromWs.send(JSON.stringify({ type: 'LOG_SUBSCRIBED' }));
         }
+        break;
+
+      // Full browser tab list from the extension (pushed on connect + tab changes).
+      // Lets get_sessions warn about tabs that exist but aren't instrumented —
+      // restricted pages or tabs that need a reload — which otherwise have no
+      // session at all and are invisible to the agent.
+      case 'TAB_INVENTORY':
+        this._tabInventory = Array.isArray(msg.tabs) ? msg.tabs : [];
+        this._tabInventoryAt = Date.now();
         break;
         
       // Data collection → cache + dashboard
@@ -619,6 +666,17 @@ class WhiskorCore extends EventEmitter {
       const limit = parseInt(url.searchParams?.get?.('limit'), 10);
       if (Number.isFinite(limit) && limit > 0) logs = logs.slice(-limit);
       return { status: 200, body: logs };
+    }
+
+    // Browser tabs that exist but have no whiskor session (restricted pages or
+    // tabs needing a reload). Shared by get_sessions in both direct and proxy mode
+    // (the MCP process has no core, so it fetches this from the worker over HTTP).
+    if (method === 'GET' && p === '/api/uninstrumented-tabs') {
+      // App isolation: the raw browser tab list isn't app-scoped, so don't leak
+      // other apps' tab URLs across isolation boundaries — report nothing.
+      if (appRegistry?.enabled) return { status: 200, body: { tabs: [] } };
+      const sessionTabIds = this.cache.getSessionList({ brief: true }).map(s => s.tabId);
+      return { status: 200, body: { tabs: this.getUninstrumentedTabs(sessionTabIds) } };
     }
 
     // Ask connected extension(s) to reload themselves — used by `whk setup`

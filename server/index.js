@@ -895,6 +895,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       async (tabId, opts) => requestServer('POST', '/api/packed-som', { tabId, ...opts })
     );
     mcp.setElementThumbnail(async (tabId, opts) => requestServer('POST', '/api/element-thumbnail', { tabId, ...opts }));
+    // Proxy mode: the worker owns the tab inventory; fetch the uninstrumented diff.
+    mcp.setUninstrumentedTabs(async () => { try { return (await requestServer('GET', '/api/uninstrumented-tabs'))?.tabs || []; } catch { return []; } });
     mcp.setSourceContext((q) => requestServer('POST', '/api/source/context', q));
 
     mcp.setSecurity(SECURITY);
@@ -940,6 +942,12 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setElementThumbnail(screenshots.captureElementThumbnail.bind(screenshots));
+    // Direct mode: read the inventory diff straight off core.
+    mcp.setUninstrumentedTabs(() => {
+      if (appRegistry.enabled) return []; // don't leak cross-app tab URLs
+      const ids = cache.getSessionList({ brief: true }).map(s => s.tabId);
+      return core.getUninstrumentedTabs(ids);
+    });
     mcp.setSourceContext((q) => require('./source-index').queryContext(sourceIndex, q, sourceCorrelations));
 
     // Optional packed-SoM prefetch: pre-capture the packed view shortly after a

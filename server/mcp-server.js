@@ -55,6 +55,11 @@ function setElementThumbnail(fn) {
   registry.setCallbacks({ _captureElementThumbnail: fn });
 }
 
+// Returns browser tabs with no whiskor session (for get_sessions warnings).
+function setUninstrumentedTabs(fn) {
+  registry.setCallbacks({ _uninstrumentedTabs: fn });
+}
+
 
 function setSourceContext(fn) {
   registry.setCallbacks({ _sourceContext: fn });
@@ -147,6 +152,7 @@ module.exports = {
   setCallbacks,
   setActionCallbacks,
   setElementThumbnail,
+  setUninstrumentedTabs,
   setSourceContext,
   setSecurity,
   setIntelligenceCallbacks,

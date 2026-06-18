@@ -170,6 +170,7 @@ function connectWs() {
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
     while (queue.length) ws.send(queue.shift());
     startPing();
+    reportTabInventory(); // tell the server which tabs exist (vs. instrumented)
   });
   ws.addEventListener('close', () => {
     wsReady = false; ws = null; stopPing();
@@ -198,6 +199,26 @@ function sendToServer(data) {
   if (wsReady && ws?.readyState === 1) { try { ws.send(raw); return; } catch { wsReady = false; } }
   if (queue.length < QUEUE_MAX) queue.push(raw);
   if (!ws || ws.readyState === WebSocket.CLOSED) connectWs();
+}
+
+// Report the full browser tab list so the server can tell get_sessions which tabs
+// exist but have no session (restricted pages / tabs needing a reload). Debounced.
+let _tabInvTimer = null;
+async function reportTabInventory() {
+  try {
+    const tabs = await browser.tabs.query({});
+    sendToServer({
+      type: 'TAB_INVENTORY',
+      tabs: tabs
+        .filter(t => typeof t.id === 'number')
+        .map(t => ({ tabId: t.id, url: t.url || '', title: t.title || '', active: !!t.active }))
+        .slice(0, 100),
+    });
+  } catch (_) { /* best-effort */ }
+}
+function scheduleTabInventory() {
+  if (_tabInvTimer) return;
+  _tabInvTimer = setTimeout(() => { _tabInvTimer = null; reportTabInventory(); }, 800);
 }
 
 // ── Packed Set-of-Marks (Firefox MV2): crop interactive elements from one
@@ -681,7 +702,12 @@ browser.tabs.onRemoved.addListener((tabId) => {
   cleanupTabActions(tabId);
   collectionScheduler.unwatchTab(tabId);
   sendToServer({ type: 'TAB_CLOSED', tabId });
+  scheduleTabInventory();
 });
+// Keep the server's tab inventory roughly in sync (debounced) so get_sessions can
+// flag uninstrumented tabs.
+browser.tabs.onCreated.addListener(() => scheduleTabInventory());
+browser.tabs.onUpdated.addListener((_id, info) => { if (info.status === 'complete' || info.url || info.title) scheduleTabInventory(); });
 browser.webNavigation.onCommitted.addListener(({ tabId, url, frameId }) => {
   if (frameId !== 0) return;
   collectionScheduler.markActive(tabId);

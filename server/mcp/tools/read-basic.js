@@ -32,6 +32,20 @@ module.exports = function registerBasicTools(registry) {
     },
     handler: async (args, cb) => {
       const list = await cb.cache.getSessionList({ brief: !args?.verbose });
+
+      // Tabs that exist in the browser but have no session (restricted pages or
+      // tabs needing a reload) are otherwise invisible here — surface them so the
+      // agent knows there's more than what's listed.
+      let uninstrumented = [];
+      if (cb._uninstrumentedTabs) {
+        try { uninstrumented = (await cb._uninstrumentedTabs()) || []; } catch (_) { uninstrumented = []; }
+      }
+      const uninstWarning = uninstrumented.length ? {
+        code: 'UNINSTRUMENTED_TABS',
+        message: `${uninstrumented.length} open browser tab(s) have no whiskor session and aren't listed here. ` +
+          `reason 'reload_needed' = reload that tab to instrument it; 'restricted' = a browser page (chrome://, web store, etc.) that can't be instrumented. See uninstrumentedTabs.`,
+      } : null;
+
       if (!list || list.length === 0) {
         return {
           sessions: [],
@@ -39,8 +53,10 @@ module.exports = function registerBasicTools(registry) {
             {
               code: "NO_ACTIVE_SESSIONS",
               message: "No active browser sessions found. This usually means the browser extension is not connected to the Whiskor server (ws://127.0.0.1:7891). Please open your browser, ensure the Whiskor extension is enabled, and refresh/visit a page."
-            }
+            },
+            ...(uninstWarning ? [uninstWarning] : []),
           ],
+          ...(uninstrumented.length ? { uninstrumentedTabs: uninstrumented } : {}),
           _note: "Whiskor WebSocket server is listening on port 7891. You can verify extension connections via the dashboard at http://127.0.0.1:7892/."
         };
       }
@@ -50,7 +66,18 @@ module.exports = function registerBasicTools(registry) {
       if (args.mode === 'semantic' && args.q) {
         try { backend = await resolveBackend(cb._config); setBackend(backend); } catch (_) {}
       }
-      return selectSessions(list, { ...args, backend });
+      const result = await selectSessions(list, { ...args, backend });
+
+      if (!uninstWarning) return result;
+      // Attach the warning. selectSessions returns a bare array for a plain call;
+      // wrap it into an object so the warning has somewhere to live (mirrors the
+      // empty-list shape). Enhanced calls already return an object.
+      if (Array.isArray(result)) {
+        return { sessions: result, _warnings: [uninstWarning], uninstrumentedTabs: uninstrumented };
+      }
+      result._warnings = [...(result._warnings || []), uninstWarning];
+      result.uninstrumentedTabs = uninstrumented;
+      return result;
     },
   });
 

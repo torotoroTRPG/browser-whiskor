@@ -69,6 +69,37 @@ describe('4.2 get_sessions', () => {
     assert.strictEqual(res.total, 1);
     assert.strictEqual(res.sessions[0].tabId, 1);
   });
+
+  it('wraps the bare array into an object with an UNINSTRUMENTED_TABS warning when tabs lack a session', async () => {
+    const list = [{ tabId: 1, url: 'https://x', title: 'X', updatedAt: 100, isStale: false, keep: false }];
+    const cb = {
+      cache: { getSessionList: async () => list }, _config: {},
+      _uninstrumentedTabs: async () => [{ tabId: 7, url: 'chrome://extensions', title: 'Ext', reason: 'restricted' }],
+    };
+    const res = await readTools['get_sessions'].handler({}, cb);
+    assert.ok(!Array.isArray(res), 'wrapped into an object to carry the warning');
+    assert.strictEqual(res.sessions[0].tabId, 1, 'sessions still present');
+    assert.strictEqual(res._warnings[0].code, 'UNINSTRUMENTED_TABS');
+    assert.strictEqual(res.uninstrumentedTabs[0].tabId, 7);
+  });
+
+  it('stays a bare array when there are no uninstrumented tabs', async () => {
+    const list = [{ tabId: 1, url: 'https://x', title: 'X', updatedAt: 100, isStale: false, keep: false }];
+    const cb = { cache: { getSessionList: async () => list }, _config: {}, _uninstrumentedTabs: async () => [] };
+    const res = await readTools['get_sessions'].handler({}, cb);
+    assert.ok(Array.isArray(res), 'no warning → bare array preserved');
+  });
+
+  it('adds the uninstrumented warning to the empty-sessions response too', async () => {
+    const cb = {
+      cache: { getSessionList: async () => [] }, _config: {},
+      _uninstrumentedTabs: async () => [{ tabId: 9, url: 'https://app', title: 'App', reason: 'reload_needed' }],
+    };
+    const res = await readTools['get_sessions'].handler({}, cb);
+    const codes = res._warnings.map(w => w.code);
+    assert.ok(codes.includes('NO_ACTIVE_SESSIONS') && codes.includes('UNINSTRUMENTED_TABS'));
+    assert.strictEqual(res.uninstrumentedTabs[0].tabId, 9);
+  });
 });
 
 describe('4.2 get_index', () => {

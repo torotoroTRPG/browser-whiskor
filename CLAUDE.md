@@ -272,6 +272,7 @@ TUI専用ビルトイン:
 | `POST /api/shutdown` | graceful 停止（flush → exit 0 ＝ supervisor も停止）。`whk stop`/`whk restart` が使用 |
 | `GET /api/sessions` | セッション一覧（既定は関連度順の配列）。`?q=&mode=exact\|fuzzy\|semantic&sort=relevant\|recent\|created\|title\|url&minScore=&tabId=&page=&pageSize=&verbose=` で検索/ソート/ページング。enhanced パラメータ指定時は `{sessions,total,page,totalPages,hasMore,...}` を返す。実体は `server/session-list.js`（MCP `get_sessions` と共有） |
 | `GET /api/search` | 全 active セッション横断のテキスト検索（`?q=&mode=exact\|fuzzy\|semantic&level=&minScore=&maxPerTab=`）。実体は `server/session-search.js`（MCP `search_all_tabs` と共有） |
+| `GET /api/uninstrumented-tabs` | ブラウザに在るがセッションの無いタブ（`restricted`／`reload_needed`）。拡張の `TAB_INVENTORY` push を元に `core.getUninstrumentedTabs` が算出。`get_sessions` が `UNINSTRUMENTED_TABS` 警告として利用（proxy モードはここから取得）。appIsolation 時は空 |
 | `GET /api/sessions/:tabId` | 特定セッションの詳細 |
 | `DELETE /api/sessions/:tabId` | セッション削除 |
 | `GET /api/sessions/:tabId/states` | ステート一覧（セッションの siteVersion でグラフが見つからなければ全グラフ横断にフォールバック） |

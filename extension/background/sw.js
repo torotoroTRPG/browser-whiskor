@@ -273,6 +273,7 @@ function connectWs() {
     broadcastToPanels({ type: 'SERVER_STATUS', connected: true });
     while (queue.length) ws.send(queue.shift());
     startPing();
+    reportTabInventory(); // tell the server which tabs exist (vs. instrumented)
     console.log('[SI] Server connected');
   });
 
@@ -318,6 +319,27 @@ function sendToServer(data) {
   }
   if (queue.length < QUEUE_MAX) queue.push(raw);
   if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) connectWs();
+}
+
+// Report the full browser tab list so the server can tell get_sessions which tabs
+// exist but have no session (restricted pages / tabs needing a reload). Debounced
+// because tab events fire in bursts (e.g. window restore).
+let _tabInvTimer = null;
+async function reportTabInventory() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    sendToServer({
+      type: 'TAB_INVENTORY',
+      tabs: tabs
+        .filter(t => typeof t.id === 'number')
+        .map(t => ({ tabId: t.id, url: t.url || t.pendingUrl || '', title: t.title || '', active: !!t.active }))
+        .slice(0, 100),
+    });
+  } catch (_) { /* best-effort */ }
+}
+function scheduleTabInventory() {
+  if (_tabInvTimer) return;
+  _tabInvTimer = setTimeout(() => { _tabInvTimer = null; reportTabInventory(); }, 800);
 }
 
 // ── Element collection for capture markers ────────────────────────────────────
@@ -1362,7 +1384,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     cdpAttached.delete(tabId); // debugger auto-detaches with the tab; just drop our state
   }
   sendToServer({ type: 'TAB_CLOSED', tabId });
+  scheduleTabInventory();
 });
+
+// Keep the server's tab inventory roughly in sync so get_sessions can flag
+// uninstrumented tabs. Debounced; URL/title settle on status 'complete'.
+chrome.tabs.onCreated.addListener(() => scheduleTabInventory());
+chrome.tabs.onUpdated.addListener((_id, info) => { if (info.status === 'complete' || info.url || info.title) scheduleTabInventory(); });
 
 chrome.webNavigation.onCommitted.addListener(({ tabId, url, frameId }) => {
   if (frameId !== 0) return; // main frame only
