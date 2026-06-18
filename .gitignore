@@ -33,6 +33,9 @@ tests/report/
 browser-whiskor-v3-complete.zip
 build/
 firefox-mv2/web-ext-artifacts/*.zip
+# Hand-made skill bundles — release.yml already ships skills/ as source; a stray
+# zip here would be bundled into the release as a redundant, stale nested copy.
+skills/*.zip
 
 # IDE / editor
 .run/

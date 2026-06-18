@@ -14,11 +14,18 @@ module.exports = function registerBasicTools(registry) {
   tools.push({
     definition: {
       name: 'get_sessions',
-      description: 'List all active inspection sessions (one per browser tab). By default returns a lightweight entry per tab (tabId, URL, title, data age, staleness flag, summary) so scanning many tabs stays cheap. Set verbose:true to also include the per-plugin freshnessMap; for one tab\'s full detail use get_index instead. Call this first to discover available tabIds.',
+      description: 'List all active inspection sessions (one per browser tab). By default returns a lightweight entry per tab (tabId, URL, title, data age, staleness flag, summary), relevance-sorted (pinned, then fresh, then most recently updated). Use q to search tabs by title/URL (mode: exact/fuzzy/semantic), tabId to fetch one tab, sort to reorder, and page/pageSize to page through many tabs. With any of q/tabId/page/pageSize the result is wrapped as { sessions, total, page, totalPages, hasMore, ... }; otherwise it is a bare array. Set verbose:true for the per-plugin freshnessMap; for one tab\'s full detail use get_index instead. Call this first to discover available tabIds.',
       inputSchema: {
         type: 'object',
         properties: {
-          verbose: { type: 'boolean', description: 'Include the per-plugin freshnessMap for every session (default false). Usually unnecessary — prefer get_index for a single tab\'s detail.' },
+          q:        { type: 'string', description: 'Search tabs by title + URL. Combine with mode for fuzzy/semantic matching.' },
+          mode:     { type: 'string', enum: ['exact', 'fuzzy', 'semantic'], description: 'How q matches: exact (substring, default), fuzzy (typo-tolerant), or semantic (MiniLM meaning; falls back to fuzzy when no model).' },
+          tabId:    { type: 'number', description: 'Return only this tab (direct ID lookup).' },
+          sort:     { type: 'string', enum: ['relevant', 'recent', 'created', 'title', 'url'], description: 'Order: relevant (default: pinned > fresh > recently updated), recent (updatedAt), created (createdAt), title, url. Ignored when q is a fuzzy/semantic search (those sort by score).' },
+          minScore: { type: 'number', description: 'Minimum score for fuzzy/semantic q (0.0-1.0, default 0.3).' },
+          page:     { type: 'number', description: 'Page number (1-based) when paging. Use "all" to return every match in one page.' },
+          pageSize: { type: 'number', description: 'Items per page (default 20). Paging is opt-in: with no page/pageSize the full list is returned.' },
+          verbose:  { type: 'boolean', description: 'Include the per-plugin freshnessMap for every session (default false). Usually unnecessary — prefer get_index for a single tab\'s detail.' },
         },
         required: [],
       },
@@ -37,7 +44,43 @@ module.exports = function registerBasicTools(registry) {
           _note: "Whiskor WebSocket server is listening on port 7891. You can verify extension connections via the dashboard at http://127.0.0.1:7892/."
         };
       }
-      return list;
+      const { selectSessions } = require('../../session-list');
+      // Only pay for backend resolution when semantic search is actually requested.
+      let backend = null;
+      if (args.mode === 'semantic' && args.q) {
+        try { backend = await resolveBackend(cb._config); setBackend(backend); } catch (_) {}
+      }
+      return selectSessions(list, { ...args, backend });
+    },
+  });
+
+  // 1b. search_all_tabs — cross-session text search (shares server/session-search.js
+  // with the HTTP GET /api/search route, so both behave identically).
+  tools.push({
+    definition: {
+      name: 'search_all_tabs',
+      description: 'Search the collected text of EVERY active tab at once and return only the tabs that contain the query — instead of calling get_text_coords on each tab and grepping by hand. mode: exact (case-insensitive substring, default) / fuzzy (typo-tolerant) / semantic (MiniLM meaning; transparently falls back to fuzzy when the model is unavailable). Results are sorted most-relevant tab first, each with its top matches (text + absolute coordinates).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          q:         { type: 'string', description: 'The text to search for across all tabs.' },
+          mode:      { type: 'string', enum: ['exact', 'fuzzy', 'semantic'], description: 'exact (substring, default), fuzzy (similarity), or semantic (MiniLM; fuzzy fallback when no model).' },
+          level:     { type: 'string', enum: ['words', 'lines', 'blocks'], description: 'Text granularity to scan (default words).' },
+          minScore:  { type: 'number', description: 'Minimum score for fuzzy/semantic matches (default 0.3).' },
+          maxPerTab: { type: 'number', description: 'Max matches returned per tab (default 20).' },
+        },
+        required: ['q'],
+      },
+    },
+    handler: async (args, cb) => {
+      const { searchSessions } = require('../../session-search');
+      // Only pay for backend resolution when semantic is actually requested; exact/
+      // fuzzy need no model. Same backend path as get_text_coords' match: search.
+      let backend = null;
+      if (args.mode === 'semantic') {
+        try { backend = await resolveBackend(cb._config); setBackend(backend); } catch (_) {}
+      }
+      return searchSessions(cb.cache, { ...args, backend });
     },
   });
 

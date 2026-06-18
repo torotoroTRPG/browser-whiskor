@@ -635,17 +635,10 @@ class WhiskorCore extends EventEmitter {
       return { status: 200, body: { ok: true, pluginId: id, enabled: act === 'enable' } };
     }
 
-    if (method === 'GET' && p === '/api/sessions') {
-      const verbose = url.searchParams?.get?.('verbose');
-      const brief = !(verbose === '1' || verbose === 'true');
-      let sessions = this.cache.getSessionList({ brief });
-      if (appRegistry?.enabled) {
-        sessions = sessions.filter(s =>
-          appRegistry.canAccess(callerAppId, this.getTabApp(s.tabId))
-        );
-      }
-      return { status: 200, body: sessions };
-    }
+    // NOTE: GET /api/sessions (the list) is handled upstream in server/index.js
+    // (session-list.selectSessions) because semantic search needs an awaited
+    // backend and this non-action GET path serialises result.body without
+    // awaiting. The sub-paths below (/:tabId, /:tabId/states, /map, ...) stay here.
 
     const sessionM = p.match(/^\/api\/sessions\/(\d+)$/);
     if (method === 'GET' && sessionM) {

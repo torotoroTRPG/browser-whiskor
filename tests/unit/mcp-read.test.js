@@ -42,12 +42,32 @@ describe('4.2 get_sessions', () => {
     assert.strictEqual(res._warnings[0].code, 'NO_ACTIVE_SESSIONS');
   });
 
-  it('passes through the live session list untouched', async () => {
-    const list = [{ tabId: 1, url: 'https://x', stale: false }];
+  it('returns the live session list as a bare (relevance-sorted) array when no query params', async () => {
+    // With no q/page/tabId, get_sessions keeps the legacy bare-array contract,
+    // now relevance-sorted via session-list.selectSessions (a copy, not the
+    // original reference, since it sorts without mutating the caller's array).
+    const list = [
+      { tabId: 1, url: 'https://x', title: 'X', updatedAt: 100, isStale: false, keep: false },
+      { tabId: 2, url: 'https://y', title: 'Y', updatedAt: 200, isStale: false, keep: true  },
+    ];
     const res = await readTools['get_sessions'].handler({}, cbWith({
       getSessionList: async () => list,
     }));
-    assert.strictEqual(res, list);
+    assert.ok(Array.isArray(res), 'must remain a bare array');
+    assert.deepStrictEqual(res.map(s => s.tabId), [2, 1], 'pinned tab first');
+  });
+
+  it('wraps the result with paging metadata when a query param is given', async () => {
+    const list = [
+      { tabId: 1, url: 'https://github.com', title: 'GitHub', updatedAt: 100, isStale: false, keep: false },
+      { tabId: 2, url: 'https://gmail.com',  title: 'Gmail',  updatedAt: 200, isStale: false, keep: false },
+    ];
+    const res = await readTools['get_sessions'].handler({ q: 'github' }, cbWith({
+      getSessionList: async () => list,
+    }));
+    assert.ok(!Array.isArray(res), 'enhanced query returns an object');
+    assert.strictEqual(res.total, 1);
+    assert.strictEqual(res.sessions[0].tabId, 1);
   });
 });
 

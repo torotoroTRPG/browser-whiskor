@@ -49,6 +49,13 @@ const sessions = await (await fetch("http://127.0.0.1:7892/api/sessions")).json(
 
 複数タブで迷う場合は URL/title をユーザーに確認する。
 
+複数の動作中タブを横断して「ある単語がどのタブにあるか」を一発で探すには:
+
+```javascript
+const hits = await fetch(`${BASE}/api/search?q=検索語&mode=fuzzy`).then(r => r.json());
+// hits.results = ヒットしたタブだけ（tabId / url / title + matches）。mode は exact / fuzzy / semantic。
+```
+
 ## Step 2: ページの知覚
 
 ```javascript

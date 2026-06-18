@@ -10,7 +10,8 @@
 | `GET /` | ダッシュボード |
 | `GET /api/config` | 現在の設定取得 |
 | `POST /api/config` | 設定変更 |
-| `GET /api/sessions` | セッション一覧（既定は軽量＝tabId/url/title/dataAge/isStale/summary。`?verbose=1` で各プラグインの freshnessMap も含む） |
+| `GET /api/sessions` | セッション一覧（既定は軽量＝tabId/url/title/dataAge/isStale/summary を関連度順の配列で。`?verbose=1` で freshnessMap も）。`?q=&mode=exact\|fuzzy\|semantic` で title/url 検索、`?sort=relevant\|recent\|created\|title\|url`、`?tabId=` で1件、`?page=&pageSize=`（`page=all` で全件）でページング。q/tabId/page いずれか指定時は `{sessions,total,page,totalPages,hasMore}` を返す |
+| `GET /api/search` | 全 active セッション横断の単語検索（`?q=&mode=exact\|fuzzy\|semantic&level=&minScore=&maxPerTab=`） |
 | `GET /api/sessions/:tabId` | 特定セッションの詳細 |
 | `DELETE /api/sessions/:tabId` | セッション削除 |
 | `GET /api/sessions/:tabId/{path}` | キャッシュファイル取得（下記パス一覧） |
@@ -162,6 +163,27 @@ await fetch("http://127.0.0.1:7892/api/action", {
 | `raw/react_snapshot.json` | Reactコンポーネントツリー |
 | `raw/vue_snapshot.json` | Vue3コンポーネントツリー |
 | `raw/intelligence/causal-chains.json` | 因果チェーン |
+
+## 全セッション横断検索（`GET /api/search`）
+
+今動いている全 whiskor-active セッションを横断し、ある単語が **どのタブに在るか** を一発で探す。
+タブごとに `text-coords.json` を取って grep する代わりに使う。
+
+```javascript
+// exact（部分一致, 既定）/ fuzzy（タイポ許容）/ semantic（MiniLM 意味検索）
+const hits = await fetch(`${BASE}/api/search?q=iwabi&mode=fuzzy`).then(r => r.json());
+// → { query, mode, level, tabsScanned, hitCount, results: [
+//      { tabId, url, title, isStale, matchCount, matches: [{ text, level, score?, x, y }] }, ... ] }
+// results は関連度（スコア/件数）の高いタブ順。ヒットしたタブだけ返る。
+```
+
+| パラメータ | 既定 | 意味 |
+|---|---|---|
+| `q` | （必須） | 検索語 |
+| `mode` | `exact` | `exact`（部分一致）/ `fuzzy`（類似度）/ `semantic`（MiniLM。モデル無ければ fuzzy にフォールバックし `note` を付ける） |
+| `level` | `words` | `words` / `lines` / `blocks`（粒度） |
+| `minScore` | `0.3` | fuzzy / semantic のスコア下限 |
+| `maxPerTab` | `20` | 1タブあたりの最大マッチ数 |
 
 ## プラグイン
 

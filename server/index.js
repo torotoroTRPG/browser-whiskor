@@ -592,6 +592,68 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     bodyPromise.then(async body => {
       coreReq.body = body;
 
+      // GET /api/search — cross-session text search (server/session-search.js, shared
+      // with the search_all_tabs MCP tool). Handled here rather than in core's HTTP
+      // handler because it is async (file reads + optional MiniLM) and the core GET
+      // path serialises result.body without awaiting; this branch can await directly.
+      if (method === 'GET' && p === '/api/search') {
+        const { searchSessions } = require('./session-search');
+        const sp = url.searchParams;
+        const mode = sp.get('mode') || 'exact';
+        let backend = null;
+        if (mode === 'semantic') {
+          try { backend = await require('./mcp/tools/backend-selector').resolveBackend(_cfg); } catch (_) {}
+        }
+        // Respect app isolation: only scan tabs the caller may access. searchSessions
+        // only uses getSessionList + readSessionFile, so a thin filtered wrapper suffices.
+        const searchCache = appRegistry.enabled ? {
+          getSessionList: (o) => cache.getSessionList(o).filter(s => appRegistry.canAccess(httpAppId, core.getTabApp(s.tabId))),
+          readSessionFile: (t, f) => cache.readSessionFile(t, f),
+        } : cache;
+        const out = await searchSessions(searchCache, {
+          q:         sp.get('q'),
+          mode,
+          level:     sp.get('level'),
+          minScore:  sp.get('minScore'),
+          maxPerTab: sp.get('maxPerTab'),
+          backend,
+        });
+        return sendJson(out);
+      }
+
+      // GET /api/sessions — relevance-sorted / searchable / pageable session list
+      // (server/session-list.js, shared with the get_sessions MCP tool). Handled
+      // here rather than in core's HTTP handler for the same reason as /api/search:
+      // semantic mode needs an awaited MiniLM backend, and core's non-action GET
+      // path serialises result.body without awaiting. With no enhanced params this
+      // returns the same bare (now relevance-sorted) array the old endpoint did.
+      if (method === 'GET' && p === '/api/sessions') {
+        const { selectSessions } = require('./session-list');
+        const sp = url.searchParams;
+        const verbose = sp.get('verbose');
+        const brief = !(verbose === '1' || verbose === 'true');
+        let list = cache.getSessionList({ brief });
+        if (appRegistry.enabled) {
+          list = list.filter(s => appRegistry.canAccess(httpAppId, core.getTabApp(s.tabId)));
+        }
+        const mode = sp.get('mode') || 'exact';
+        let backend = null;
+        if (mode === 'semantic' && sp.get('q')) {
+          try { backend = await require('./mcp/tools/backend-selector').resolveBackend(_cfg); } catch (_) {}
+        }
+        const out = await selectSessions(list, {
+          q:        sp.get('q'),
+          mode,
+          sort:     sp.get('sort'),
+          minScore: sp.get('minScore'),
+          page:     sp.get('page'),
+          pageSize: sp.get('pageSize'),
+          tabId:    sp.get('tabId'),
+          backend,
+        });
+        return sendJson(out);
+      }
+
       // Intercept POST /api/action for server-side action types
       if (method === 'POST' && p === '/api/action') {
         const tabId = body?.tabId;
