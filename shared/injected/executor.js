@@ -109,8 +109,28 @@
       const all = document.querySelectorAll(selector);
       if (!all.length) return null;
       if (all.length === 1) return all[0];
-      // Multiple matches: prefer the first visible one — hidden twins (e.g. MUI's
-      // autosize measurement textarea) and closed overlays often match first.
+      // Multiple matches (e.g. 7 elements sharing a degenerate id like
+      // #bb-editor-textbox). A bare "first visible" pick is blind to where a
+      // preceding click landed, so click(text)→type(selector) could split across
+      // two different editors. Prefer the match tied to the *focused* element when
+      // there is one — a click focuses its target, so this keeps click→type on the
+      // same element. The focused candidate may be the host, an ancestor, or a
+      // descendant of activeElement, so match in both directions.
+      const active = document.activeElement;
+      let focusIndex = -1;
+      if (active && active !== document.body) {
+        for (let i = 0; i < all.length; i++) {
+          const m = all[i];
+          if (!isElementVisible(m)) continue;
+          if (m === active || m.contains(active) || active.contains(m)) { focusIndex = i; break; }
+        }
+      }
+      if (focusIndex >= 0) {
+        LAST_SELECTOR_INFO = { matches: all.length, pickedIndex: focusIndex, focusMatched: true };
+        return all[focusIndex];
+      }
+      // No focused match: fall back to the first visible one — hidden twins (e.g.
+      // MUI's autosize measurement textarea) and closed overlays often match first.
       let picked = null, pickedIndex = 0;
       for (let i = 0; i < all.length; i++) {
         if (isElementVisible(all[i])) { picked = all[i]; pickedIndex = i; break; }
@@ -123,10 +143,11 @@
 
   // Spreadable note for action results when the selector was ambiguous.
   function selectorAmbiguity(action) {
-    return (action && action.selector && LAST_SELECTOR_INFO && LAST_SELECTOR_INFO.matches > 1)
-      ? { selectorMatches: LAST_SELECTOR_INFO.matches, selectorPickedIndex: LAST_SELECTOR_INFO.pickedIndex,
-          selectorNote: 'Selector matched multiple elements; first visible one was used. Tighten the selector if this is not the intended target.' }
-      : {};
+    if (!(action && action.selector && LAST_SELECTOR_INFO && LAST_SELECTOR_INFO.matches > 1)) return {};
+    const base = { selectorMatches: LAST_SELECTOR_INFO.matches, selectorPickedIndex: LAST_SELECTOR_INFO.pickedIndex };
+    return LAST_SELECTOR_INFO.focusMatched
+      ? { ...base, selectorNote: 'Selector matched multiple elements; the currently focused one was used (keeps click→type on the same element). Tighten the selector if this is not the intended target.' }
+      : { ...base, selectorNote: 'Selector matched multiple elements; first visible one was used. Tighten the selector if this is not the intended target.' };
   }
 
   function escapeRegex(s) {
