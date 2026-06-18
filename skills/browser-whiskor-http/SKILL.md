@@ -66,7 +66,9 @@ const post = (path, body) => fetch(BASE + path, {
 }).then(r => r.json());
 
 // スクリーンショット（marks: true で要素番号オーバーレイ + セレクタ一覧）
-const { dataUrl, elements } = await post("/api/screenshot", { tabId, marks: true });
+// 既定で dataUrl(base64) を返す。テキスト専用なら returnImage:false で base64 を省き、
+// 返ってくる url（GET /api/screenshots/:file）で必要時だけ画像を取りに行ける。
+const { dataUrl, url, elements } = await post("/api/screenshot", { tabId, marks: true });
 
 // パックド Set-of-Marks（インタラクティブ要素だけを詰めた画像 — トークン効率重視）
 const som = await post("/api/packed-som", { tabId });

@@ -18,7 +18,8 @@
 | `GET /api/sessions/:tabId/states` | ステート一覧 |
 | `GET /api/graphs` | ステートグラフ一覧 |
 | `POST /api/action` | ブラウザ操作（下記アクション一覧） |
-| `POST /api/screenshot` | スクリーンショット `{ tabId, marks? }` |
+| `POST /api/screenshot` | スクリーンショット `{ tabId, marks?, returnImage?, format?, quality?, maxWidth? }`。既定で `dataUrl`(base64)＋`filePath`＋`url` を返す。`returnImage:false` で base64 を省き `url`/`filePath` のみ（トークン節約）。`format`/`quality`/`maxWidth` は MCP と同じく反映 |
+| `GET /api/screenshots/:file` | 保存済みスクショ画像をバイナリ配信（`/api/screenshot` 応答の `url` で参照。base64 をインラインせず画像を取得する経路） |
 | `POST /api/packed-som` | パックド Set-of-Marks `{ tabId }` |
 | `POST /api/element-thumbnail` | 要素サムネイル `{ tabId, selector }` |
 | `POST /api/collect` | データ収集トリガー `{ tabId, plugins? }` |

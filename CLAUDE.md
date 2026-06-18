@@ -279,7 +279,8 @@ TUI専用ビルトイン:
 | `GET /api/graphs` | ステートグラフ一覧 |
 | `GET /api/graphs/:siteVersion/states` | 指定グラフのノード一覧（`/states/:hash` で単一ノード詳細） |
 | `POST /api/action` | ブラウザ操作 (click/type/navigate 等) |
-| `POST /api/screenshot` | スクリーンショット取得 |
+| `POST /api/screenshot` | スクリーンショット取得（`{tabId,marks?,returnImage?,format?,quality?,maxWidth?}`。MCP同様に format/quality/maxWidth を反映。既定で `dataUrl`＋`filePath`＋`url`、`returnImage:false` で base64 省略） |
+| `GET /api/screenshots/:file` | 保存済みスクショ画像のバイナリ配信（`/api/screenshot` 応答の `url`。base64 を避けて画像取得。basename のみ＝traversal 不可） |
 | `POST /api/packed-som` | パックド Set-of-Marks キャプチャ |
 | `POST /api/element-thumbnail` | per-element サムネイル取得 |
 | `POST /api/source/upload` | プロジェクトソースのアップロード (ファイル群 or base64 zip) |

@@ -469,13 +469,56 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     if (method === 'POST' && p === '/api/screenshot') {
       return readBody().then(async b => {
         try {
-          const opts = { marks: b.marks === true };
+          // Honor the same capture knobs the MCP tool does (format/quality/maxWidth
+          // were previously ignored on HTTP — the documented asymmetry). returnImage
+          // defaults to true here for backward compat with the dashboard + bundled
+          // skill (which read dataUrl); pass returnImage:false to omit the base64
+          // and use the filePath/url instead.
+          const sc = (_cfg.agentControl && _cfg.agentControl.screenshot) || {};
+          const wantImage = b.returnImage !== false; // default: include image
+          const opts = {
+            marks:    b.marks === true,
+            format:   b.format || sc.format || 'jpeg',
+            quality:  typeof b.quality  === 'number' ? b.quality  : (typeof sc.quality  === 'number' ? sc.quality  : 70),
+            maxWidth: typeof b.maxWidth === 'number' ? b.maxWidth : (typeof sc.maxWidth === 'number' ? sc.maxWidth : 0),
+          };
           const result = await screenshots.capture(b.tabId, opts);
-          sendJson(result);
+          if (!result || !result.ok) { sendJson(result); return; }
+          const response = {
+            ok: true,
+            capturedAt: result.capturedAt,
+            filePath:   result.filePath,
+            url:        result.filePath ? `/api/screenshots/${path.basename(result.filePath)}` : undefined,
+            width:      result.width,
+            height:     result.height,
+          };
+          if (result.elements) response.elements = result.elements;
+          if (wantImage) response.dataUrl = result.dataUrl;
+          else response._note = 'base64 omitted (returnImage:false). Fetch the image via url or read filePath locally.';
+          sendJson(response);
         } catch (e) {
           sendJson({ ok: false, error: e.message }, 500);
         }
       });
+    }
+
+    // Serve a saved screenshot by filename so HTTP consumers can fetch the image
+    // via the `url` field instead of inlining base64. Filename only (basename) —
+    // path traversal is blocked by rejecting anything that isn't a bare name.
+    if (method === 'GET' && p.startsWith('/api/screenshots/')) {
+      const name = p.slice('/api/screenshots/'.length);
+      if (!name || name !== path.basename(name)) return sendJson({ error: 'Invalid screenshot name' }, 400);
+      const fp = path.join(screenshots.SCREENSHOT_DIR, name);
+      if (!fs.existsSync(fp)) return sendJson({ error: 'Screenshot not found' }, 404);
+      const ext = path.extname(name).slice(1).toLowerCase();
+      const type = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+      try {
+        const buf = fs.readFileSync(fp);
+        res.writeHead(200, { 'Content-Type': type, 'Content-Length': buf.length });
+        return res.end(buf);
+      } catch (e) {
+        return sendJson({ error: e.message }, 500);
+      }
     }
 
     if (method === 'POST' && p === '/api/packed-som') {
