@@ -139,11 +139,12 @@ async function cropImage(dataUrl, rect, padding, format, quality, maxPx = 0) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
 
-        const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-        if (format === 'jpeg') {
+        // png = lossless; jpeg/webp honor quality (webp ~smallest at similar quality).
+        if (format === 'jpeg' || format === 'webp') {
+          const mimeType = format === 'webp' ? 'image/webp' : 'image/jpeg';
           resolve(canvas.toDataURL(mimeType, (quality ?? 85) / 100));
         } else {
-          resolve(canvas.toDataURL(mimeType));
+          resolve(canvas.toDataURL('image/png'));
         }
       } catch (e) { reject(e); }
     };
@@ -522,13 +523,16 @@ async function handleServerMessage(msg) {
         }
 
         const pad = typeof opts.padding === 'number' ? Math.max(0, opts.padding) : 4;
-        const format = opts.format === 'jpeg' ? 'jpeg' : 'png';
+        // Output format may be webp; captureVisibleTab only emits png/jpeg, so a
+        // webp crop is re-encoded from a lossless png source (no jpeg artifacts).
+        const outFormat = opts.format === 'jpeg' ? 'jpeg' : opts.format === 'webp' ? 'webp' : 'png';
+        const srcFormat = outFormat === 'jpeg' ? 'jpeg' : 'png';
         const fullDataUrl = await browser.tabs.captureVisibleTab(tab.windowId, {
-          format,
-          quality: format === 'jpeg' ? (opts.quality ?? 85) : undefined,
+          format:  srcFormat,
+          quality: srcFormat === 'jpeg' ? (opts.quality ?? 85) : undefined,
         });
 
-        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality, opts.maxPx);
+        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, outFormat, opts.quality, opts.maxPx);
 
         sendToServer({
           type:       'ELEMENT_CAPTURE_RESULT',

@@ -21,7 +21,7 @@
 | `POST /api/screenshot` | スクリーンショット `{ tabId, marks?, returnImage?, format?, quality?, maxWidth? }`。既定で `dataUrl`(base64)＋`filePath`＋`url` を返す。`returnImage:false` で base64 を省き `url`/`filePath` のみ（トークン節約）。`format`/`quality`/`maxWidth` は MCP と同じく反映。サーバー既定はconfig `agentControl.screenshot.httpInlineImage`（既定 true） |
 | `GET /api/screenshots/:file` | 保存済みスクショ画像をバイナリ配信（`/api/screenshot` 応答の `url` で参照。base64 をインラインせず画像を取得する経路） |
 | `POST /api/packed-som` | パックド Set-of-Marks `{ tabId }` |
-| `POST /api/element-thumbnail` | 要素サムネイル `{ tabId, selector }` |
+| `POST /api/element-thumbnail` | 要素サムネイル `{ tabId, selector, format?, quality?, maxPx? }`（`format:'webp'` で最小） |
 | `POST /api/collect` | データ収集トリガー `{ tabId, plugins? }` |
 | `POST /api/embed` | テキストベクトル埋め込み（MiniLM） |
 | `POST /api/source/upload` | プロジェクトソースのアップロード（ファイル群 or base64 zip） |

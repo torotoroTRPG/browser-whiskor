@@ -46,8 +46,9 @@ describe('4.10 packed-SoM thumbnail prefetch', () => {
     assert.strictEqual(res.ok, true);
     assert.strictEqual(res.marks[0].thumb, undefined, 'agent-facing marks stay compact');
 
-    // Hit under the same key get_element_thumbnail({selector}) uses (selector + 96).
-    const hit = thumbs.get(1, thumbSignature('#login#96', {}));
+    // Hit under the same key get_element_thumbnail({selector}) uses
+    // (selector + maxPx 96 + format jpeg — the thumbnail default).
+    const hit = thumbs.get(1, thumbSignature('#login#96#jpeg', {}));
     assert.ok(hit, 'thumbnail cache warmed');
     assert.strictEqual(hit.dataUrl, 'data:image/jpeg;base64,Tg==');
   });
@@ -62,6 +63,6 @@ describe('4.10 packed-SoM thumbnail prefetch', () => {
     await p;
 
     assert.ok(!getSentOpts().emitThumbs, 'did not ask for thumbs');
-    assert.strictEqual(thumbs.get(2, thumbSignature('#x#96', {})), null, 'cache not warmed');
+    assert.strictEqual(thumbs.get(2, thumbSignature('#x#96#jpeg', {})), null, 'cache not warmed');
   });
 });

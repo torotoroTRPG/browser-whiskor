@@ -59,12 +59,12 @@ module.exports = function registerElementCaptureTools(registry) {
           },
           format: {
             type:        'string',
-            enum:        ['png', 'jpeg'],
-            description: "Image format (default: 'png'). Use 'jpeg' for large elements to reduce size.",
+            enum:        ['png', 'jpeg', 'webp'],
+            description: "Image format (default: 'png'). Use 'jpeg' or 'webp' for large elements to reduce size; webp is usually smallest at similar quality.",
           },
           quality: {
             type:        'number',
-            description: 'JPEG quality 1-100 (default: 85, ignored for PNG)',
+            description: 'JPEG/WebP quality 1-100 (default: 85, ignored for PNG)',
           },
           returnImage: {
             type:        'boolean',
@@ -153,6 +153,7 @@ module.exports = function registerElementCaptureTools(registry) {
           },
           padding:  { type: 'number', description: 'Extra pixels around the element (default: 4)' },
           maxPx:    { type: 'number', description: 'Cap the thumbnail\'s longer side in px (default: 96). The extension downscales the crop to this.' },
+          format:   { type: 'string', enum: ['png', 'jpeg', 'webp'], description: "Thumbnail format (default: 'jpeg'). 'webp' is smaller at similar quality." },
         },
         required: ['tabId'],
       },
@@ -165,7 +166,8 @@ module.exports = function registerElementCaptureTools(registry) {
         rect:     args.rect     || undefined,
         padding:  typeof args.padding === 'number' ? args.padding : 4,
         maxPx:    typeof args.maxPx   === 'number' ? args.maxPx   : 96, // low-res thumbnail
-        format:   'jpeg', quality: 60, // a thumbnail — keep it small
+        // a thumbnail — keep it small; webp is even smaller than jpeg at q60
+        format:   ['png', 'jpeg', 'webp'].includes(args.format) ? args.format : 'jpeg', quality: 60,
       };
       try {
         const result = await cb._captureElementThumbnail(args.tabId, opts);

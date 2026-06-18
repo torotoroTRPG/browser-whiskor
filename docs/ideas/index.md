@@ -34,4 +34,4 @@
 
 ## 見送り
 
-- FileMaker 連携（de-prioritized） / cache 検証の WASM 化（Node fs で十分＝不要） / AVIF キャプチャ（canvas 非対応＝却下、webp のみ採用予定。理想機能メモ 項目10）
+- FileMaker 連携（de-prioritized） / cache 検証の WASM 化（Node fs で十分＝不要） / AVIF キャプチャ（canvas 非対応＝却下。webp は要素系で採用済＝理想機能メモ 項目10）

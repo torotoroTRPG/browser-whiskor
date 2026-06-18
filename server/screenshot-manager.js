@@ -98,7 +98,9 @@ function _storePackedThumbs(tabId, marks) {
   for (const m of marks) {
     if (!m || !m.thumb || !m.selector) continue;
     try {
-      const sig = _somThumbs.thumbSignature(`${m.selector}#${PREFETCH_THUMB_MAXPX}`, {});
+      // Prefetched packed thumbs are jpeg (see the extension's emitThumbs path);
+      // the format is part of the key so a later webp request doesn't reuse them.
+      const sig = _somThumbs.thumbSignature(`${m.selector}#${PREFETCH_THUMB_MAXPX}#jpeg`, {});
       _somThumbs.set(tabId, sig, { dataUrl: m.thumb, rect: m.rect });
     } catch (_) { /* best-effort prefetch */ }
   }
@@ -263,9 +265,9 @@ function handleResult(msg) {
  */
 async function captureElementThumbnail(tabId, opts = {}) {
   const baseSel = opts.selector || (opts.rect ? `rect:${opts.rect.x},${opts.rect.y}` : null);
-  // Fold the thumbnail size cap into the key so different maxPx requests for the
-  // same element don't collide.
-  const keyBase = baseSel ? `${baseSel}#${opts.maxPx || 0}` : null;
+  // Fold the thumbnail size cap AND format into the key so different maxPx/format
+  // requests for the same element don't collide (a webp must not reuse a jpeg crop).
+  const keyBase = baseSel ? `${baseSel}#${opts.maxPx || 0}#${opts.format || 'jpeg'}` : null;
   const sig = (_somThumbs && keyBase) ? _somThumbs.thumbSignature(keyBase, opts.rect || {}) : null;
 
   if (_somThumbs && sig) {

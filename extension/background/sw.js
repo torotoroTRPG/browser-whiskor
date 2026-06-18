@@ -178,10 +178,10 @@ async function cropImage(dataUrl, rect, padding, format, quality, dpr = 1, maxPx
     const ctx = canvas.getContext('2d');
     ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, dw, dh);
 
-    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-    const blobOpts = format === 'jpeg'
-      ? { type: mimeType, quality: (quality ?? 85) / 100 }
-      : { type: mimeType };
+    // png = lossless (no quality); jpeg/webp honor quality (webp ~smallest).
+    const blobOpts = format === 'png'
+      ? { type: 'image/png' }
+      : { type: format === 'webp' ? 'image/webp' : 'image/jpeg', quality: (quality ?? 85) / 100 };
 
     const outBlob = await canvas.convertToBlob(blobOpts);
     return await new Promise((resolve, reject) => {
@@ -826,13 +826,16 @@ async function handleServerMessage(msg) {
         }
 
         const pad = typeof opts.padding === 'number' ? Math.max(0, opts.padding) : 4;
-        const format = opts.format === 'jpeg' ? 'jpeg' : 'png';
+        // Output format may be webp; captureVisibleTab only emits png/jpeg, so a
+        // webp crop is re-encoded from a lossless png source (no jpeg artifacts).
+        const outFormat = opts.format === 'jpeg' ? 'jpeg' : opts.format === 'webp' ? 'webp' : 'png';
+        const srcFormat = outFormat === 'jpeg' ? 'jpeg' : 'png';
         const fullDataUrl = await chrome.tabs.captureVisibleTab(windowId || undefined, {
-          format,
-          quality: format === 'jpeg' ? (opts.quality ?? 85) : undefined,
+          format:  srcFormat,
+          quality: srcFormat === 'jpeg' ? (opts.quality ?? 85) : undefined,
         });
 
-        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, format, opts.quality, dpr, opts.maxPx);
+        const croppedDataUrl = await cropImage(fullDataUrl, rect, pad, outFormat, opts.quality, dpr, opts.maxPx);
 
         sendToServer({
           type:       'ELEMENT_CAPTURE_RESULT',
