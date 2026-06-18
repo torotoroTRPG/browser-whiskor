@@ -1,41 +1,37 @@
-# Future Ideas
+# Future Ideas — index
 
-> Scratchpad for features not yet prioritized.
-> Created: 2026-05-22
-> Last updated: 2026-05-27 (v0.3.3)
+> docs/ideas/ にある設計提案の索引。各 doc は「構想〜詳細設計」で、実装の有無は下記の通り。
+> Created: 2026-05-22 / Last updated: 2026-06-18
 
-## Network Directory (いつか)
+## どこに何があるか（3つの置き場）
 
-- Capture network requests/responses as a browsable directory structure
-- Each request → file with headers, body, timing
-- Useful for debugging, replay, and AI analysis
-- Integration with cache-integrity for consistency
+- **`docs/ideas/`（ここ）** — 深掘りした設計提案 / 構想 doc。粒度が大きく、実装前の検討材料。
+- **`docs/理想機能メモ.md`** — 優先度付きの actionable TODO（13項目）。「次に何をやるか」はこちらが起点。
+- **`local_issues/`** — 日付付きのバグ / 不具合 / 調査記録（構想ではなく「直すもの」）。
 
-**Status:** 🔮 未実装 (将来)
+## 実装済み（substrate あり。doc は当時の構想で、未実装の拡張を含むことがある）
 
-## Cache Auto-Repair & Disk Management
+- **REDACTION_SECRET_GUARD** → `server/secret-guard.js`（slice 1＝既知値＋パターン redaction）。hardening は残（[[project_secret_guard_hardening_ideas]]）
+- **SOURCE_UPLOAD_CORRELATION** → `server/source-index.js` / `source-store.js` / `source-correlation.js`
+- **PACKED_SOM_CAPTURE** → slice 1（packed SoM＋`som-cache`/`som-stats`）+ slice 2 の per-element サムネ（`som-thumbnails`）。slice 3 は残
+- **SoM_EXTENSION_PLAN** → `agentControl.screenshotMarks` ＋ packed SoM として実現
+- **MULTILINGUAL_INTENT_AND_SCOPED_SEARCH** → semantic（`services/embed-service`）/ scoped（get_text_coords の focusScope）/ 横断検索（session-search）。doc の広い構想の一部
+- **SEARCH_PERFORMANCE_AND_LOAD_MANAGEMENT** → `services/load-monitor` ＋ `embed-worker-pool`
+- **Cache 自動修復 + ディスク管理** → `cache-integrity.js`。`enforceDiskLimit`（`stateGraph.maxDiskMB`）は **2026-06-18 に起動時へ配線**（それまでデッドコードだった。screenshots 側も `agentControl.screenshot.maxDiskMB` で別途プルーン）
 
-- [x] `server/cache-integrity.js` — standalone checker
-- [x] Runs at server startup via `setImmediate`
-- [x] Validates `_index.json` structure
-- [x] Auto-repairs: removes orphaned references, rebuilds minimal index
-- [x] Reports: sessions count, healthy/repaired/corrupted
-- [x] **v0.3.3:** LRU-based disk size enforcement (`enforceDiskLimit`)
-- [x] **v0.3.3:** Automatic cleanup when exceeding `stateGraph.maxDiskMB`
+## 設計のみ / 構想（未実装）
 
-**Status:** ✅ 実装済み (v0.3.0 + v0.3.3 enhancements)
+- **CLICK_EVIDENCE_AND_SOM_SCOPE** — クリック証拠バッファ + packed 範囲指定（[[project_click_evidence_som_scope]]）
+- **LAYOUT_ASCII_MAP** — 粗い ASCII レイアウト地図を毎ターン送る空間チャンネル（[[project_layout_ascii_map]]）。samples は `layout-ascii-samples/`
+- **MINILM_CLICK_TEXT_MATCHING** — click(text:) に MiniLM 統合（find_target で代替可ゆえ優先度低、[[project_minilm_click_text]]）
+- **NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION** — 名前空間マップ / piggyback 検証 / production mode（[[project_namespace_map_ai_verification]]）
+- **REALTIME_AUDIO_EAR** — AUDIO_STATE ポーリング（Phase1）/ 再生前 DSP（Phase2）（[[project_realtime_audio_ear]]）
+- **IMAGE_ASSET_CORRELATION** — 画像↔構造/セッション対応・DL・検索（低優先、[[project_image_asset_correlation]]）
+- **DEBUG_DASHBOARD_REDESIGN** — DevPanel の作り直し（Frameworks タブが使いにくい、[[project_devpanel_frameworks_tab]]）
+- **ARCHITECTURE_EXTENDED_PROPOSALS** / **ARCHITECTURE_INTELLIGENCE_LAYER** — 広範なアーキ提案（intelligence 層の青写真。一部は explain/why 系として実現済）
+- **MCP 大規模改築**（ツール数削減・動的ロード高度化）— 理想機能メモ 項目13。専用 doc は未作成（構想段階）
+- **Network Directory** — network を browsable なディレクトリ構造で（旧 index からの持ち越し、未着手）
 
-## Semantic Search
+## 見送り
 
-- [x] MiniLM ONNX model for multilingual semantic similarity
-- [x] Fuzzy text matching with token Jaccard + character bigram
-- [x] Background worker pool for async embedding
-- [x] Automatic model download (~50MB) on first server start (`intelligence.miniLM.downloadOnStart`)
-
-**Status:** ✅ 実装済み (v0.3.2)
-
-## Misc
-
-- FileMaker integration (de-prioritized)
-- WebAssembly for cache validation (not needed — Node.js fs is sufficient)
-- Linux cross-platform E2E (already compatible with current config)
+- FileMaker 連携（de-prioritized） / cache 検証の WASM 化（Node fs で十分＝不要） / AVIF キャプチャ（canvas 非対応＝却下、webp のみ採用予定。理想機能メモ 項目10）
