@@ -2249,7 +2249,7 @@
         var r = await fetch(S.api + '/api/screenshot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tabId: S.tabId, marks: !!marks })
+          body: JSON.stringify({ tabId: S.tabId, marks: !!marks, returnImage: true })
         });
         var data = r.ok ? await r.json() : null;
         if (data && data.dataUrl) {
@@ -3040,7 +3040,7 @@
 
       t('ScreenShot', async function() {
         var t0 = performance.now();
-        var r = await fetch(S.api + '/api/screenshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tabId: S.tabId }) });
+        var r = await fetch(S.api + '/api/screenshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tabId: S.tabId, returnImage: true }) });
         var ms = Math.round(performance.now() - t0);
         if (!r.ok) return { status: 'fail', detail: 'HTTP ' + r.status, ms: ms };
         var body = await r.json();
@@ -3229,7 +3229,7 @@
 
           // Take screenshot
           await scenarioStep('4. Screenshot', async function() {
-            var res = await scenarioApi('POST', '/api/screenshot', { tabId: tabId });
+            var res = await scenarioApi('POST', '/api/screenshot', { tabId: tabId, returnImage: true });
             if (!res.ok) return { status: 'fail', detail: 'HTTP ' + res.status, ms: res.ms, cat: 'server' };
             if (res.body?.error) return { status: 'fail', detail: res.body.error, ms: res.ms, cat: classifyError({ message: res.body.error }) };
             var bytes = res.body?.dataUrl ? res.body.dataUrl.length : 0;

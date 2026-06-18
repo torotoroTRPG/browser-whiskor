@@ -400,13 +400,14 @@
       "prefetchThumbs": false
     },
     "screenshot": {
-      "_comment_ja": "capture_screenshot(フル画面)の既定。returnImageByDefault=false で base64 を返さず filePath のみ（トークン節約）。返す場合は format/quality/maxWidth を適用。capture_element は対象外（小サイズ前提）。maxDiskMB/maxAgeHours は cache/screenshots ディスク保持上限（起動時＋書込50回ごとに古い順プルーニング。0=age無効）",
+      "_comment_ja": "capture_screenshot(フル画面)の既定。returnImageByDefault(MCP)=false で base64 を返さず filePath のみ（トークン節約）。返す場合は format/quality/maxWidth を適用。capture_element は対象外（小サイズ前提）。maxDiskMB/maxAgeHours は cache/screenshots ディスク保持上限（起動時＋書込50回ごとに古い順プルーニング。0=age無効）。httpInlineImage=HTTP /api/screenshot が既定で dataUrl(base64) を返すか（既定 true=現状維持。false でテキストファースト＝既定は url/filePath のみ。リクエストの returnImage で個別上書き可）",
       "returnImageByDefault": false,
       "format": "jpeg",
       "quality": 70,
       "maxWidth": 1280,
       "maxDiskMB": 100,
-      "maxAgeHours": 24
+      "maxAgeHours": 24,
+      "httpInlineImage": true
     },
     "input": {
       "_comment_en": "Input fidelity. highFidelity routes click/type_text/press_key through CDP (chrome.debugger) so events are isTrusted:true — reaching widgets gated on trusted input / user activation (popups, clipboard, file pickers, some payment/OAuth). Chrome only; Firefox always uses synthetic. NOTE: CDP attach shows the 'is debugging this browser' banner.",

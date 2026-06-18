@@ -475,7 +475,10 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           // skill (which read dataUrl); pass returnImage:false to omit the base64
           // and use the filePath/url instead.
           const sc = (_cfg.agentControl && _cfg.agentControl.screenshot) || {};
-          const wantImage = b.returnImage !== false; // default: include image
+          // Explicit request flag wins; otherwise fall back to the config default
+          // (httpInlineImage, default true = backward compatible). Set
+          // httpInlineImage:false for a text-first default (url/filePath only).
+          const wantImage = b.returnImage != null ? b.returnImage !== false : (sc.httpInlineImage !== false);
           const opts = {
             marks:    b.marks === true,
             format:   b.format || sc.format || 'jpeg',
