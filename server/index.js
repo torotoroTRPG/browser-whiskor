@@ -30,7 +30,7 @@ const secretGuardFactory = require('./secret-guard');
 const deltaEngine = require('./delta-engine');
 const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
-const { checkAndRepair, cleanupTempFiles } = require('./cache-integrity');
+const { checkAndRepair, cleanupTempFiles, enforceDiskLimit } = require('./cache-integrity');
 const patternRegistry = require('./pattern-registry');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
@@ -764,8 +764,30 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           if (swept) log('info', `[cache] Removed ${swept} orphaned temp file(s) from a previous crash`);
           const result = checkAndRepair(cacheRoot, { verbose: true, autoRepair: true });
           if (result && result.healthy) log('info', `[cache] Integrity check OK (${result.sessions} session(s))`);
+
+          // Bound session-cache disk usage (LRU eviction of oldest session dirs).
+          // The limit existed (cache-integrity.enforceDiskLimit, stateGraph.maxDiskMB)
+          // but was never called — wire it here at startup.
+          const maxDiskMB = _cfg.stateGraph?.maxDiskMB;
+          if (maxDiskMB > 0) {
+            const disk = enforceDiskLimit(cacheRoot, maxDiskMB);
+            if (disk && disk.evicted) log('info', `[cache] Disk limit: evicted ${disk.evicted} old session(s), ${disk.evictedSizeMB.toFixed(1)}MB (now ${disk.totalSizeMB.toFixed(1)}/${maxDiskMB}MB)`);
+          }
         } catch (e) {
           log('warn', `[cache] Integrity check skipped: ${e.message}`);
+        }
+
+        // Bound the screenshot directory too (separate tree, not covered above).
+        try {
+          const shot = _cfg.agentControl?.screenshot || {};
+          screenshots.setRetention({
+            maxMB:    shot.maxDiskMB != null ? shot.maxDiskMB : 100,
+            maxAgeMs: (shot.maxAgeHours != null ? shot.maxAgeHours : 24) * 60 * 60 * 1000,
+          });
+          const pruned = screenshots.pruneOldScreenshots();
+          if (pruned && pruned.deleted) log('info', `[cache] Pruned ${pruned.deleted} old screenshot(s), freed ${pruned.freedMB.toFixed(1)}MB (now ${pruned.remainingMB.toFixed(1)}MB)`);
+        } catch (e) {
+          log('warn', `[cache] Screenshot prune skipped: ${e.message}`);
         }
       });
     });

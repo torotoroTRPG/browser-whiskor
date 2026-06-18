@@ -739,6 +739,8 @@ class WhiskorCore extends EventEmitter {
     if (method === 'DELETE' && sessionM) {
       const tabId = parseInt(sessionM[1]);
       this.cache.removeSession(tabId);
+      this.somCache.evictTab(tabId);   // drop the tab's packed-SoM + thumbnail cache
+      this.somThumbs.evictTab(tabId);  // (defined for "tab closed" but was never called)
       this._tabDisconnectedAt.delete(tabId);
       this.broadcastToDashboard({ type: 'SESSION_REMOVED', tabId });
       return { status: 200, body: { ok: true, tabId } };
@@ -852,6 +854,8 @@ class WhiskorCore extends EventEmitter {
         const s = this.cache.getSessionData(tabId);
         if (s && s.keep) continue;
         this.cache.removeSession(tabId);
+        this.somCache.evictTab(tabId);
+        this.somThumbs.evictTab(tabId);
         this._tabDisconnectedAt.delete(tabId);
       }
     }

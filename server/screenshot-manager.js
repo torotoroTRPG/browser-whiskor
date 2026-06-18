@@ -15,6 +15,59 @@ fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 const TIMEOUT_MS = 10000;
 const pending = new Map(); // reqId → { resolve, reject, timer }
 
+// Disk retention for cache/screenshots. handleResult writes every captureVisibleTab
+// result to disk and nothing used to clean it up, so the directory grew without
+// bound (see local_issues/2026-06-17_capture-image-cache-and-disk-leak.md). We cap
+// it two ways: drop files older than maxAgeMs, then evict oldest until under maxMB.
+// Pruned at startup (index.js) and opportunistically every PRUNE_EVERY writes.
+const _retention = { maxMB: 100, maxAgeMs: 24 * 60 * 60 * 1000 };
+const PRUNE_EVERY = 50;
+let _writesSincePrune = 0;
+function setRetention(opts = {}) {
+  if (opts.maxMB != null)    _retention.maxMB = Number(opts.maxMB);
+  if (opts.maxAgeMs != null) _retention.maxAgeMs = Number(opts.maxAgeMs);
+}
+
+/**
+ * Prune cache/screenshots: delete files older than maxAgeMs, then (if still over)
+ * evict oldest-first until total size is under maxMB. Best-effort; never throws.
+ * @param {string} [dir] - directory to prune (default SCREENSHOT_DIR; injectable for tests)
+ * @param {object} [opts] - { maxMB, maxAgeMs } (default _retention)
+ * @returns {{deleted:number, freedMB:number, remainingMB:number}}
+ */
+function pruneOldScreenshots(dir = SCREENSHOT_DIR, opts = _retention) {
+  const maxBytes = Math.max(0, (opts.maxMB != null ? Number(opts.maxMB) : 100)) * 1024 * 1024;
+  const maxAgeMs = opts.maxAgeMs != null ? Number(opts.maxAgeMs) : 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return { deleted: 0, freedMB: 0, remainingMB: 0 }; }
+
+  const files = [];
+  for (const name of names) {
+    const fp = path.join(dir, name);
+    let st; try { st = fs.statSync(fp); } catch { continue; }
+    if (st.isFile()) files.push({ fp, size: st.size, mtime: st.mtimeMs });
+  }
+
+  let deleted = 0, freed = 0;
+  const unlink = (f) => { try { fs.unlinkSync(f.fp); deleted++; freed += f.size; f.gone = true; } catch { /* ignore */ } };
+
+  // 1. age-based
+  if (maxAgeMs > 0) for (const f of files) if (now - f.mtime > maxAgeMs) unlink(f);
+
+  // 2. size cap: oldest first until under the limit
+  let total = files.reduce((s, f) => s + (f.gone ? 0 : f.size), 0);
+  if (total > maxBytes) {
+    for (const f of files.filter(x => !x.gone).sort((a, b) => a.mtime - b.mtime)) {
+      if (total <= maxBytes) break;
+      const before = f.size; unlink(f); if (f.gone) total -= before;
+    }
+  }
+
+  const remaining = files.reduce((s, f) => s + (f.gone ? 0 : f.size), 0);
+  return { deleted, freedMB: freed / 1024 / 1024, remainingMB: remaining / 1024 / 1024 };
+}
+
 let _broadcast = null;
 function setBroadcast(fn) { _broadcast = fn; }
 
@@ -180,6 +233,12 @@ function handleResult(msg) {
   try {
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
     fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+    // Opportunistic prune so a single long-running session can't grow the
+    // directory without bound between restarts. Fire-and-forget, off the hot path.
+    if (++_writesSincePrune >= PRUNE_EVERY) {
+      _writesSincePrune = 0;
+      setImmediate(() => { try { pruneOldScreenshots(); } catch { /* best-effort */ } });
+    }
   } catch (e) {
     // Non-fatal: still return the dataUrl
   }
@@ -220,4 +279,4 @@ async function captureElementThumbnail(tabId, opts = {}) {
   return { ...result, _cached: false };
 }
 
-module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, setThumbPrefetch, setMaskProvider, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult };
+module.exports = { setBroadcast, setSomCache, setSomStats, setSomThumbs, setThumbPrefetch, setMaskProvider, capture, captureElement, capturePackedSom, captureElementThumbnail, handleResult, setRetention, pruneOldScreenshots, SCREENSHOT_DIR };
