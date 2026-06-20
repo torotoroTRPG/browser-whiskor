@@ -600,6 +600,40 @@ MCPツールプロファイルをロードする。
 
 ---
 
+## OCR（ピクセルからのテキスト読取）
+
+### `POST /api/ocr`
+
+DOM ベースの `get_text_coords` が拾えないテキスト — canvas/WebGL アプリ（Unity 等は DOM が `<canvas>` 1枚でテキストノードが無い）や、テキストノードを持たないアイコンのみのボタン — を、native OCR エンジンでピクセルから読む。`selector`/`rect` を省略するとタブ全体、指定するとその領域をクロップして OCR にかける。出力は `get_text_coords` と同じ Tesseract 互換の word 配列（`level/page_num/block_num/.../left/top/width/height/conf` ＋ `x/y/w/h` エイリアス）。
+
+OCR エンジンは**同梱しない（bring-your-own）**。解決順は `intelligence.ocr.binPath`（明示パス）→ 環境変数 `WHISKOR_OCR_PATH` → PATH 上の `tesseract`。見つからなければ `{ ok:false, error:"ocr_unavailable" }` と導入手順を返すだけで、サーバーは落ちない。
+
+**リクエストボディ**
+```json
+{ "tabId": 1234, "selector": "#score-canvas", "lang": "eng+jpn", "psm": 6 }
+```
+
+| フィールド | デフォルト | 説明 |
+|---|---|---|
+| `tabId` | （必須） | 対象タブ |
+| `selector` | — | CSS セレクタ（その要素をクロップして OCR。`rect` より優先） |
+| `rect` | — | `{x,y,w,h}`（CSS px）。`selector`・`rect` 両方省略でタブ全体 |
+| `lang` | `intelligence.ocr.lang`（既定 `eng`） | Tesseract 言語コード。`+` 連結で `eng+jpn`。**エンジンに言語データのインストールが必要** |
+| `psm` | `intelligence.ocr.psm`（既定 `3`） | ページ分割モード。小領域では 6/7/8/11 が有効なことが多い |
+| `padding` | `4` | selector/rect クロップの周囲余白（px） |
+
+**レスポンス（例）**
+```json
+{ "ok": true, "text": "SCORE 1200\nGAME OVER", "wordCount": 3, "lang": "eng", "engine": "5.5.0",
+  "words": [{ "level":5, "text":"SCORE", "left":12, "top":8, "width":60, "height":18, "x":12, "y":8, "w":60, "h":18, "confidence":94 }] }
+```
+
+### `GET /api/ocr`
+
+OCR エンジンの可用性を返す（`tabId` 不要）。`{ available:true, binPath, version, lang }`、または未導入なら `{ available:false, reason:"no_engine", hint:"..." }`（`reason:"disabled"` は `intelligence.ocr.enabled:false`）。
+
+---
+
 ## ソースアップロード
 
 ### `POST /api/source/upload`

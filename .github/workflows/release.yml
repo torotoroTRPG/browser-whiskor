@@ -212,7 +212,7 @@ jobs:
 
           ### Quick Start (Full Bundle)
           ```bash
-          unzip browser-whiskor-full-*.zip
+          unzip browser-whiskor-full-*.zip -d browser-whiskor
           cd browser-whiskor
           npm install
           npm start          # starts server on :7892

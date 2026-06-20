@@ -56,6 +56,8 @@ function baseCatalog() {
     { cat: 'capture', text: 'POST /api/screenshot {"tabId":0}',  desc: 'Capture a screenshot' },
     { cat: 'capture', text: 'POST /api/packed-som {"tabId":0}',  desc: 'Packed Set-of-Marks capture' },
     { cat: 'capture', text: 'POST /api/element-thumbnail {"tabId":0,"selector":""}', desc: 'Per-element thumbnail' },
+    { cat: 'capture', text: 'POST /api/ocr {"tabId":0}',           desc: 'OCR text from pixels (canvas/WebGL, icon-only); selector/rect to crop' },
+    { cat: 'capture', text: 'GET /api/ocr',                        desc: 'OCR engine availability (bring-your-own Tesseract)' },
 
     // action/ — one shortcut per action type (see skills/browser-whiskor-http)
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"click","text":""}}',            desc: 'Click by visible text (safest)' },

@@ -6,6 +6,26 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-20
+
+### Added
+
+- **Native OCR — read text from pixels (`ocr_region` tool + `POST /api/ocr`)** — complements the DOM-based `get_text_coords` for text that lives only in pixels: canvas/WebGL apps (Unity, games, charts) where the DOM is one `<canvas>`, and icon-only controls with no text node. Whole-tab, or a cropped `selector`/`rect`. Output matches `get_text_coords` (Tesseract-compatible word boxes with `level/page_num/.../left/top/width/height/conf` + `x/y/w/h`). The OCR engine is **bring-your-own** — no heavy npm dependency is bundled — resolved as `intelligence.ocr.binPath` → env `WHISKOR_OCR_PATH` → `tesseract` on PATH; when none is found the tool returns `ocr_unavailable` with setup steps instead of failing. Worker-side capture+recognize (`server/services/ocr-service.js` + `index.js` `ocrCapture`) so it behaves identically over MCP stdio, HTTP, and the proxy forward. Surfaced across the `intelligence` profile (auto-loads on `ocr`/`canvas`), `whk help api`, the `whk shell` capture menu, and the HTTP skill. `GET /api/ocr` reports engine availability.
+- **Optional OCR-engine install offer in the start scripts** — when no OCR engine is found, `start.ps1` / `start.bat` / `start.sh` offer to install Tesseract (global via winget/apt/brew, or manual/local how-to) on first interactive start. Skip with `-NoOcrPrompt` / `WHISKOR_OCR_NO_PROMPT=1`; dismissed once chosen (`cache/.ocr-offer-dismissed`). Never blocks startup.
+- **Uninstrumented browser tabs surfaced in `get_sessions`** — tabs the browser has but whiskor has no session for (`restricted` / `reload_needed`) are reported via `GET /api/uninstrumented-tabs` and as an `UNINSTRUMENTED_TABS` warning, so an agent notices pages it cannot yet perceive.
+- **WebP output for element screenshots and thumbnails** — `capture_element_screenshot` and `get_element_thumbnail` accept `format:'webp'` (usually smallest at similar quality).
+- **Searchable / sortable / pageable session list + cross-tab text search** — `get_sessions` and `GET /api/sessions` gain `q` / `mode` (exact|fuzzy|semantic) / `sort` / `page` / `pageSize` (shared `server/session-list.js`). New `search_all_tabs` MCP tool and `GET /api/search` find a term across every active session at once (shared `server/session-search.js`).
+- **Form-value capture** — opt-in `textCoords.includeFormValues` adds input/textarea/contentEditable values (with coordinates) to text-coords; sensitive fields (password/hidden/payment) are omitted and remaining values run through secret-guard. Agents cannot enable it (user-owned setting).
+- **HTTP screenshot parity + image-serving route** — `POST /api/screenshot` now honors `format`/`quality`/`maxWidth` like the MCP tool, and `GET /api/screenshots/:file` serves saved images by name so consumers can avoid inlining base64.
+- **`httpInlineImage` switch** — `agentControl.screenshot.httpInlineImage` (default true) lets the HTTP screenshot default to text-first (url/filePath only); non-breaking.
+
+### Fixed
+
+- **Bounded screenshot/session disk usage** — `cache/screenshots` is pruned by age/size (`agentControl.screenshot.maxDiskMB`/`maxAgeHours`) and the packed-SoM cache eviction is wired, so a long session can't grow the cache without bound.
+- **Click prefers the focused/visible element on ambiguous selectors** — when a `selector` matches multiple elements, `click`/`type`/`right_click` pick the first visible one and report `selectorMatches`/`selectorPickedIndex` so the agent can tighten it; event-driven click settle reduces missed SPA transitions.
+- **Full-bundle quick-start** — the release notes' `cd browser-whiskor` failed because the full zip extracts in place; now `unzip browser-whiskor-full-*.zip -d browser-whiskor`.
+- **`start.bat` / `start.sh` banner version** — was hardcoded `v0.3.0`; now read from `package.json` like `start.ps1`.
+
 ## [0.8.1] — 2026-06-12
 
 ### Fixed

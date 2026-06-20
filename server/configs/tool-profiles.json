@@ -70,11 +70,12 @@
     "description": "Deep element analysis and causal investigation. Auto-loads when AI needs to explain CSS, trace changes, or detect site updates.",
     "tools": [
       "explain_element", "why_did_this_change",
-      "get_source_file", "detect_site_updates", "get_source_context"
+      "get_source_file", "detect_site_updates", "get_source_context",
+      "ocr_region"
     ],
     "autoUnload": true,
     "idleTurns": 5,
-    "triggers": ["explain", "why", "source", "origin", "cause", "causal", "changed", "update", "detect", "css origin", "sourcemap"]
+    "triggers": ["explain", "why", "source", "origin", "cause", "causal", "changed", "update", "detect", "css origin", "sourcemap", "ocr", "canvas", "webgl", "unity"]
   },
 
   "admin": {

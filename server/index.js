@@ -25,6 +25,7 @@ const actions    = require('./action-executor');
 const screenshots = require('./screenshot-manager');
 const stateMachine = require('./state-machine');
 const stateNavigator = require('./state-navigator');
+const ocrService = require('./services/ocr-service');
 const configLog  = require('./config-change-log');
 const secretGuardFactory = require('./secret-guard');
 const deltaEngine = require('./delta-engine');
@@ -38,6 +39,42 @@ const sourceStore = require('./source-store');
 const conclusionCache = require('./conclusion-cache');
 const AppRegistry = require('./app-registry');
 const { checkOrigin } = require('./http-origin-guard');
+
+/**
+ * Capture a tab (or a cropped region) and run OCR on it. Worker-side helper shared
+ * by the MCP ocr_region tool (direct mode) and the HTTP POST /api/ocr route, so
+ * both — and the proxy forward to /api/ocr — go through one path.
+ *   - selector/rect → crop that element (reuses the element-capture pipeline)
+ *   - neither       → OCR the full visible tab (the canvas/WebGL case)
+ * PNG is captured (lossless) to give OCR the cleanest input. Never throws.
+ */
+async function ocrCapture(b = {}) {
+  const tabId = b.tabId;
+  let cap, usedRect = null;
+  try {
+    if (b.selector || b.rect) {
+      cap = await screenshots.captureElement(tabId, {
+        selector: b.selector || undefined,
+        rect:     b.rect || undefined,
+        padding:  typeof b.padding === 'number' ? b.padding : 4,
+        format:   'png',
+      });
+      usedRect = cap && cap.rect;
+    } else {
+      cap = await screenshots.capture(tabId, { format: 'png' });
+    }
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  if (!cap || !cap.ok) {
+    return { ok: false, error: (cap && cap.error) || 'capture_failed', ...(cap && cap.tabGone ? { tabGone: true, liveTabs: cap.liveTabs } : {}) };
+  }
+  const b64 = (cap.dataUrl || '').split(',')[1] || '';
+  if (!b64) return { ok: false, error: 'capture_empty' };
+  const ocr = await ocrService.recognize(Buffer.from(b64, 'base64'), { lang: b.lang, psm: b.psm });
+  if (!ocr.ok) return ocr;
+  return { ...ocr, rect: usedRect || null, capturedAt: cap.capturedAt };
+}
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args      = process.argv.slice(2);
@@ -217,6 +254,14 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     screenshots.setSomStats(somStats);
     screenshots.setSomThumbs(somThumbs);
     screenshots.setThumbPrefetch(_cfg.agentControl?.packedSom?.prefetchThumbs === true);
+    // Native OCR (bring-your-own binary). Resolved worker-side — the process that
+    // captures — so MCP stdio, HTTP /api/ocr, and the proxy forward share one
+    // engine. Inert (returns ocr_unavailable) when no binary is found.
+    {
+      const eng = ocrService.init(_cfg);
+      if (eng) log('info', `[ocr] engine ready: ${eng.binPath} (v${eng.version})`);
+      else if (_cfg.intelligence?.ocr?.enabled !== false) log('info', '[ocr] no engine found — ocr_region returns ocr_unavailable until a Tesseract binary is on PATH / WHISKOR_OCR_PATH / intelligence.ocr.binPath');
+    }
     cache.setSelfOrigin(HTTP_PORT); // never capture our own dashboard / API as a site
     actions.setSomStats(somStats);
     // type_secret resolves the secret value here on the worker (where secrets live),
@@ -543,6 +588,22 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           const opts = { selector: b.selector, rect: b.rect, padding: b.padding, format: b.format, quality: b.quality, maxPx: b.maxPx };
           const result = await screenshots.captureElementThumbnail(b.tabId, opts);
           sendJson(result);
+        } catch (e) {
+          sendJson({ ok: false, error: e.message }, 500);
+        }
+      });
+    }
+
+    // Native OCR: capture a tab (or cropped region) and read text from pixels.
+    // Shared worker-side path (ocrCapture) so MCP direct, HTTP, and the proxy
+    // forward behave identically. GET reports engine availability.
+    if (method === 'GET' && p === '/api/ocr') {
+      return sendJson(ocrService.getStatus());
+    }
+    if (method === 'POST' && p === '/api/ocr') {
+      return readBody().then(async b => {
+        try {
+          sendJson(await ocrCapture(b));
         } catch (e) {
           sendJson({ ok: false, error: e.message }, 500);
         }
@@ -895,6 +956,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       async (tabId, opts) => requestServer('POST', '/api/packed-som', { tabId, ...opts })
     );
     mcp.setElementThumbnail(async (tabId, opts) => requestServer('POST', '/api/element-thumbnail', { tabId, ...opts }));
+    // OCR runs on the worker (it captures + shells out to the engine); forward.
+    mcp.setOcrRegion(async (opts) => requestServer('POST', '/api/ocr', opts));
     // Proxy mode: the worker owns the tab inventory; fetch the uninstrumented diff.
     mcp.setUninstrumentedTabs(async () => { try { return (await requestServer('GET', '/api/uninstrumented-tabs'))?.tabs || []; } catch { return []; } });
     mcp.setSourceContext((q) => requestServer('POST', '/api/source/context', q));
@@ -942,6 +1005,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     );
     mcp.setActionCallbacks(_callAction, screenshots.capture.bind(screenshots), screenshots.captureElement.bind(screenshots), screenshots.capturePackedSom.bind(screenshots));
     mcp.setElementThumbnail(screenshots.captureElementThumbnail.bind(screenshots));
+    mcp.setOcrRegion(ocrCapture); // capture + recognize, worker-side
+
     // Direct mode: read the inventory diff straight off core.
     mcp.setUninstrumentedTabs(() => {
       if (appRegistry.enabled) return []; // don't leak cross-app tab URLs

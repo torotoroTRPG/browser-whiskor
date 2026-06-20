@@ -299,7 +299,7 @@ Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profile
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
 | **advanced-actions** (+12) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, type_secret, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
 | **tabs** (+4) | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6 turns |
-| **intelligence** (+5) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context | "explain", "why", "source", "cause" | 5 turns |
+| **intelligence** (+6) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context, ocr_region | "explain", "why", "source", "cause", "ocr", "canvas" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
 
@@ -326,6 +326,7 @@ Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profile
 | `get_sessions` | Active tabs (tabId, URL, data freshness) |
 | `get_index` | Session file listing with summaries |
 | `get_text_coords` | Text + absolute coordinates with fuzzy search and similarity scoring |
+| `ocr_region` | Read text from **pixels** via a native OCR engine (Tesseract, bring-your-own) — for canvas/WebGL apps (Unity, games, charts) where the DOM is one `<canvas>`, or icon-only controls with no text node. Whole-tab or a cropped selector/rect; output matches `get_text_coords` (Tesseract-compatible word boxes). Returns `ocr_unavailable` with setup steps if no binary is installed |
 | `find_target` | Resolve a description ("search box", "送信") to ranked click candidates — combines UI catalog + text-coords, fuzzy-ranks (MiniLM when available), returns click coordinates, selector hint and clickability |
 | `get_viewport` | Current viewport size and scroll position |
 | `get_framework_state` | Component tree + state for detected framework |
@@ -533,6 +534,7 @@ POST http://localhost:7892/api/collect        → Manual collection
 POST http://localhost:7892/api/screenshot     → Screenshot
 POST http://localhost:7892/api/packed-som     → Packed Set-of-Marks capture
 POST http://localhost:7892/api/element-thumbnail → Per-element thumbnail
+POST http://localhost:7892/api/ocr            → Read text from pixels (canvas/WebGL, icon-only); bring-your-own Tesseract
 POST http://localhost:7892/api/action         → Execute action
 POST http://localhost:7892/api/embed          → Text embedding (MiniLM)
 POST http://localhost:7892/api/source/upload  → Upload project source (files or base64 zip)

@@ -263,6 +263,7 @@ Examples:
     console.log(`  /api/screenshot                       Capture screenshot (Body: {"tabId": 123})`);
     console.log(`  /api/packed-som                       Capture packed SoM (Body: {"tabId": 123})`);
     console.log(`  /api/element-thumbnail                Crop element (Body: {"tabId": 1, "selector": "..."})`);
+    console.log(`  /api/ocr                              OCR text from pixels (Body: {"tabId": 1, "selector"?, "lang"?}); GET for engine status`);
     console.log(`  /api/action                           Execute action (Body: {"tabId": 1, "action": {"type":"..."}})`);
     console.log(`  /api/embed                            Embed texts (Body: {"texts": ["hello"]})`);
     console.log(`\nExamples:`);
@@ -277,7 +278,7 @@ Examples:
     console.log(`  tabs         List and switch browser tabs`);
     console.log(`  capture      Take screenshots, Packed SoM, Element thumbnails`);
     console.log(`  control      Trigger explorer mode, manage collection, load/unload profiles`);
-    console.log(`  intelligence Causal chains, framework-DOM mapping, semantic search`);
+    console.log(`  intelligence Causal chains, source mapping, OCR text from pixels (ocr_region)`);
     console.log(`  source       Upload local source code and query context`);
     console.log(`  replay       Replay recorded sessions`);
     console.log(`\nTo view active tools for a tab:`);

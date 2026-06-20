@@ -73,6 +73,11 @@ const { dataUrl, url, elements } = await post("/api/screenshot", { tabId, marks:
 // パックド Set-of-Marks（インタラクティブ要素だけを詰めた画像 — トークン効率重視）
 const som = await post("/api/packed-som", { tabId });
 
+// ピクセルからのテキスト読取（OCR）。canvas/WebGL（Unity 等）でテキスト座標が空のとき、
+// あるいはアイコンのみのボタンに。selector/rect 省略でタブ全体。出力は text-coords 互換。
+// OCR バイナリ（Tesseract）は各自で用意（未導入なら { error:"ocr_unavailable" } が返る）。
+const { text, words } = await post("/api/ocr", { tabId, lang: "eng+jpn", psm: 6 });
+
 // 構造データ（テキスト座標 / UIカタログ / ネットワーク / コンソール等）
 const ui = await fetch(`${BASE}/api/sessions/${tabId}/raw/ui/elements.json`).then(r => r.json());
 

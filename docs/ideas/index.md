@@ -1,7 +1,7 @@
 # Future Ideas — index
 
 > docs/ideas/ にある設計提案の索引。各 doc は「構想〜詳細設計」で、実装の有無は下記の通り。
-> Created: 2026-05-22 / Last updated: 2026-06-18
+> Created: 2026-05-22 / Last updated: 2026-06-20
 
 ## どこに何があるか（3つの置き場）
 
@@ -27,6 +27,7 @@
 - **NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION** — 名前空間マップ / piggyback 検証 / production mode（[[project_namespace_map_ai_verification]]）
 - **REALTIME_AUDIO_EAR** — AUDIO_STATE ポーリング（Phase1）/ 再生前 DSP（Phase2）（[[project_realtime_audio_ear]]）
 - **IMAGE_ASSET_CORRELATION** — 画像↔構造/セッション対応・DL・検索（低優先、[[project_image_asset_correlation]]）
+- **LOCAL_VLM_ELEMENT_LABELING** — DOM も OCR も効かない純アイコン/ドラッグ要素を、ローカル視覚モデル（MiniLM とは別）で暫定ラベル付け。packed SoM 切り出しを流用（低優先、[[project_local_vlm_element_labeling]]）
 - **DEBUG_DASHBOARD_REDESIGN** — DevPanel の作り直し（Frameworks タブが使いにくい、[[project_devpanel_frameworks_tab]]）
 - **ARCHITECTURE_EXTENDED_PROPOSALS** / **ARCHITECTURE_INTELLIGENCE_LAYER** — 広範なアーキ提案（intelligence 層の青写真。一部は explain/why 系として実現済）
 - **MCP 大規模改築**（ツール数削減・動的ロード高度化）— 理想機能メモ 項目13。専用 doc は未作成（構想段階）

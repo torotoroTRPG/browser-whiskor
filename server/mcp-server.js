@@ -31,6 +31,7 @@ require('./mcp/tools/tabs')(registry);
 require('./mcp/tools/capture')(registry);
 require('./mcp/tools/control')(registry);
 require('./mcp/tools/intelligence')(registry);
+require('./mcp/tools/ocr')(registry);
 require('./mcp/tools/source')(registry);
 
 // replay_session ツール — array-push pattern (see replay.js)
@@ -53,6 +54,12 @@ function setActionCallbacks(callAction, captureScreenshot, captureElement, captu
 
 function setElementThumbnail(fn) {
   registry.setCallbacks({ _captureElementThumbnail: fn });
+}
+
+// OCR a tab region (capture + recognize). Worker-side in direct mode, an HTTP
+// forward to /api/ocr under the proxy — see index.js.
+function setOcrRegion(fn) {
+  registry.setCallbacks({ _ocrRegion: fn });
 }
 
 // Returns browser tabs with no whiskor session (for get_sessions warnings).
@@ -152,6 +159,7 @@ module.exports = {
   setCallbacks,
   setActionCallbacks,
   setElementThumbnail,
+  setOcrRegion,
   setUninstrumentedTabs,
   setSourceContext,
   setSecurity,

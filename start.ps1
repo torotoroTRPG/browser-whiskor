@@ -6,6 +6,7 @@ param(
   [switch]$mock,
   [switch]$verbose,
   [switch]$NoSupervisor,   # run the worker directly (no auto-restart)
+  [switch]$NoOcrPrompt,    # skip the optional OCR-engine install offer
   [string]$cacheDir = ""
 )
 
@@ -74,6 +75,53 @@ if ($inUse) {
     if ($response) { Write-Host $response }
     Write-Host "[bw] Exiting." -ForegroundColor Gray
     exit 0
+  }
+}
+
+# ── OCR engine offer (optional perception feature) ─────────────────
+# ocr_region / POST /api/ocr read text from pixels — canvas/WebGL apps (Unity,
+# games) and icon-only buttons. The engine is bring-your-own; if none is found we
+# offer to install Tesseract. Never blocks startup. Skip with -NoOcrPrompt,
+# WHISKOR_OCR_NO_PROMPT=1, or once dismissed (cache\.ocr-offer-dismissed).
+function Test-WhiskorOcr {
+  if ($env:WHISKOR_OCR_PATH -and (Test-Path $env:WHISKOR_OCR_PATH)) { return $true }
+  return [bool](Get-Command tesseract -ErrorAction SilentlyContinue)
+}
+$ocrDismissed = Join-Path $ScriptDir "cache\.ocr-offer-dismissed"
+if (-not $NoOcrPrompt -and -not $env:WHISKOR_OCR_NO_PROMPT -and -not (Test-Path $ocrDismissed) -and -not (Test-WhiskorOcr)) {
+  Write-Host ""
+  Write-Host "[bw] No OCR engine found (optional)." -ForegroundColor Yellow
+  Write-Host "[bw] OCR lets whiskor read text from pixels — canvas/WebGL apps (Unity, games) and icon-only buttons (ocr_region / POST /api/ocr)." -ForegroundColor Gray
+  if ([Console]::IsInputRedirected) {
+    Write-Host "[bw] To enable: install Tesseract on PATH, or set WHISKOR_OCR_PATH / config intelligence.ocr.binPath. (WHISKOR_OCR_NO_PROMPT=1 silences this.)" -ForegroundColor DarkGray
+  } else {
+    $hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
+    $prompt = if ($hasWinget) { "[bw] Install Tesseract now? [G]lobal via winget  [L]ocal/manual how-to  [N]o  (default N, 10s): " }
+              else            { "[bw] Install Tesseract? [L]ocal/manual how-to  [N]o  (default N, 10s): " }
+    Write-Host $prompt -ForegroundColor Yellow -NoNewline
+    $resp = $null
+    $t = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($t.Elapsed.TotalSeconds -lt 10 -and $null -eq $resp) {
+      if ([Console]::KeyAvailable) { $resp = [Console]::ReadKey($true).KeyChar }
+      Start-Sleep -Milliseconds 100
+    }
+    $t.Stop()
+    Write-Host ""
+    if (($resp -eq 'g' -or $resp -eq 'G') -and $hasWinget) {
+      Write-Host "[bw] Installing Tesseract via winget (UB-Mannheim.TesseractOCR)..." -ForegroundColor Cyan
+      winget install --id UB-Mannheim.TesseractOCR -e --accept-package-agreements --accept-source-agreements
+      if (Test-WhiskorOcr) { Write-Host "[bw] OCR engine installed." -ForegroundColor Green }
+      else { Write-Host "[bw] Tesseract may need a new shell for PATH, or a manual install — https://github.com/UB-Mannheim/tesseract/wiki" -ForegroundColor Yellow }
+    } elseif ($resp -eq 'l' -or $resp -eq 'L') {
+      Write-Host "[bw] Local/manual OCR setup:" -ForegroundColor Cyan
+      Write-Host "      1. Download Tesseract (Windows: https://github.com/UB-Mannheim/tesseract/wiki)" -ForegroundColor Gray
+      Write-Host "      2. Point whiskor at it: `$env:WHISKOR_OCR_PATH = 'C:\path\to\tesseract.exe'  (or config.json intelligence.ocr.binPath)" -ForegroundColor Gray
+      Write-Host "      For Japanese add the 'jpn' language data and use lang:'eng+jpn'." -ForegroundColor Gray
+      New-Item -ItemType File -Path $ocrDismissed -Force | Out-Null
+    } else {
+      Write-Host "[bw] Skipping OCR. (Won't ask again; delete cache\.ocr-offer-dismissed or set WHISKOR_OCR_PATH later.)" -ForegroundColor DarkGray
+      New-Item -ItemType File -Path $ocrDismissed -Force | Out-Null
+    }
   }
 }
 

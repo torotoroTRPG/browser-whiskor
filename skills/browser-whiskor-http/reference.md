@@ -22,6 +22,8 @@
 | `GET /api/screenshots/:file` | 保存済みスクショ画像をバイナリ配信（`/api/screenshot` 応答の `url` で参照。base64 をインラインせず画像を取得する経路） |
 | `POST /api/packed-som` | パックド Set-of-Marks `{ tabId }` |
 | `POST /api/element-thumbnail` | 要素サムネイル `{ tabId, selector, format?, quality?, maxPx? }`（`format:'webp'` で最小） |
+| `POST /api/ocr` | ピクセルからのテキスト読取 `{ tabId, selector?, rect?, lang?, psm? }`。`get_text_coords` が拾えない canvas/WebGL（Unity 等）やアイコンのみ要素向け。selector/rect 省略でタブ全体。出力は text-coords 互換の word 配列。OCR バイナリ（Tesseract）は各自で用意（未導入時は `ocr_unavailable`） |
+| `GET /api/ocr` | OCR エンジンの可用性 `{ available, binPath?, version? }` |
 | `POST /api/collect` | データ収集トリガー `{ tabId, plugins? }` |
 | `POST /api/embed` | テキストベクトル埋め込み（MiniLM） |
 | `POST /api/source/upload` | プロジェクトソースのアップロード（ファイル群 or base64 zip） |

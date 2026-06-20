@@ -282,6 +282,15 @@
     "frameworkDomMap": {
       "enabled": true
     },
+    "ocr": {
+      "_comment_en": "Native OCR for reading text from pixels (canvas/WebGL apps like Unity, or icon-only controls with no text node) via the ocr_region tool / POST /api/ocr. Bring-your-own binary — no heavy npm dependency is bundled. Engine resolution order: intelligence.ocr.binPath, then env WHISKOR_OCR_PATH, then `tesseract` on PATH. Inert (ocr_region returns ocr_unavailable) when no binary is found. lang = Tesseract language code(s), '+'-joined (e.g. 'eng+jpn'); the data must be installed in the engine. psm = page segmentation mode (3=auto). Output matches get_text_coords' Tesseract-compatible schema.",
+      "_comment_ja": "ピクセルからテキストを読む native OCR（Unity 等の canvas/WebGL アプリや、テキストノードを持たないアイコンのみの要素向け）。ocr_region ツール / POST /api/ocr から使う。重い npm 依存は同梱せず、OCR バイナリは各自で用意する（bring-your-own）。エンジン解決順: intelligence.ocr.binPath → 環境変数 WHISKOR_OCR_PATH → PATH 上の `tesseract`。見つからなければ ocr_region は ocr_unavailable を返すだけで無害。lang は Tesseract の言語コード（'+' 連結で 'eng+jpn' 等、エンジンに言語データのインストールが必要）。psm はページ分割モード（3=自動）。出力は get_text_coords と同じ Tesseract 互換スキーマ。",
+      "enabled": true,
+      "binPath": null,
+      "lang": "eng",
+      "psm": 3,
+      "timeoutMs": 20000
+    },
     "searchClassifier": {
        "_comment_ja": "UIラベル意図分類器 + 意味検索の設定",
        "enabled": true,
