@@ -32,6 +32,8 @@ cp -r skills/browser-whiskor-http ~/.claude/skills/
 ## MCPとの使い分け
 
 - **MCP**（`node server/index.js --mcp`）: Claude Desktop / Cursor などMCPクライアントから使う標準経路。動的プロファイルでコンテキストを節約する（静的公開は `mcpServer.staticTools`）
-- **HTTPスキル**: fetch/curl が使える面（Claude in Chrome、CLIエージェント等）向け。ツールスキーマがコンテキストに乗らない
+- **HTTPスキル**: fetch/curl が使える面（Claude in Chrome、CLIエージェント、**opencode** 等）向け。ツールスキーマがコンテキストに乗らない
 
 どちらも同じサーバー（`npm start`）に接続するので併用できる。
+
+> **Using opencode?** opencode lets you run capable agents for free (bring your own model, including free/local ones), which pairs nicely with whiskor. The easiest setup is the HTTP API skill: show the agent `skills/browser-whiskor-http/` and have it run `whk --help` (and `whk help api`) to discover the commands, then it drives whiskor over plain HTTP (`:7892`) — no MCP needed. This keeps tool schemas out of the context window and sidesteps MCP dynamic tool-loading; the agent just calls the endpoints in `reference.md` directly.
