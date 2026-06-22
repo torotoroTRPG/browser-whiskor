@@ -48,6 +48,12 @@ await fetch("http://127.0.0.1:7892/api/action", {
 // → { ok, result?, error?, durationMs }
 ```
 
+**type 名について:**
+- 正規名は下記の動詞（`click` / `type` / `navigate` / `scroll` / `check` / `reload` …）
+- MCP ツール名（`type_text` / `navigate_to` / `scroll_page` / `check_box` / `reload_page`）も**alias として受理**される。MCP と HTTP で同じ名前を書いても通る。alias で呼ぶと結果に `_canonicalType` が付く
+- 不正な type を投げると `error` に **valid types 一覧と "Did you mean?"** が入る（行き止まりにならない）
+- **read/query 系（`find_target` / `get_ui_catalog` / `get_text_coords` / `get_sessions` / `get_network` / `capture_screenshot` 等）は action ではない** — POST /api/action に投げても失敗する。エンドポイントは別系統（`GET /api/sessions/:tabId/raw/...`、`POST /api/screenshot`、`POST /api/packed-som` 等。MCP では別ツールとして提供）
+
 ### クリック系
 
 ```javascript

@@ -105,7 +105,8 @@ await post("/api/action", { tabId, action: { type: "wait_for_element", selector:
 主な type: `click` / `type` / `press_key` / `hover` / `scroll` / `drag` / `select_option` / `check` /
 `navigate` / `go_back` / `go_forward` / `reload` / `wait_for_element` / `focus` / `clear_input` /
 `analyze_click`（クリック前のドライラン）/ `execute_js`（要 `security.allowExecuteJs: true`）。
-引数の詳細は [reference.md](reference.md)。
+引数の詳細は [reference.md](reference.md)。MCP ツール名（`type_text` / `navigate_to` 等）も
+alias として通る。`find_target` 等の read/query 系は action ではないので POST しない。
 
 操作のポイント:
 

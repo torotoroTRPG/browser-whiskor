@@ -428,6 +428,16 @@ A test HTML page with:
 - Context menu targets
 - Framework-agnostic (vanilla JS)
 
+### `fixtures/test-input.html`
+A focused fixture for the executor's `type` / focus / submit paths. Contains:
+- Empty and prefilled `<input>` / `<textarea>` (for `clear` testing)
+- `enterkeyhint` variations (send / search / enter / next) — exercises submit-key inference
+- A native `<form>` with submit button
+- `contenteditable` (empty and rich) — exercises the insertText / composition path
+- Adversarial cases: readonly, disabled, blur-on-input, delayed focus-steal
+- An on-page event log overlay (focus/blur/input/keydown/submit) for manual observation
+- Framework-agnostic (vanilla JS)
+
 ### `fixtures/mock-text-coords.json`
 Sample TEXT_COORDS data with 1000+ words, including:
 - Words in viewport

@@ -1045,6 +1045,77 @@
     },
   };
 
+  // ── Action-type namespace bridge ─────────────────────────────────────────────
+  // MCP exposes write tools under names like `type_text` / `navigate_to`, but the
+  // executor's handlers use the bare verbs (`type` / `navigate`). The MCP layer
+  // translates (see write.js), but an agent hitting POST /api/action directly never
+  // gets that translation. Accept the MCP names as aliases so the two surfaces
+  // converge, and on a genuine miss return the valid set + nearest match instead of
+  // a dead-end string. This file is the single source of truth for action types.
+  const ACTION_ALIASES = {
+    type_text:   'type',
+    navigate_to: 'navigate',
+    scroll_page: 'scroll',
+    check_box:   'check',
+    reload_page: 'reload',
+  };
+
+  // Read/query tools live on the server, not in this executor. Agents sometimes POST
+  // them to /api/action by mistake — point them at the right surface rather than
+  // just saying "unknown".
+  const READ_ONLY_TOOLS = new Set([
+    'find_target', 'get_ui_catalog', 'get_text_coords', 'get_sessions', 'get_index',
+    'get_network', 'get_framework_state', 'get_viewport', 'get_console_logs',
+    'get_storage', 'get_dom_snapshot', 'get_accessibility', 'capture_screenshot',
+    'capture_packed_som', 'get_element_thumbnail',
+  ]);
+
+  function _levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, i) => i);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(
+          prev[j] + 1,
+          cur[j - 1] + 1,
+          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+      prev = cur;
+    }
+    return prev[n];
+  }
+
+  // Build a helpful result for an unrecognised action type: list the valid types,
+  // route read-tool names to the correct surface, and suggest the nearest verb.
+  function _unknownActionResult(type) {
+    const validTypes = Object.keys(handlers).sort();
+    // On failure the transport (postMessage below) forwards only `error` as a string —
+    // structured fields are dropped. So everything useful must live in the string. We
+    // keep the structured fields too, for any in-process caller that sees the object.
+    if (READ_ONLY_TOOLS.has(type)) {
+      const hint = `"${type}" is a read/query tool, not a page action — call it as an MCP tool (or its GET endpoint), do not POST it to /api/action.`;
+      return { ok: false, error: `Unknown action type: "${type}". ${hint}`, validTypes, hint, isReadTool: true };
+    }
+    const candidates = validTypes.concat(Object.keys(ACTION_ALIASES));
+    let best = null, bestD = Infinity;
+    const needle = String(type).toLowerCase();
+    for (const c of candidates) {
+      const d = _levenshtein(needle, c.toLowerCase());
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    const didYouMean = (best && bestD <= Math.max(2, Math.ceil(best.length / 3)))
+      ? (ACTION_ALIASES[best] || best)
+      : null;
+    const error = `Unknown action type: "${type}".`
+      + (didYouMean ? ` Did you mean "${didYouMean}"?` : '')
+      + ` Valid action types: ${validTypes.join(', ')}.`;
+    return { ok: false, error, validTypes, ...(didYouMean ? { didYouMean } : {}) };
+  }
+
   // ── Message listener ─────────────────────────────────────────────────────────
 
   window.addEventListener('message', async (event) => {
@@ -1053,7 +1124,9 @@
     if (event.data.type !== 'EXECUTE_ACTION_IN_PAGE') return;
 
     const { payload: act, listenerId } = event.data;
-    const handler = handlers[act.type];
+    // Resolve MCP write-tool aliases (type_text → type, …) to the dispatched verb.
+    const resolvedType = ACTION_ALIASES[act.type] || act.type;
+    const handler = handlers[resolvedType];
 
     // Scope native dialogs to this action (direct causality) and honour a per-call
     // dialog policy override: act.dialog = { confirm: boolean, prompt: string|null }.
@@ -1063,14 +1136,19 @@
       if ('prompt' in act.dialog)  DIALOG_POLICY.prompt  = act.dialog.prompt;
     }
     const dialogStart = DIALOG_LOG.length;
-    ACTION_CTX = { id: listenerId, label: act.type, startedAt: Date.now() };
+    ACTION_CTX = { id: listenerId, label: resolvedType, startedAt: Date.now() };
 
     let result;
     if (!handler) {
-      result = { ok: false, error: `Unknown action type: ${act.type}` };
+      result = _unknownActionResult(act.type);
     } else {
       try {
         result = await handler(act);
+        // Teach the canonical name back when an alias was used, so the agent converges.
+        if (result && typeof result === 'object' && resolvedType !== act.type) {
+          result._aliasedFrom = act.type;
+          result._canonicalType = resolvedType;
+        }
       } catch (e) {
         result = { ok: false, error: e.message };
       }

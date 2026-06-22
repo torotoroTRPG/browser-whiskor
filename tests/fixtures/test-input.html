@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>whiskor input focus test</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+h1 { font-size: 18px; margin-bottom: 16px; }
+h2 { font-size: 14px; margin: 20px 0 8px; color: #555; }
+section { border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 12px; }
+label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; }
+input[type="text"], input[type="search"], input[type="email"], textarea {
+  width: 100%; padding: 8px; border: 2px solid #ccc; border-radius: 4px;
+  font-size: 14px; outline: none; transition: border-color 0.15s;
+}
+input:focus, textarea:focus, [contenteditable]:focus {
+  border-color: #4a90d9;
+}
+[contenteditable] {
+  width: 100%; min-height: 40px; padding: 8px; border: 2px solid #ccc;
+  border-radius: 4px; font-size: 14px; outline: none;
+}
+.prefilled input { background: #fffbe6; }
+button { padding: 6px 16px; margin-top: 8px; cursor: pointer; }
+#log {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 180px;
+  background: #1e1e1e; color: #0f0; font-family: monospace; font-size: 12px;
+  overflow-y: auto; padding: 8px; border-top: 2px solid #444;
+}
+#log .blur { color: #f44; }
+#log .focus { color: #4f4; }
+#log .input { color: #aaf; }
+#log .submit { color: #fa0; }
+#log .time { color: #888; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tag { font-size: 11px; background: #eee; border-radius: 3px; padding: 2px 6px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>input focus test</h1>
+
+<h2>basic inputs</h2>
+<section>
+  <div class="grid">
+    <div>
+      <label>text <span class="tag">empty</span></label>
+      <input type="text" id="i-empty" placeholder="type here">
+    </div>
+    <div class="prefilled">
+      <label>text <span class="tag">prefilled — clear test</span></label>
+      <input type="text" id="i-prefilled" value="existing text here">
+    </div>
+    <div>
+      <label>search</label>
+      <input type="search" id="i-search" placeholder="search...">
+    </div>
+    <div>
+      <label>email</label>
+      <input type="email" id="i-email" placeholder="user@example.com">
+    </div>
+  </div>
+</section>
+
+<h2>enterkeyhint variations</h2>
+<section>
+  <div class="grid">
+    <div>
+      <label>enterkeyhint="send"</label>
+      <input type="text" id="i-send" enterkeyhint="send" placeholder="submit=auto → enter">
+    </div>
+    <div>
+      <label>enterkeyhint="search"</label>
+      <input type="text" id="i-ekh-search" enterkeyhint="search" placeholder="submit=auto → enter">
+    </div>
+    <div>
+      <label>enterkeyhint="enter"</label>
+      <input type="text" id="i-enter" enterkeyhint="enter" placeholder="submit=auto → enter">
+    </div>
+    <div>
+      <label>enterkeyhint="next"</label>
+      <input type="text" id="i-next" enterkeyhint="next" placeholder="submit=auto → ?">
+    </div>
+  </div>
+</section>
+
+<h2>form with submit</h2>
+<section>
+  <form id="f-native" onsubmit="logEvent(this,'submit','form submitted'); return false;">
+    <label>inside native &lt;form&gt;</label>
+    <input type="text" id="i-form" placeholder="enter should submit">
+    <button type="submit">Submit</button>
+  </form>
+</section>
+
+<h2>textarea</h2>
+<section>
+  <div class="grid">
+    <div>
+      <label>textarea <span class="tag">empty</span></label>
+      <textarea id="t-empty" rows="3" placeholder="multi-line input"></textarea>
+    </div>
+    <div class="prefilled">
+      <label>textarea <span class="tag">prefilled</span></label>
+      <textarea id="t-prefilled" rows="3">line 1
+line 2
+line 3</textarea>
+    </div>
+  </div>
+</section>
+
+<h2>contenteditable</h2>
+<section>
+  <div class="grid">
+    <div>
+      <label>contenteditable <span class="tag">empty</span></label>
+      <div contenteditable="true" id="ce-empty"></div>
+    </div>
+    <div>
+      <label>contenteditable <span class="tag">prefilled</span></label>
+      <div contenteditable="true" id="ce-prefilled">some <b>rich</b> content</div>
+    </div>
+  </div>
+</section>
+
+<h2>tricky cases</h2>
+<section>
+  <div class="grid">
+    <div>
+      <label>readonly</label>
+      <input type="text" id="i-readonly" value="cannot edit" readonly>
+    </div>
+    <div>
+      <label>disabled</label>
+      <input type="text" id="i-disabled" value="cannot focus" disabled>
+    </div>
+    <div>
+      <label>blur on input (adversarial)</label>
+      <input type="text" id="i-blur-trap" placeholder="blurs after each char">
+    </div>
+    <div>
+      <label>delayed focus steal</label>
+      <input type="text" id="i-steal-target" placeholder="focus gets stolen">
+      <input type="text" id="i-steal-thief" style="display:none">
+    </div>
+  </div>
+</section>
+
+<div style="margin-bottom: 200px"></div>
+<div id="log"></div>
+
+<script>
+const log = document.getElementById('log');
+function ts() {
+  const d = new Date();
+  return `${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}.${String(d.getMilliseconds()).padStart(3,'0')}`;
+}
+function logEvent(el, type, detail) {
+  const id = el.id || el.tagName;
+  const cls = type === 'blur' ? 'blur' : type === 'focus' || type === 'focusin' ? 'focus'
+    : type === 'submit' ? 'submit' : 'input';
+  const line = document.createElement('div');
+  line.className = cls;
+  line.innerHTML = `<span class="time">${ts()}</span> [${type}] <b>${id}</b> ${detail || ''}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+// instrument all inputs
+document.querySelectorAll('input, textarea, [contenteditable]').forEach(el => {
+  ['focus', 'blur', 'focusin', 'focusout'].forEach(evt => {
+    el.addEventListener(evt, () => logEvent(el, evt));
+  });
+  el.addEventListener('input', e => {
+    const val = el.contentEditable === 'true' ? el.textContent : el.value;
+    logEvent(el, 'input', `"${val.slice(-30)}"`);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      logEvent(el, 'keydown', `key=${e.key} shift=${e.shiftKey} ctrl=${e.ctrlKey}`);
+    }
+  });
+});
+
+// blur trap: steals focus after every input event
+document.getElementById('i-blur-trap').addEventListener('input', function() {
+  setTimeout(() => this.blur(), 50);
+});
+
+// focus steal: another element grabs focus 200ms after focusin
+document.getElementById('i-steal-target').addEventListener('focusin', function() {
+  const thief = document.getElementById('i-steal-thief');
+  thief.style.display = '';
+  setTimeout(() => {
+    thief.focus();
+    logEvent(thief, 'STEAL', 'stole focus from i-steal-target');
+  }, 200);
+});
+</script>
+</body>
+</html>
