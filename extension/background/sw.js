@@ -516,6 +516,39 @@ async function ensureTabActive(tabId) {
   } catch (_) { /* tab gone — the caller's normal error path reports it */ }
 }
 
+// Wait for a tab's top-frame navigation to reach a lifecycle milestone.
+// waitUntil: 'domcontentloaded' (default) → webNavigation.onDOMContentLoaded,
+//            'load'                        → webNavigation.onCompleted.
+// Returns { promise, cancel }. Listeners are attached synchronously so the
+// caller can register BEFORE triggering tabs.update and not miss a fast event.
+// Resolves { timedOut:false } on the milestone, { timedOut:true } after timeoutMs.
+function waitForNavigation(tabId, waitUntil, timeoutMs) {
+  const evt = waitUntil === 'load'
+    ? chrome.webNavigation.onCompleted
+    : chrome.webNavigation.onDOMContentLoaded;
+  let done = false;
+  let timer = null;
+  let listener = null;
+  const cleanup = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    try { evt.removeListener(listener); } catch (_) {}
+  };
+  const promise = new Promise((resolve) => {
+    const finish = (timedOut) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve({ timedOut });
+    };
+    listener = (details) => {
+      if (details.tabId === tabId && details.frameId === 0) finish(false);
+    };
+    evt.addListener(listener);
+    timer = setTimeout(() => finish(true), timeoutMs);
+  });
+  return { promise, cancel: () => { done = true; cleanup(); } };
+}
+
 // EXECUTE_ACTION types that manage tabs themselves (or have no page target) —
 // auto-switching before these would be wrong or redundant.
 const NO_AUTO_SWITCH_ACTIONS = new Set(['list_tabs', 'switch_tab', 'open_tab', 'close_tab', 'create_tab']);
@@ -567,16 +600,41 @@ async function handleServerMessage(msg) {
 
         switch (action.type) {
 
-          case 'navigate':
+          case 'navigate': {
+            // waitUntil: 'none' keeps the old fire-and-forget behavior; default
+            // 'domcontentloaded' waits so a follow-up read/collect isn't empty.
+            const waitUntil = String(action.waitUntil || 'domcontentloaded').toLowerCase();
+            const timeoutMs = Number.isFinite(action.timeoutMs) ? action.timeoutMs : 10000;
+            const wantWait  = waitUntil !== 'none';
+            // Register the lifecycle listener BEFORE navigating to avoid a race
+            // where DOMContentLoaded fires before we start listening.
+            const navWait = wantWait ? waitForNavigation(tabId, waitUntil, timeoutMs) : null;
             try {
               await chrome.tabs.update(tabId, { url: action.url });
             } catch (_) {
               // Chrome race: tabs.update can throw "No tab with id" even when
               // navigation starts (e.g. tab reloading). Verify tab exists.
+              if (navWait) navWait.cancel();
               try { await chrome.tabs.get(tabId); } catch { throw _; }
             }
-            result = { navigating: true, url: action.url };
+            if (!wantWait) {
+              result = { navigating: true, url: action.url };
+              break;
+            }
+            const { timedOut } = await navWait.promise;
+            result = { navigated: true, url: action.url, waitUntil };
+            if (timedOut) result.timedOut = true;
+            if (action.thenCollect) {
+              chrome.scripting.executeScript({
+                target: { tabId },
+                func: (pl) => window.postMessage({ __BROWSER_WHISKOR__: true, type: 'MANUAL_COLLECT', payload: { plugins: pl } }, '*'),
+                args: [action.plugins || null],
+                world: 'MAIN',
+              }).catch(() => {});
+              result.collected = true;
+            }
             break;
+          }
 
           case 'go_back':
             await chrome.tabs.goBack(tabId);

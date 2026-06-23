@@ -162,18 +162,27 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'navigate_to',
-      description: 'Navigate a tab to a URL. The extension will load the URL using chrome.tabs.update. Note: data will be stale immediately after — call refresh_data or wait before reading again.',
+      description: 'Navigate a tab to a URL. By default it waits until the new page reaches DOMContentLoaded before returning, so a follow-up read is not empty. Set thenCollect:true to also trigger a fresh data collection after load. On slow pages it returns with timedOut:true after the timeout instead of erroring.',
       inputSchema: {
         type: 'object',
         properties: {
-          tabId: { type: 'number', description: 'Tab ID to navigate' },
-          url:   { type: 'string', description: 'Full URL to navigate to (must include protocol)' },
+          tabId:     { type: 'number', description: 'Tab ID to navigate' },
+          url:       { type: 'string', description: 'Full URL to navigate to (must include protocol)' },
+          waitUntil: { type: 'string', enum: ['domcontentloaded', 'load', 'none'], description: "Lifecycle milestone to wait for before returning. 'domcontentloaded' (default) waits for the DOM; 'load' waits for full load incl. subresources; 'none' returns immediately (legacy fire-and-forget)." },
+          thenCollect: { type: 'boolean', description: 'After the page is ready, trigger a data collection so reads reflect the new page. Default false.' },
+          timeoutMs: { type: 'number', description: 'Max ms to wait for the lifecycle milestone (default 10000). On timeout the call returns with timedOut:true rather than failing.' },
         },
         required: ['tabId', 'url'],
       },
     },
     handler: async (args, cb) => {
-      return cb._callAction(args.tabId, { type: 'navigate', url: args.url }, args.timeoutMs);
+      const waitMs = Number.isFinite(args.timeoutMs) ? args.timeoutMs : 10000;
+      const action = { type: 'navigate', url: args.url, timeoutMs: waitMs };
+      if (args.waitUntil)   action.waitUntil = args.waitUntil;
+      if (args.thenCollect) action.thenCollect = true;
+      // The RPC must outlive the in-page navigation wait, plus a buffer for the
+      // post-load collect round-trip.
+      return cb._callAction(args.tabId, action, waitMs + 5000);
     },
   });
 

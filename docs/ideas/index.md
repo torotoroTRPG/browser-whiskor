@@ -6,7 +6,7 @@
 ## どこに何があるか（3つの置き場）
 
 - **`docs/ideas/`（ここ）** — 深掘りした設計提案 / 構想 doc。粒度が大きく、実装前の検討材料。
-- **`docs/理想機能メモ.md`** — 優先度付きの actionable TODO（13項目）。「次に何をやるか」はこちらが起点。
+- **`docs/理想機能メモ.md`** — 優先度付きの actionable TODO（15項目）。「次に何をやるか」はこちらが起点。
 - **`local_issues/`** — 日付付きのバグ / 不具合 / 調査記録（構想ではなく「直すもの」）。
 
 ## 実装済み（substrate あり。doc は当時の構想で、未実装の拡張を含むことがある）
@@ -28,6 +28,7 @@
 - **REALTIME_AUDIO_EAR** — AUDIO_STATE ポーリング（Phase1）/ 再生前 DSP（Phase2）（[[project_realtime_audio_ear]]）
 - **IMAGE_ASSET_CORRELATION** — 画像↔構造/セッション対応・DL・検索（低優先、[[project_image_asset_correlation]]）
 - **LOCAL_VLM_ELEMENT_LABELING** — DOM も OCR も効かない純アイコン/ドラッグ要素を、ローカル視覚モデル（MiniLM とは別）で暫定ラベル付け。packed SoM 切り出しを流用（低優先、[[project_local_vlm_element_labeling]]）
+- **VOICE_CONTROL_AND_AGENT_NOTIFICATIONS** — co-pilot を拡張する人↔agent 双方向チャネル。音声操作(STT, pull キュー＋ resource / bring-your-own Whisper) と agent トースト通知(notify ツール＋決定論的 config ルール)。TTS は低優先。"アプリが agent を発火" は whiskor 責務外と整理（[[project_voice_and_notifications]]、理想機能メモ 項目15）
 - **DEBUG_DASHBOARD_REDESIGN** — DevPanel の作り直し（Frameworks タブが使いにくい、[[project_devpanel_frameworks_tab]]）
 - **ARCHITECTURE_EXTENDED_PROPOSALS** / **ARCHITECTURE_INTELLIGENCE_LAYER** — 広範なアーキ提案（intelligence 層の青写真。一部は explain/why 系として実現済）
 - **MCP 大規模改築**（ツール数削減・動的ロード高度化）— 理想機能メモ 項目13。専用 doc は未作成（構想段階）

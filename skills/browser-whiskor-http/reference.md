@@ -143,11 +143,18 @@ await fetch("http://127.0.0.1:7892/api/action", {
 
 ```javascript
 { type: "navigate", url: "https://example.com/login" }
+// 既定で DOMContentLoaded まで待ってから返す（直後の read が空にならない）
+{ type: "navigate", url: "https://example.com/login", thenCollect: true }   // 待機後に収集も実行
+{ type: "navigate", url: "https://example.com/", waitUntil: "load" }        // 全リソース読込まで待つ
+{ type: "navigate", url: "https://example.com/", waitUntil: "none" }        // 即時返す（旧来の挙動）
+{ type: "navigate", url: "https://slow.example/", timeoutMs: 20000 }        // 待機上限(既定10000)。超過時は timedOut:true を付けてその時点で返す
 { type: "go_back" }
 { type: "go_forward" }
 { type: "reload" }
 { type: "reload", hard: true }   // キャッシュ無視
 ```
+
+`navigate` の戻り値: 待機した場合は `{ navigated: true, url, waitUntil }`（タイムアウト時は `timedOut: true`、`thenCollect` 時は `collected: true`）。`waitUntil: "none"` のときだけ旧来の `{ navigating: true, url }`。
 
 ### 待機・JS実行
 
