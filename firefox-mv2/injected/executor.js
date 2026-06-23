@@ -103,6 +103,11 @@
   // ambiguity ("selector matched N elements") so the agent can refine it.
   let LAST_SELECTOR_INFO = null;
 
+  // Info about the last text resolution — the ranked candidates and why the
+  // winner was chosen (kind/score/signals). Surfaced as matchedBy on results so
+  // the agent can see why THIS element beat the others. Reset on every resolve.
+  let LAST_TEXT_MATCH = null;
+
   function findBySelector(selector) {
     LAST_SELECTOR_INFO = null;
     try {
@@ -192,79 +197,171 @@
     return st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
   }
 
+  // Classify an element into a target kind for the ranking policy (link/button/
+  // input/label/text). Mirrors the kinds find_target emits server-side so both
+  // callers rank identically via the shared text-rank lib.
+  function classifyKind(el) {
+    const tag  = (el.tagName || '').toLowerCase();
+    const role = (el.getAttribute && el.getAttribute('role') || '').toLowerCase();
+    const type = (typeof el.type === 'string' ? el.type : '').toLowerCase();
+    if (tag === 'a' && el.getAttribute && el.getAttribute('href') != null) return 'link';
+    if (role === 'link') return 'link';
+    if (tag === 'button' || role === 'button' || role === 'tab' || role === 'menuitem' ||
+        tag === 'summary' || (tag === 'input' && ['submit', 'button', 'reset', 'image'].includes(type))) {
+      return 'button';
+    }
+    if (tag === 'textarea' || tag === 'select' || role === 'textbox' || role === 'searchbox' || role === 'combobox' ||
+        (tag === 'input' && !['submit', 'button', 'reset', 'image', 'hidden', 'checkbox', 'radio'].includes(type))) {
+      return 'input';
+    }
+    if (tag === 'label' || role === 'option' || role === 'checkbox' || role === 'radio' || role === 'switch') {
+      return 'label';
+    }
+    return 'text';
+  }
+
+  // True when the element carries an explicit accessible name (not just text
+  // content) — a strong signal it is a deliberate, labelled control.
+  function hasAccessibleName(el) {
+    const attr = (n) => (el.getAttribute && el.getAttribute(n)) || '';
+    return !!(attr('aria-label').trim() || refText(el, 'aria-labelledby') ||
+              attr('title').trim() || attr('alt').trim());
+  }
+
+  // Does the element's box intersect the current viewport?
+  function inViewportEl(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+  }
+
+  // Cheap reachability check: is the element's centre the top-most node at that
+  // point? true = reachable, false = obstructed by an overlay, null = its centre
+  // is outside the viewport (cannot test without scrolling). Only run on the top
+  // few candidates — elementFromPoint forces layout.
+  function occlusionClickable(el) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return null;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return null;
+    const hit = document.elementFromPoint(cx, cy);
+    if (!hit) return null;
+    return hit === el || el.contains(hit) || hit.contains(el);
+  }
+
+  // A compact, stable-ish selector string for a candidate (for matchedBy /
+  // boost / exclude matching). Best-effort, not guaranteed unique.
+  function selectorOf(el) {
+    if (el.id) return `#${el.id}`;
+    const cls = (typeof el.className === 'string' ? el.className
+                 : (el.className && el.className.baseVal) || '');
+    if (cls) return '.' + cls.trim().split(/\s+/).slice(0, 2).join('.');
+    return (el.tagName || '').toLowerCase();
+  }
+
+  // Base text-match score for an element against the lowercased query (exact >
+  // prefix > word-boundary > substring), biased toward concise/leaf labels and
+  // away from an input's current `value` (page content, not a label). Pure text
+  // quality — kind/viewport/reachability live in the shared ranker.
+  function textScoreOf(el, lower, query, wordRe) {
+    let s = 0;
+    for (const cand of textSources(el)) {
+      const raw = (typeof cand.t === 'string' ? cand.t : '').trim();
+      if (!raw) continue;
+      const t = raw.toLowerCase();
+      let cs;
+      if (t === lower)                   cs = 1.0;
+      else if (t.startsWith(lower))      cs = 0.85;
+      else if (wordRe && wordRe.test(t)) cs = 0.7;
+      else if (t.includes(lower))        cs = 0.55;
+      else continue;
+      cs += (lower.length / Math.max(t.length, 1)) * 0.2; // mostly-the-query wins
+      if (raw === query || raw.includes(query)) cs += 0.15; // case-exact beats case-folded
+      if (cand.src === 'value') cs -= 0.3;                  // field content is not a label
+      if (cs > s) s = cs;
+    }
+    if (s <= 0) return 0;
+    if (el.children.length === 0) s += 0.05; // concise leaf
+    return s;
+  }
+
   /**
-   * Locate an element by its visible text.
+   * Locate an element by its visible text, ranked by the shared policy.
    *
-   * Two passes, both always run, best total score wins:
+   * Two passes gather candidates (best total score wins), then the shared
+   * text-rank lib applies kind priority (link/button > input/label > plain
+   * text), viewport, accessible-name, and reachability so a real link outranks a
+   * ".x.com" breadcrumb of similar raw text:
    *   Pass 1 — explicit interactive elements (links, buttons, form fields, ARIA
-   *            widgets, [onclick], focusable nodes). Likely click targets, so
-   *            they get a small bias — but no longer an early-return win, which
-   *            used to let a case-folded `value` match on an input beat an
-   *            exact-text leaf that pass 2 would have found.
+   *            widgets, [onclick], focusable nodes).
    *   Pass 2 — text-bearing leaf elements (div/span/li/headings with ≤2 element
-   *            children). Covers the common SPA pattern of a <div>/<span> carrying
-   *            a click handler, which Pass 1's selector list cannot express.
+   *            children) — the SPA pattern of a clickable <div>/<span>.
    *
-   * Candidates are scored (exact > prefix > word-boundary > substring) and biased
-   * toward concise, leaf-like elements. Case-exact matches outrank case-folded
-   * ones, matches on an input's current `value` are penalised, and invisible
-   * elements are excluded entirely — they cannot be clicked.
+   * @param {string} text  the query
+   * @param {Object} [textMatch]  per-call overrides { prefer, scope, index, boost, exclude }
    */
-  function findByText(text) {
+  function findByText(text, textMatch) {
+    LAST_TEXT_MATCH = null;
     const query = (text || '').trim();
     const lower = query.toLowerCase();
     if (!lower) return null;
     let wordRe = null;
     try { wordRe = new RegExp('\\b' + escapeRegex(lower) + '\\b'); } catch (_) {}
 
-    function score(el) {
-      let s = 0;
-      for (const cand of textSources(el)) {
-        const raw = (typeof cand.t === 'string' ? cand.t : '').trim();
-        if (!raw) continue;
-        const t = raw.toLowerCase();
-        let cs;
-        if (t === lower)                   cs = 1.0;
-        else if (t.startsWith(lower))      cs = 0.85;
-        else if (wordRe && wordRe.test(t)) cs = 0.7;
-        else if (t.includes(lower))        cs = 0.55;
-        else continue;
-        // Prefer elements whose text is mostly the query (the label, not a wrapper).
-        cs += (lower.length / Math.max(t.length, 1)) * 0.2;
-        if (raw === query || raw.includes(query)) cs += 0.15; // case-exact beats case-folded
-        if (cand.src === 'value') cs -= 0.3;                  // field content is not a label
-        if (cs > s) s = cs;
-      }
-      if (s <= 0) return 0;
-      // Visibility check last — it forces layout, so only pay for text matches.
-      if (!isElementVisible(el)) return 0;
-      if (el.children.length === 0) s += 0.05;
-      return s;
-    }
-
-    let best = null, bestScore = 0;
-    const consider = (el, bias) => {
-      const sc = score(el);
-      if (sc > 0 && sc + bias > bestScore) { bestScore = sc + bias; best = el; }
+    const seen = new Set();
+    const cands = [];
+    const consider = (el) => {
+      if (seen.has(el)) return;
+      const ts = textScoreOf(el, lower, query, wordRe);
+      if (ts <= 0) return;
+      if (!isElementVisible(el)) return; // invisible cannot be clicked — exclude
+      seen.add(el);
+      cands.push({
+        _el: el,
+        textScore: ts,
+        kind: classifyKind(el),
+        inViewport: inViewportEl(el),
+        hasAccessibleName: hasAccessibleName(el),
+        selector: selectorOf(el),
+        text: (el.textContent || '').trim().slice(0, 80),
+      });
     };
 
-    // Pass 1: explicit interactive elements (biased — the likely click targets).
     const interactiveSel =
       'button, a, input, textarea, select, label, summary, ' +
       '[role=button], [role=link], [role=tab], [role=menuitem], [role=option], ' +
       '[role=checkbox], [role=radio], [role=switch], [onclick], ' +
       '[tabindex]:not([tabindex="-1"])';
-    for (const el of document.querySelectorAll(interactiveSel)) consider(el, 0.1);
-
-    // Pass 2: text-bearing leaf elements (covers clickable div/span/li/etc.).
+    for (const el of document.querySelectorAll(interactiveSel)) consider(el);
     for (const el of document.querySelectorAll(
       'div, span, li, td, th, p, h1, h2, h3, h4, h5, h6, strong, b, em'
     )) {
       if (el.children.length > 2) continue; // skip large containers
-      consider(el, 0);
+      consider(el);
     }
 
-    return best;
+    if (!cands.length) return null;
+
+    const ranker = (typeof window !== 'undefined' && window.__SI_TEXT_RANK__) || null;
+    if (!ranker) {
+      // Defensive fallback if the lib failed to load: plain text-score order.
+      cands.sort((a, b) => b.textScore - a.textScore);
+      LAST_TEXT_MATCH = { kind: cands[0].kind, score: cands[0].textScore, candidates: [], note: 'text-rank lib unavailable' };
+      return cands[0]._el;
+    }
+
+    // Pass A: rank without reachability (cheap). Then probe occlusion on just the
+    // top contenders (bounded layout cost) and re-rank so an obstructed winner
+    // yields to a reachable one of similar score.
+    let res = ranker.rankCandidates(cands, { textMatch });
+    const PROBE = Math.min(res.ranked.length, 8);
+    for (let i = 0; i < PROBE; i++) {
+      const c = res.ranked[i];
+      c.clickable = occlusionClickable(c._el);
+    }
+    res = ranker.rankCandidates(res.ranked, { textMatch });
+
+    LAST_TEXT_MATCH = ranker.toMatchedBy(res, { limit: 5 });
+    return res.best ? res.best._el : null;
   }
 
   function findByCoords(x, y) {
@@ -272,10 +369,18 @@
   }
 
   function resolveTarget(action) {
+    LAST_TEXT_MATCH = null; // only a text resolution sets this
     if (action.selector) return findBySelector(action.selector);
-    if (action.text)     return findByText(action.text);
+    if (action.text)     return findByText(action.text, action.textMatch);
     if (action.x != null && action.y != null) return findByCoords(action.x, action.y);
     return null;
+  }
+
+  // Spreadable note for action results when the target was resolved by text —
+  // surfaces the ranked candidates and why the winner was chosen.
+  function textMatchNote(action) {
+    if (!(action && action.text && LAST_TEXT_MATCH)) return {};
+    return { matchedBy: LAST_TEXT_MATCH };
   }
 
   function scrollIntoView(el) {
@@ -596,6 +701,7 @@
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
           ...selectorAmbiguity(action),
+          ...textMatchNote(action),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -617,7 +723,7 @@
         dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
       }
 
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action) };
     },
 
     type(action) {
@@ -776,7 +882,7 @@
       el.dispatchEvent(new MouseEvent('mouseover',  opts));
       el.dispatchEvent(new MouseEvent('mouseenter', opts));
       el.dispatchEvent(new MouseEvent('mousemove',  opts));
-      return { ok: true, tagName: el.tagName };
+      return { ok: true, tagName: el.tagName, ...textMatchNote(action) };
     },
 
     mouse_scroll(action) {
@@ -830,6 +936,7 @@
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
           ...selectorAmbiguity(action),
+          ...textMatchNote(action),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -839,7 +946,7 @@
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action) };
     },
 
     analyze_click(action) {
@@ -1045,6 +1152,77 @@
     },
   };
 
+  // ── Action-type namespace bridge ─────────────────────────────────────────────
+  // MCP exposes write tools under names like `type_text` / `navigate_to`, but the
+  // executor's handlers use the bare verbs (`type` / `navigate`). The MCP layer
+  // translates (see write.js), but an agent hitting POST /api/action directly never
+  // gets that translation. Accept the MCP names as aliases so the two surfaces
+  // converge, and on a genuine miss return the valid set + nearest match instead of
+  // a dead-end string. This file is the single source of truth for action types.
+  const ACTION_ALIASES = {
+    type_text:   'type',
+    navigate_to: 'navigate',
+    scroll_page: 'scroll',
+    check_box:   'check',
+    reload_page: 'reload',
+  };
+
+  // Read/query tools live on the server, not in this executor. Agents sometimes POST
+  // them to /api/action by mistake — point them at the right surface rather than
+  // just saying "unknown".
+  const READ_ONLY_TOOLS = new Set([
+    'find_target', 'get_ui_catalog', 'get_text_coords', 'get_sessions', 'get_index',
+    'get_network', 'get_framework_state', 'get_viewport', 'get_console_logs',
+    'get_storage', 'get_dom_snapshot', 'get_accessibility', 'capture_screenshot',
+    'capture_packed_som', 'get_element_thumbnail',
+  ]);
+
+  function _levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, i) => i);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(
+          prev[j] + 1,
+          cur[j - 1] + 1,
+          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+      prev = cur;
+    }
+    return prev[n];
+  }
+
+  // Build a helpful result for an unrecognised action type: list the valid types,
+  // route read-tool names to the correct surface, and suggest the nearest verb.
+  function _unknownActionResult(type) {
+    const validTypes = Object.keys(handlers).sort();
+    // On failure the transport (postMessage below) forwards only `error` as a string —
+    // structured fields are dropped. So everything useful must live in the string. We
+    // keep the structured fields too, for any in-process caller that sees the object.
+    if (READ_ONLY_TOOLS.has(type)) {
+      const hint = `"${type}" is a read/query tool, not a page action — call it as an MCP tool (or its GET endpoint), do not POST it to /api/action.`;
+      return { ok: false, error: `Unknown action type: "${type}". ${hint}`, validTypes, hint, isReadTool: true };
+    }
+    const candidates = validTypes.concat(Object.keys(ACTION_ALIASES));
+    let best = null, bestD = Infinity;
+    const needle = String(type).toLowerCase();
+    for (const c of candidates) {
+      const d = _levenshtein(needle, c.toLowerCase());
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    const didYouMean = (best && bestD <= Math.max(2, Math.ceil(best.length / 3)))
+      ? (ACTION_ALIASES[best] || best)
+      : null;
+    const error = `Unknown action type: "${type}".`
+      + (didYouMean ? ` Did you mean "${didYouMean}"?` : '')
+      + ` Valid action types: ${validTypes.join(', ')}.`;
+    return { ok: false, error, validTypes, ...(didYouMean ? { didYouMean } : {}) };
+  }
+
   // ── Message listener ─────────────────────────────────────────────────────────
 
   window.addEventListener('message', async (event) => {
@@ -1053,7 +1231,9 @@
     if (event.data.type !== 'EXECUTE_ACTION_IN_PAGE') return;
 
     const { payload: act, listenerId } = event.data;
-    const handler = handlers[act.type];
+    // Resolve MCP write-tool aliases (type_text → type, …) to the dispatched verb.
+    const resolvedType = ACTION_ALIASES[act.type] || act.type;
+    const handler = handlers[resolvedType];
 
     // Scope native dialogs to this action (direct causality) and honour a per-call
     // dialog policy override: act.dialog = { confirm: boolean, prompt: string|null }.
@@ -1063,14 +1243,19 @@
       if ('prompt' in act.dialog)  DIALOG_POLICY.prompt  = act.dialog.prompt;
     }
     const dialogStart = DIALOG_LOG.length;
-    ACTION_CTX = { id: listenerId, label: act.type, startedAt: Date.now() };
+    ACTION_CTX = { id: listenerId, label: resolvedType, startedAt: Date.now() };
 
     let result;
     if (!handler) {
-      result = { ok: false, error: `Unknown action type: ${act.type}` };
+      result = _unknownActionResult(act.type);
     } else {
       try {
         result = await handler(act);
+        // Teach the canonical name back when an alias was used, so the agent converges.
+        if (result && typeof result === 'object' && resolvedType !== act.type) {
+          result._aliasedFrom = act.type;
+          result._canonicalType = resolvedType;
+        }
       } catch (e) {
         result = { ok: false, error: e.message };
       }

@@ -1,7 +1,18 @@
 /**
  * server/config-loader.js
  * Loads config.json from the project root.
- * Supports .env and environment variable overrides via WHISKOR_* prefix.
+ *
+ * Override layers, applied lowest-to-highest precedence:
+ *   1. config.json            — committed public defaults (the published baseline)
+ *   2. config.local.json      — git-ignored personal/machine overrides, deep-merged
+ *   3. WHISKOR_* env / .env    — final per-process overrides
+ *
+ * config.local.json lets a developer keep personal values (e.g. enabling
+ * execute_js locally, or text-first HTTP screenshots) WITHOUT editing the
+ * committed config.json — so the published defaults can never drift on push.
+ * Only the keys present in config.local.json are overridden; everything else
+ * falls through to config.json. It is deep-merged (nested objects merge; arrays
+ * and scalars replace).
  *
  * .env example:
  *   WHISKOR_SECURITY_ALLOWEXECUTEJS=false
@@ -18,6 +29,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
+const CONFIG_LOCAL_PATH = path.join(__dirname, '..', 'config.local.json');
 const DOTENV_PATH = path.join(__dirname, '..', '.env');
 const MCP_TOOLS_CONFIG_PATH = path.join(__dirname, 'configs', 'mcp-tools.json');
 
@@ -93,6 +105,42 @@ function applyEnvOverrides(config) {
   return config;
 }
 
+// ── Deep-merge an override object into a base config (mutates base) ───────────
+// Plain objects merge recursively; arrays and scalars replace wholesale. This is
+// the predictable semantics for config overrides — overriding updateFrequencies
+// replaces the array rather than splicing element-wise.
+function deepMerge(base, override) {
+  if (!override || typeof override !== 'object' || Array.isArray(override)) return base;
+  for (const key of Object.keys(override)) {
+    const ov = override[key];
+    const bv = base[key];
+    if (ov && typeof ov === 'object' && !Array.isArray(ov) &&
+        bv && typeof bv === 'object' && !Array.isArray(bv)) {
+      deepMerge(bv, ov);
+    } else {
+      base[key] = ov;
+    }
+  }
+  return base;
+}
+
+// ── Load git-ignored config.local.json (personal/machine overrides) ───────────
+// Returns {} when absent. A malformed local file is a hard error: it almost
+// always means the developer typo'd their own overrides, and silently ignoring
+// it would run with the published defaults they meant to change.
+function loadLocalConfig() {
+  if (!fs.existsSync(CONFIG_LOCAL_PATH)) return {};
+  try {
+    const local = JSON.parse(fs.readFileSync(CONFIG_LOCAL_PATH, 'utf8'));
+    stripComments(local);
+    return local;
+  } catch (e) {
+    console.error('[config] Failed to parse config.local.json:', e.message);
+    console.error('[config] Fix or remove config.local.json — ignoring it for now.');
+    return {};
+  }
+}
+
 // ── Main loader ───────────────────────────────────────────────────────────────
 function loadConfig() {
   loadDotEnv();
@@ -108,7 +156,8 @@ function loadConfig() {
     config = getDefaults();
   }
 
-  applyEnvOverrides(config);
+  deepMerge(config, loadLocalConfig());  // personal/machine overrides
+  applyEnvOverrides(config);             // env wins over everything
   return config;
 }
 
@@ -292,4 +341,4 @@ function getMcpToolsDefaults() {
   };
 }
 
-module.exports = { loadConfig, getDefaults, loadMcpToolsConfig, applyEnvOverrides };
+module.exports = { loadConfig, getDefaults, loadMcpToolsConfig, applyEnvOverrides, deepMerge, loadLocalConfig };

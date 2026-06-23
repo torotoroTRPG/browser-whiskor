@@ -48,6 +48,12 @@ await fetch("http://127.0.0.1:7892/api/action", {
 // → { ok, result?, error?, durationMs }
 ```
 
+**type 名について:**
+- 正規名は下記の動詞（`click` / `type` / `navigate` / `scroll` / `check` / `reload` …）
+- MCP ツール名（`type_text` / `navigate_to` / `scroll_page` / `check_box` / `reload_page`）も**alias として受理**される。MCP と HTTP で同じ名前を書いても通る。alias で呼ぶと結果に `_canonicalType` が付く
+- 不正な type を投げると `error` に **valid types 一覧と "Did you mean?"** が入る（行き止まりにならない）
+- **read/query 系（`find_target` / `get_ui_catalog` / `get_text_coords` / `get_sessions` / `get_network` / `capture_screenshot` 等）は action ではない** — POST /api/action に投げても失敗する。エンドポイントは別系統（`GET /api/sessions/:tabId/raw/...`、`POST /api/screenshot`、`POST /api/packed-som` 等。MCP では別ツールとして提供）
+
 ### クリック系
 
 ```javascript
@@ -55,6 +61,7 @@ await fetch("http://127.0.0.1:7892/api/action", {
 { type: "click", selector: "#login-btn" }             // CSSセレクタ
 { type: "click", x: 450, y: 320 }                     // 座標（SoMマーカーのcenter）
 { type: "click", selector: ".item", double: true }    // ダブルクリック
+{ type: "click", text: "x.com", textMatch: { prefer: "link" } }  // text解決のランキングをその場で上書き
 { type: "right_click", selector: ".menu-trigger" }    // 右クリック
 { type: "analyze_click", selector: "#btn" }           // ドライラン: クリック可能性レポートのみ（副作用なし）
 ```
@@ -73,6 +80,21 @@ await fetch("http://127.0.0.1:7892/api/action", {
 - `text` 指定は**可視のラベル**（textContent / aria-label / placeholder / title 等）を優先する。
   大文字小文字が一致する候補が優先され、入力欄の現在値（`value`）へのマッチは劣後する。
   非表示（`display:none` 等）の要素は対象にならない
+- `text` の候補ランキングは2層になっている。**ベースのスマート既定**: 同程度のテキスト一致なら
+  リンク/ボタン > input/label > プレーンテキストの順、viewport 内・accessible name あり・遮蔽
+  されていない（クリック可能な）要素を優先する。これにより `text:"x.com"` が検索結果の `.x.com`
+  というメタ文字列ではなく実際のリンクに当たる。**明確によいテキスト一致は順位を覆さない**
+  （重みはタイブレークのみ）。click / hover / right_click と `find_target` は同じランキングを共有する
+- **`textMatch`**（任意、全フィールド optional）で caller がその場でランキングを上書きできる：
+  - `prefer`: 優先する kind（`"link"`/`"button"`/`"input"`/`"label"`/`"text"` か配列）
+  - `scope`: `"viewport"` で画面外候補を除外
+  - `index`: 最終ランキングの N 番目（0 始まり）を選ぶ
+  - `boost`: `{ "セレクタ部分文字列": ボーナス }` か `["部分文字列"]` で特定要素を押し上げ
+  - `exclude`: セレクタ or テキストに含まれたら除外する部分文字列（文字列か配列）
+- 結果に **`matchedBy`** が付く: `{ kind, score, index, candidates:[{ text, kind, score, selector, inViewport,
+  clickable, signals }] }`。`signals` は最終スコアの内訳（textScore / kindBonus / viewportBonus /
+  nameBonus / preferBonus / boostBonus / reachPenalty）で、**なぜその要素が選ばれたか**を説明する
+  （捏造された信頼度ではなく根拠の直結値）。意図と違う要素に当たったら `textMatch` で補正できる
 - `selector` が複数要素にマッチした場合は最初の**可視**要素が選ばれ、結果に
   `selectorMatches`（マッチ数）と `selectorPickedIndex` が付く。付いていたらセレクタを見直す
 - React/MUI 等が生成する動的 ID（`#:r5k:` のような形式）は再レンダリングで変わるため

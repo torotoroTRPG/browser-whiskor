@@ -138,6 +138,13 @@ if ($LASTEXITCODE -eq 0) {
     Fail "Version mismatch — $VersionResult"
 }
 
+$ConfigResult = node (Join-Path $Root 'scripts/_check-config-defaults.js') 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Pass "config.json public defaults intact — $ConfigResult"
+} else {
+    Fail "config.json drifted from public defaults — $ConfigResult"
+}
+
 # ── 6. Model config consistency ──────────────────────────────────────────────
 Write-Host "`n  Model Config" -ForegroundColor White
 

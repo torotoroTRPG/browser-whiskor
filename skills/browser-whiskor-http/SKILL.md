@@ -105,7 +105,8 @@ await post("/api/action", { tabId, action: { type: "wait_for_element", selector:
 主な type: `click` / `type` / `press_key` / `hover` / `scroll` / `drag` / `select_option` / `check` /
 `navigate` / `go_back` / `go_forward` / `reload` / `wait_for_element` / `focus` / `clear_input` /
 `analyze_click`（クリック前のドライラン）/ `execute_js`（要 `security.allowExecuteJs: true`）。
-引数の詳細は [reference.md](reference.md)。
+引数の詳細は [reference.md](reference.md)。MCP ツール名（`type_text` / `navigate_to` 等）も
+alias として通る。`find_target` 等の read/query 系は action ではないので POST しない。
 
 操作のポイント:
 
@@ -115,6 +116,10 @@ await post("/api/action", { tabId, action: { type: "wait_for_element", selector:
   タブに操作やスクリーンショットを要求すると、拡張が先にそのタブへ切り替える
 - **動的 ID をセレクタに使わない** — React/MUI 等は `#:r5k:` のような再レンダリングで変わる ID を
   生成する。`text` 指定・安定した属性（`aria-label`, `name`, `data-*`）・SoM の座標を使う
+- **`text` 指定はランキングされる** — 同程度のテキスト一致ならリンク/ボタン > input/label >
+  プレーンテキスト、viewport 内・クリック可能な要素を優先する（`text:"x.com"` がメタ文字列でなく
+  実リンクに当たる）。結果の `matchedBy` で「なぜその要素が選ばれたか」が分かる。意図と違えば
+  `textMatch:{ prefer, scope, index, boost, exclude }` でその場で補正（詳細は [reference.md](reference.md)）
 - セレクタが複数要素にマッチした場合は最初の**可視**要素が選ばれ、結果に `selectorMatches` が付く。
   付いていたら意図した要素か確認し、セレクタを絞り込む
 

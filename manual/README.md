@@ -265,7 +265,7 @@ Invoke-RestMethod http://localhost:7892/api/action `
 # テキスト入力
 $body = @{
   tabId = 1
-  action = @{ type = "type"; selector = "#search-input"; value = "test" }
+  action = @{ type = "type"; selector = "#search-input"; text = "test" }
 } | ConvertTo-Json
 Invoke-RestMethod http://localhost:7892/api/action `
   -Method POST -ContentType "application/json" -Body $body
@@ -655,12 +655,12 @@ $ss2 | ConvertTo-Json
 
 ```powershell
 # ① 入力欄にテキスト
-$body = @{tabId=1; action=@{type="type"; selector="#email"; value="test@example.com"}} | ConvertTo-Json
+$body = @{tabId=1; action=@{type="type"; selector="#email"; text="test@example.com"}} | ConvertTo-Json
 Invoke-RestMethod http://localhost:7892/api/action`
   -Method POST -ContentType "application/json" -Body $body
 
 # ② パスワード欄
-$body = @{tabId=1; action=@{type="type"; selector="#password"; value="password123"}} | ConvertTo-Json
+$body = @{tabId=1; action=@{type="type"; selector="#password"; text="password123"}} | ConvertTo-Json
 Invoke-RestMethod http://localhost:7892/api/action`
   -Method POST -ContentType "application/json" -Body $body
 

@@ -6,6 +6,10 @@
 
 const { withFreshness, filterByViewport, fuzzyScore, classifyIntent } = require('./read-helpers');
 const { resolveBackend, setBackend } = require('./backend-selector');
+// Shared ranking policy — the same kind/viewport/reachability/textMatch logic the
+// browser-side click(text) resolver uses (shared/injected/lib/text-rank.js), so
+// find_target and click/hover/right_click order candidates identically.
+const textRank = require('../../../shared/injected/lib/text-rank.js');
 
 module.exports = function registerDataTools(registry) {
   const tools = [];
@@ -526,7 +530,7 @@ module.exports = function registerDataTools(registry) {
   tools.push({
     definition: {
       name: 'find_target',
-      description: 'Find the best interactive element(s) for a query. Combines get_ui_catalog (buttons/links/inputs, with accessible-name labels) and get_text_coords, fuzzy-ranks them (MiniLM when available), and returns ranked candidates with click coordinates (center), a selector hint, kind, score, and — for inputs — the inferred enterKey. Each candidate also carries a clickable hint (true/false/null) with obstructedBy when covered. Use this when you know WHAT to interact with ("送信", "search box", "next") but not the exact element. The returned center can be passed straight to click(x,y). Set verify=true to live-check the top candidate(s) clickability at call time (adds a round-trip; attaches a live{} report).',
+      description: 'Find the best interactive element(s) for a query. Combines get_ui_catalog (buttons/links/inputs, with accessible-name labels) and get_text_coords, fuzzy-ranks them (MiniLM when available), then applies the shared ranking policy (kind priority link/button > input/label > text, viewport, reachability) so a real link outranks a meta/breadcrumb text match of similar text score — the same policy click(text) uses. Returns ranked candidates with click coordinates (center), a selector hint, kind, score (true text score) and rankScore (policy-adjusted ordering), and — for inputs — the inferred enterKey. Each candidate also carries a clickable hint (true/false/null) with obstructedBy when covered. Pass textMatch to override the policy per call (prefer/scope/index/boost/exclude). Use this when you know WHAT to interact with ("送信", "search box", "next") but not the exact element. The returned center can be passed straight to click(x,y). Set verify=true to live-check the top candidate(s) clickability at call time (adds a round-trip; attaches a live{} report).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -538,6 +542,7 @@ module.exports = function registerDataTools(registry) {
           minScore:   { type: 'number', description: 'Minimum fuzzy score 0.0-1.0 (default: 0.3).' },
           verify:     { type: 'boolean', description: 'Re-check the top candidate(s) live (via analyze_click) for up-to-date clickability/obstruction at call time, instead of the collection-time hint. Adds one round-trip per verified candidate; attaches a live{} report and may correct clickable.' },
           verifyTop:  { type: 'number', description: 'How many top candidates to verify when verify=true (default: 1).' },
+          textMatch:  { type: 'object', description: 'Per-call overrides for the ranking policy (all optional). Same shape click/hover/right_click accept. { prefer: kind|[kinds] to boost (e.g. "link"); scope: "viewport" to drop off-screen candidates; index: pick the Nth-ranked (0-based) instead of the top; boost: {selectorSubstr: bonus} or [selectorSubstr] to nudge specific elements up; exclude: substr|[substrs] dropped when matched in selector or text }.' },
         },
         required: ['tabId', 'query'],
       },
@@ -599,26 +604,37 @@ module.exports = function registerDataTools(registry) {
       let scored;
       if (backend.batchFuzzyScore) {
         const scores = await backend.batchFuzzyScore(args.query, pool.map(c => c.text));
-        scored = pool.map((c, i) => ({ ...c, score: scores[i] }));
+        scored = pool.map((c, i) => ({ ...c, textScore: scores[i] }));
       } else {
-        scored = pool.map(c => ({ ...c, score: fuzzyScore(args.query, c.text) }));
+        scored = pool.map(c => ({ ...c, textScore: fuzzyScore(args.query, c.text) }));
       }
 
-      // Demote obstructed (clickable:false) and offscreen (null) candidates so a
-      // reachable target outranks a covered one of similar score — without overriding a
-      // clearly better text match. The reported score stays the true fuzzy score.
-      const reach = (c) => c.clickable === false ? 0.2 : (c.clickable === null ? 0.05 : 0);
-      const candidates = scored
-        .filter(c => c.score >= minScore)
-        .sort((a, b) => (b.score - reach(b)) - (a.score - reach(a)))
-        .slice(0, limit)
-        .map(c => ({
-          ...c,
-          score: Math.round(c.score * 100) / 100,
-          recommend: c.kind === 'input'
-            ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
-            : 'click(center.x, center.y) — or click(text)',
-        }));
+      // Gate on text relevance (the true fuzzy score), then defer ordering to the
+      // shared ranker: kind priority (link/button > input/label > text), viewport,
+      // reachability demotion, and any per-call textMatch overrides. This is the
+      // same policy click(text) applies in the browser, so a reachable link
+      // outranks a covered/meta text match of similar fuzzy score.
+      const vp = ui?.viewport || tc?.viewport || null;
+      const relevant = scored.filter(c => c.textScore >= minScore).map(c => ({
+        ...c,
+        inViewport: (vp && c.center)
+          ? (c.center.x >= vp.scrollX && c.center.x <= vp.scrollX + vp.width &&
+             c.center.y >= vp.scrollY && c.center.y <= vp.scrollY + vp.height)
+          : undefined,
+      }));
+      const ranked = textRank.rankCandidates(relevant, { textMatch: args.textMatch }).ranked.slice(0, limit);
+      const candidates = ranked.map(c => ({
+        kind: c.kind, text: c.text, center: c.center, selector: c.selector,
+        ...(c.enterKey ? { enterKey: c.enterKey } : {}),
+        ...(c.clickable !== undefined ? { clickable: c.clickable } : {}),
+        ...(c.obstructedBy ? { obstructedBy: c.obstructedBy } : {}),
+        ...(c.href ? { href: c.href } : {}),
+        score: Math.round(c.textScore * 100) / 100,   // true fuzzy/text score
+        rankScore: c.finalScore,                       // policy-adjusted ordering score
+        recommend: c.kind === 'input'
+          ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
+          : 'click(center.x, center.y) — or click(text)',
+      }));
 
       // Optional live verification: re-run clickability (analyze_click) on the top
       // candidate(s) so the agent gets call-time obstruction, not the collection-time

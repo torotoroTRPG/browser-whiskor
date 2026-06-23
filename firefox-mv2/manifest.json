@@ -21,6 +21,7 @@
         "injected/plugin-system.js",
         "lib/bippy.iife.js",
         "injected/lib/intent-classifier.js",
+        "injected/lib/text-rank.js",
         "injected/adapters/react-hooks.js",
         "injected/adapters/react-state-managers.js",
         "injected/adapters/react.js",
