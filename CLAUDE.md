@@ -229,7 +229,15 @@ TUI専用ビルトイン:
 
 ## Configuration
 
-`config.json` がメイン設定。`.env` ファイルや環境変数で `WHISKOR_<SECTION>_<KEY>=<value>` 形式で上書き可能。**ネストキーも可**：各 `_` 区切りが1階層を下り、キー名は大文字小文字・アンダースコアを無視して照合する（例：`WHISKOR_PRIVACY_SECRETGUARD_ENABLED=true` → `privacy.secretGuard.enabled`、`WHISKOR_AGENTCONTROL_PACKEDSOM_PREFETCHONNAVIGATE=true`）。既存キーに一致しない env は無視される（キーを新設しない）。実体は `config-loader.js` の `applyEnvOverrides`。
+`config.json` がメイン設定。設定は3層で重ね合わされる（下が優先）：
+
+1. **`config.json`** — コミット済みの公開既定（配布されるベースライン）
+2. **`config.local.json`** — git管理外（`.gitignore`済み）の個人/マシン固有上書き。起動時に config.json の上へ**ディープマージ**される（ネストオブジェクトはマージ、配列・スカラーは丸ごと置換）。公開既定と変えたいキーだけを書く＝書かなかったキーは config.json の値が使われる。**個人値（例：`security.allowExecuteJs: true`、`agentControl.screenshot.httpInlineImage: false`）はここに置き、config.json は公開既定のまま保つ**＝push時に既定がズレない
+3. **`.env` / 環境変数** — `WHISKOR_<SECTION>_<KEY>=<value>` 形式の最終上書き。**ネストキーも可**：各 `_` 区切りが1階層を下り、キー名は大文字小文字・アンダースコアを無視して照合する（例：`WHISKOR_PRIVACY_SECRETGUARD_ENABLED=true` → `privacy.secretGuard.enabled`、`WHISKOR_AGENTCONTROL_PACKEDSOM_PREFETCHONNAVIGATE=true`）。既存キーに一致しない env は無視される（キーを新設しない）
+
+実体は `config-loader.js` の `loadConfig`（config.json読込 → `deepMerge(loadLocalConfig())` → `applyEnvOverrides`）。`config.local.json` が壊れていても無害に無視（警告のみ）して公開既定で動く。
+
+公開既定の保護：`scripts/_check-config-defaults.js`（`npm run check-config`）が、セキュリティ上重要なキー（`security.allowExecuteJs`=false / `agentControl.screenshot.httpInlineImage`=true）が**コミット済み config.json で公開既定のまま**かを検証する。個人値がうっかり config.json に混入していると落ちる。CI（`ci.yml` の verify-sync）と `validate.ps1` の両方で実行される。
 
 主要な設定項目:
 - `security.allowExecuteJs`: デフォルト `false`。`execute_js` ツールを使うには `true` が必要
