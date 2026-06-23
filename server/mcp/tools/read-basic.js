@@ -6,6 +6,7 @@
 
 const { fuzzyScore, withFreshness, classifyIntent } = require('./read-helpers');
 const { resolveBackend, setBackend } = require('./backend-selector');
+const { renderLayoutMap } = require('../../layout-map');
 
 module.exports = function registerBasicTools(registry) {
   const tools = [];
@@ -447,6 +448,32 @@ module.exports = function registerBasicTools(registry) {
         return { error: 'Viewport data not available. Ensure the tab has the extension loaded and trigger refresh_data.' };
       }
       return withFreshness(args.tabId, 'text-coords', { ...vp, note: 'Real-time viewport position from page scroll events.' }, cache);
+    },
+  });
+
+  // 4b. get_layout_map
+  tools.push({
+    definition: {
+      name: 'get_layout_map',
+      description: 'Get a coarse ASCII map of where things are on the page — a cheap, every-turn spatial channel (~80-170 tokens, not a screenshot replacement). Interactive elements appear roughly where they sit on screen as bracketed ref tokens whose shape encodes kind: [n]=button, {n}=input/field, <n>=link. A legend maps each ref to its kind, label and center coordinates, so you can act via click(text:label) or the coordinates. Viewport-relative (only what is currently on screen); borderless by default. Use it for gross layout awareness ("search top-center, results center, paging bottom"); use capture_screenshot when pixels matter and get_ui_catalog for the full element list.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:  { type: 'number', description: 'Tab ID from get_sessions' },
+          width:  { type: 'number', description: 'Grid columns (default 40; ~24 for a cheaper, coarser tick). Clamped 12-120.' },
+          legend: { type: 'boolean', description: 'Include the ref→label legend (default true). Set false if you already hold get_ui_catalog refs — the grid alone is the compact part.' },
+          border: { type: 'boolean', description: 'Draw a +--+ border box (default false). Borderless keeps the same alignment with fewer tokens.' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      const catalog = await cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+      if (!catalog) return { error: 'UI catalog not available (needed for the layout map). Trigger refresh_data.' };
+      const viewport = await cache.readSessionFile(args.tabId, 'raw/visual/viewport.json');
+      const map = renderLayoutMap({ catalog, viewport }, { width: args.width, legend: args.legend, border: args.border });
+      return withFreshness(args.tabId, 'ui-catalog', map, cache);
     },
   });
 

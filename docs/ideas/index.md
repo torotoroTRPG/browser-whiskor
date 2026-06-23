@@ -18,11 +18,11 @@
 - **MULTILINGUAL_INTENT_AND_SCOPED_SEARCH** → semantic（`services/embed-service`）/ scoped（get_text_coords の focusScope）/ 横断検索（session-search）。doc の広い構想の一部
 - **SEARCH_PERFORMANCE_AND_LOAD_MANAGEMENT** → `services/load-monitor` ＋ `embed-worker-pool`
 - **Cache 自動修復 + ディスク管理** → `cache-integrity.js`。`enforceDiskLimit`（`stateGraph.maxDiskMB`）は **2026-06-18 に起動時へ配線**（それまでデッドコードだった。screenshots 側も `agentControl.screenshot.maxDiskMB` で別途プルーン）
+- **LAYOUT_ASCII_MAP** → `server/layout-map.js` ＋ MCP `get_layout_map`（core プロファイル、2026-06-24）。viewport 相対の粗い ASCII 地図、kind 形状 ref（`[n]`/`{n}`/`<n>`）＋任意 legend。grid 内ラベル・text アンカー・共有 ref は将来スライス
 
 ## 設計のみ / 構想（未実装）
 
 - **CLICK_EVIDENCE_AND_SOM_SCOPE** — クリック証拠バッファ + packed 範囲指定（[[project_click_evidence_som_scope]]）
-- **LAYOUT_ASCII_MAP** — 粗い ASCII レイアウト地図を毎ターン送る空間チャンネル（[[project_layout_ascii_map]]）。samples は `layout-ascii-samples/`
 - **MINILM_CLICK_TEXT_MATCHING** — click(text:) に MiniLM 統合（find_target で代替可ゆえ優先度低、[[project_minilm_click_text]]）
 - **NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION** — 名前空間マップ / piggyback 検証 / production mode（[[project_namespace_map_ai_verification]]）
 - **REALTIME_AUDIO_EAR** — AUDIO_STATE ポーリング（Phase1）/ 再生前 DSP（Phase2）（[[project_realtime_audio_ear]]）
