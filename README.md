@@ -422,6 +422,27 @@ Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profile
 | `trigger_collect` | Manual data collection |
 | `trigger_explorer` | Start/stop autonomous exploration |
 
+### MCP Resources & Prompts
+
+Beyond tools, the server also implements the MCP **`resources`** and **`prompts`** primitives (declared in the `initialize` capabilities and answered over the same stdio transport). They work identically in standalone and proxy mode.
+
+**Resources** — collected sessions exposed as readable context:
+
+| URI | Description |
+|-----|-------------|
+| `whiskor://sessions` | List of all instrumented tabs (tabId, title, url). Always present. |
+| `whiskor://session/{tabId}` | Full collected perception data for one tab (template + dynamic listing). |
+
+**Prompts** — canned workflows (`prompts/list` / `prompts/get`):
+
+| Prompt | Arguments | What it does |
+|--------|-----------|--------------|
+| `investigate_tab` | `tabId?` | Survey a tab end to end (framework state, UI catalog, text coords, network) and summarize. |
+| `debug_errors` | `tabId?` | Hunt console + network errors and explain the likely cause. |
+| `find_and_act` | `target`, `action?`, `value?` | Locate an element by visible text and act on it, disambiguating first. |
+| `explain_change` | `description?` | Explain what changed on the page and why, via delta + correlation. |
+| `map_states` | `tabId?` | Render the recorded UI state graph and describe navigation paths. |
+
 ---
 
 ## High-Fidelity Input (CDP)
