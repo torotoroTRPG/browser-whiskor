@@ -40,6 +40,37 @@ function recordingCb(config = {}) {
   };
 }
 
+describe('4.3 navigate_to', () => {
+  it('defaults to a 10s in-page wait and a 15s RPC timeout, without forcing waitUntil', async () => {
+    const cb = recordingCb();
+    await writeTools['navigate_to'].handler({ tabId: 7, url: 'https://example.com' }, cb);
+    const { tabId, action, timeoutMs } = cb.calls[0];
+    assert.strictEqual(tabId, 7);
+    assert.strictEqual(action.type, 'navigate');
+    assert.strictEqual(action.url, 'https://example.com');
+    assert.strictEqual(action.timeoutMs, 10000, 'in-page wait timeout rides on the action');
+    assert.strictEqual(action.waitUntil, undefined, 'omitted → background applies its domcontentloaded default');
+    assert.strictEqual(action.thenCollect, undefined);
+    assert.strictEqual(timeoutMs, 15000, 'RPC must outlive the in-page wait (wait + 5s buffer)');
+  });
+
+  it('forwards waitUntil and thenCollect when given', async () => {
+    const cb = recordingCb();
+    await writeTools['navigate_to'].handler(
+      { tabId: 1, url: 'https://x.test', waitUntil: 'load', thenCollect: true }, cb);
+    const a = cb.calls[0].action;
+    assert.strictEqual(a.waitUntil, 'load');
+    assert.strictEqual(a.thenCollect, true);
+  });
+
+  it('scales the RPC timeout with a custom wait timeout', async () => {
+    const cb = recordingCb();
+    await writeTools['navigate_to'].handler({ tabId: 1, url: 'https://x.test', timeoutMs: 30000 }, cb);
+    assert.strictEqual(cb.calls[0].action.timeoutMs, 30000);
+    assert.strictEqual(cb.calls[0].timeoutMs, 35000);
+  });
+});
+
 describe('4.3 click', () => {
   it('forwards a click action with the chosen target', async () => {
     const cb = recordingCb();

@@ -176,6 +176,82 @@ test.describe('MCP Tools - Write Operations', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+test.describe('MCP Tools - navigate-then-collect', () => {
+  test.describe.configure({ timeout: 120000 });
+
+  test.skip(({ browserName }) => browserName !== 'chromium');
+
+  // Open a fresh, guaranteed-live http tab via the whiskor open_tab action and
+  // return its real tabId. Relying on /api/sessions ordering is fragile here —
+  // the connection-wake helper opens and closes a dashboard tab, so the newest
+  // session can point at an already-closed tab id.
+  async function openLiveTab(page, url) {
+    const { body } = await httpPost(page, '/api/action', {
+      action: { type: 'open_tab', url, active: true },
+    });
+    const tabId = body?.result?.tabId;
+    if (tabId == null) throw new Error(`open_tab did not return a tabId: ${JSON.stringify(body)}`);
+    await page.waitForTimeout(1500); // let it load + the content script attach
+    return tabId;
+  }
+
+  test('navigate waits for the new page and reports navigated + collected (not navigating)', async ({ browserName }) => {
+    test.skip(browserName !== 'chromium');
+
+    const context = await launchWithExtension(chromium);
+    try {
+      const page = await context.newPage();
+      await waitForExtensionConnection(page);
+
+      // A real http tab (content scripts match http/https, not data:) we can drive.
+      const tabId = await openLiveTab(page, `${HTTP_URL}/`);
+
+      // Drive a whiskor navigate with the default wait + thenCollect. A query
+      // change forces a real top-frame navigation that fires webNavigation.
+      const { body: res } = await httpPost(page, '/api/action', {
+        tabId,
+        action: { type: 'navigate', url: `${HTTP_URL}/?nav=1`, thenCollect: true },
+      });
+
+      // action-executor wraps the page-side result under `result`.
+      expect(res.ok).toBe(true);
+      const r = res.result;
+      expect(r.navigated).toBe(true);
+      expect(r.navigating).toBeUndefined(); // old fire-and-forget shape is gone
+      expect(r.timedOut).toBeFalsy();        // dashboard loads well under 10s
+      expect(r.collected).toBe(true);
+      expect(r.waitUntil).toBe('domcontentloaded');
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('waitUntil:"none" keeps the legacy immediate (navigating) response', async ({ browserName }) => {
+    test.skip(browserName !== 'chromium');
+
+    const context = await launchWithExtension(chromium);
+    try {
+      const page = await context.newPage();
+      await waitForExtensionConnection(page);
+
+      const tabId = await openLiveTab(page, `${HTTP_URL}/`);
+
+      const { body: res } = await httpPost(page, '/api/action', {
+        tabId,
+        action: { type: 'navigate', url: `${HTTP_URL}/?nav=2`, waitUntil: 'none' },
+      });
+
+      expect(res.ok).toBe(true);
+      const r = res.result;
+      expect(r.navigating).toBe(true);
+      expect(r.navigated).toBeUndefined();
+    } finally {
+      await context.close();
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 test.describe('MCP Tools - Capture Operations', () => {
 
   test.skip(({ browserName }) => browserName !== 'chromium');
