@@ -54,18 +54,19 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (66 tools, configurable visibility)                 │
+│  MCP Layer (68 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
 │  mcp/transport.js       ← stdio JSON-RPC transport             │
-│  mcp/tools/read*.js     ← 22 read tools (sessions, DOM, states)│
+│  mcp/tools/read*.js     ← 23 read tools (sessions, DOM, states)│
 │  mcp/tools/write.js     ← 17 write tools (click, type, type_secret — observe opt.) │
 │  mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close) │
 │  mcp/tools/capture*.js  ← 5 capture tools (screenshot, element,│
 │                           packed SoM, thumbnail, refresh)      │
 │  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
 │  mcp/tools/intelligence.js ← 6 intelligence tools              │
+│  mcp/tools/ocr.js       ← ocr_region (pixel OCR, bring-your-own)│
 │  mcp/tools/source.js    ← get_source_context (uploaded source) │
 │  mcp/tools/replay.js    ← replay_session                       │
 │                                                                │
@@ -287,15 +288,15 @@ Warning codes:
 
 ---
 
-## MCP Tools (66 tools)
+## MCP Tools (68 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 68 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
-| **core** (16) | get_sessions, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, capture_packed_som, get_element_thumbnail, click, type_text, navigate_to | Always loaded | Never |
+| **core** (17) | get_sessions, search_all_tabs, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, capture_packed_som, get_element_thumbnail, click, type_text, navigate_to | Always loaded | Never |
 | **debug** (+6) | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10 turns |
 | **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
