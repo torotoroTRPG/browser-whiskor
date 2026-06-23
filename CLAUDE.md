@@ -189,6 +189,14 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 動的なツール増減は MCP の `notifications/tools/list_changed` で通知される（`tools/call` の前後で可視ツール集合が変わったとき。capabilities で `tools.listChanged: true` を宣言。実体は `mcp/transport.js` の `handleLine`）。通知に追従しないクライアント向けには `mcpServer.staticTools: true`（または `--static-tools`）で全プロファイル常時公開の**静的モード**にできる（`tool-manager.js` の `setStaticMode`）。なお MCP stdio 動作中は `console.log`/`console.info` が stderr へリダイレクトされる（stdout は JSON-RPC 専用チャネルのため。`transport.js` の `startMcpServer` 冒頭）。
 
+### MCP resources / prompts プリミティブ
+
+`tools` に加えて MCP の **`resources`** と **`prompts`** プリミティブも宣言・実装している（`initialize` の capabilities に `resources: {}` / `prompts: {}` を申告）。実体は `mcp/resources.js` と `mcp/prompts.js`、配線は `mcp/transport.js` の `handleLine`。proxy / standalone のどちらでも同一に動く（resources のデータは `cache` callback 経由＝proxy では worker への HTTP 転送、standalone では in-process）。
+
+- **resources**（`resources/list` ・ `resources/templates/list` ・ `resources/read`）: 収集済みセッションを読み取り可能な context として公開する。`whiskor://sessions`（全アクティブセッション一覧・常設）と `whiskor://session/{tabId}`（1セッション詳細・テンプレート＋動的列挙）。cache 未配線時は静的リソースのみへ degrade（capability 宣言は保つ）
+- **prompts**（`prompts/list` ・ `prompts/get`）: 定型ワークフローのプロンプトテンプレート（`investigate_tab` / `debug_errors` / `find_and_act` / `explain_change` / `map_states`）。データ依存ゼロの純テンプレート展開。必須引数欠落は `-32602` で返す
+- これらは LobeHub ディレクトリ評価の「リソース」「注意喚起(prompts)」項目を**実機能で**満たすためのもの（[docs/LOBEHUB_QUALITY_PLAN.md] 参照）
+
 MCPを使わないエージェント向けには、HTTP APIだけでブラウザを知覚・操作する同梱スキルが `skills/browser-whiskor-http/` にある（コピーして使う。`skills/README.md` 参照）。
 
 ## Extension Setup

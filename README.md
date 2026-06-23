@@ -1,5 +1,7 @@
 # browser-whiskor
 
+[![MCP Badge](https://lobehub.com/badge/mcp/torotorotrpg-browser-whiskor)](https://lobehub.com/mcp/torotorotrpg-browser-whiskor)
+
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
 ## What This Is (and Isn't)
@@ -419,6 +421,27 @@ Instead of exposing all 66 tools at once, browser-whiskor uses **dynamic profile
 | `get_config_changes` | Review config changes made during session |
 | `trigger_collect` | Manual data collection |
 | `trigger_explorer` | Start/stop autonomous exploration |
+
+### MCP Resources & Prompts
+
+Beyond tools, the server also implements the MCP **`resources`** and **`prompts`** primitives (declared in the `initialize` capabilities and answered over the same stdio transport). They work identically in standalone and proxy mode.
+
+**Resources** — collected sessions exposed as readable context:
+
+| URI | Description |
+|-----|-------------|
+| `whiskor://sessions` | List of all instrumented tabs (tabId, title, url). Always present. |
+| `whiskor://session/{tabId}` | Full collected perception data for one tab (template + dynamic listing). |
+
+**Prompts** — canned workflows (`prompts/list` / `prompts/get`):
+
+| Prompt | Arguments | What it does |
+|--------|-----------|--------------|
+| `investigate_tab` | `tabId?` | Survey a tab end to end (framework state, UI catalog, text coords, network) and summarize. |
+| `debug_errors` | `tabId?` | Hunt console + network errors and explain the likely cause. |
+| `find_and_act` | `target`, `action?`, `value?` | Locate an element by visible text and act on it, disambiguating first. |
+| `explain_change` | `description?` | Explain what changed on the page and why, via delta + correlation. |
+| `map_states` | `tabId?` | Render the recorded UI state graph and describe navigation paths. |
 
 ---
 

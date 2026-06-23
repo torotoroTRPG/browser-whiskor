@@ -9,6 +9,8 @@
 
 const readline = require('readline');
 const registry = require('./registry');
+const prompts = require('./prompts');
+const resources = require('./resources');
 
 // package.json is the single source of truth for the version (no hardcoding).
 let PKG_VERSION = '0.0.0';
@@ -112,13 +114,27 @@ async function handleLine(line, identity = null) {
       const redaction = await resolveRedaction(registry.getCallbacks());
       result = {
         protocolVersion: '2024-11-05',
-        capabilities:    { tools: { listChanged: true } },
+        capabilities:    {
+          tools:     { listChanged: true },
+          resources: {},
+          prompts:   {},
+        },
         serverInfo:      buildServerInfo(identity, redaction),
       };
     } else if (method === 'notifications/initialized') {
       return [];
     } else if (method === 'tools/list') {
       result = { tools: registry.getFilteredTools() };
+    } else if (method === 'resources/list') {
+      result = { resources: await resources.listResources(registry.getCallbacks()) };
+    } else if (method === 'resources/templates/list') {
+      result = { resourceTemplates: resources.listResourceTemplates() };
+    } else if (method === 'resources/read') {
+      result = await resources.readResource(params && params.uri, registry.getCallbacks());
+    } else if (method === 'prompts/list') {
+      result = { prompts: prompts.listPrompts() };
+    } else if (method === 'prompts/get') {
+      result = prompts.getPrompt(params && params.name, (params && params.arguments) || {});
     } else if (method === 'tools/call') {
       // Dynamic profiles can change the visible toolset as a side effect of this
       // very call. Clients that cache tools/list (i.e. don't re-fetch on every
@@ -136,7 +152,7 @@ async function handleLine(line, identity = null) {
     out.unshift({ jsonrpc: '2.0', id, result });
     return out;
   } catch (err) {
-    return [{ jsonrpc: '2.0', id, error: { code: -32603, message: err.message } }];
+    return [{ jsonrpc: '2.0', id, error: { code: err.code || -32603, message: err.message } }];
   }
 }
 
