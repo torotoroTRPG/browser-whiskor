@@ -121,9 +121,10 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
             ├── plugin-system.js      ← ホットリロード可能なプラグインレジストリ
             ├── collector.js          ← プラグイン出力アグリゲーター
             ├── bridge.js             ← ISOLATED world中継
-            ├── executor.js           ← アクション実行 (click/type/key/scroll/JS)
+            ├── executor.js           ← アクション実行 (click/type/key/scroll/JS。click/hover/right_click の text 解決は lib/text-rank.js で順位付け)
             ├── explorer.js           ← 自律ページ探索 (compositeHash)
             ├── state-reporter.js     ← REQUEST_STATE_HASH ハンドラ
+            ├── lib/text-rank.js      ← text ターゲット解決のランキングポリシー (UMD: browser global ＋ server require 兼用)。executor の click(text) と server の find_target が共有
             ├── adapters/             ← フレームワーク状態抽出 (9アダプター)
             │   react.js + react-hooks.js + react-state-managers.js
             │   vue3.js / vue2.js / angular.js / svelte.js
