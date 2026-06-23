@@ -1,5 +1,7 @@
 # browser-whiskor
 
+[![MCP Badge](https://lobehub.com/badge/mcp/torotorotrpg-browser-whiskor)](https://lobehub.com/mcp/torotorotrpg-browser-whiskor)
+
 **Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
 
 ## What This Is (and Isn't)
