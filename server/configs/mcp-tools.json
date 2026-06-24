@@ -40,6 +40,7 @@
     "get_index":          { "enabled": true,  "category": "read" },
     "get_text_coords":    { "enabled": true,  "category": "read" },
     "get_viewport":       { "enabled": true,  "category": "read" },
+    "get_layout_map":     { "enabled": true,  "category": "read" },
     "get_framework_state": { "enabled": true, "category": "read" },
     "get_network":        { "enabled": true,  "category": "read" },
     "get_ui_catalog":     { "enabled": true,  "category": "read" },

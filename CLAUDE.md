@@ -59,11 +59,11 @@ AI Agent (Claude / Cursor / etc.)
     ▼
 server/index.js          ← エントリーポイント。HTTP:7892 + WS:7891 を立ち上げ
     ├── server/core.js           ← WhiskorCore: WSメッセージのルーティングと永続化
-    ├── server/mcp-server.js     ← MCP層 (68ツール)
+    ├── server/mcp-server.js     ← MCP層 (69ツール)
     │       ├── mcp/registry.js        ← ツール登録・フィルター・プリセット
     │       ├── mcp/transport.js       ← stdio JSON-RPCトランスポート
     │       └── mcp/tools/
-    │               ├── read-basic.js / read-data.js / read-state.js (+read.js/read-helpers.js) ← 23 readツール (search_all_tabs 含む)
+    │               ├── read-basic.js / read-data.js / read-state.js (+read.js/read-helpers.js) ← 24 readツール (search_all_tabs / get_layout_map 含む)
     │               ├── write.js       ← 17 writeツール (type_secret 含む。click/type等は observe オプションで操作後の状態ハッシュ安定を観測可能)
     │               ├── tabs.js        ← 4 タブ管理ツール (list_tabs/switch_tab/open_tab/close_tab)
     │               ├── capture.js / capture-element.js  ← 5 captureツール (capture_packed_som / get_element_thumbnail 含む)
@@ -171,11 +171,11 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 
 ### MCPツールプロファイル
 
-常時公開は17ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` / `analyze_click` の5つは常時公開される「メタツール」（`server/tool-manager.js` の `ALWAYS_VISIBLE_TOOLS`）。
+常時公開は18ツールの `core` プロファイルのみ。他のプロファイルはキーワード自動検出またはAIの明示的なロードで動的に有効化・無効化される。`search_tools` / `load_profile` / `unload_profile` / `profile_status` / `analyze_click` の5つは常時公開される「メタツール」（`server/tool-manager.js` の `ALWAYS_VISIBLE_TOOLS`）。
 
 | プロファイル | ツール数 | 主なツール | 自動トリガーキーワード | アイドル解除 |
 |---|---|---|---|---|
-| **core** (17) | 常時 | get_sessions, search_all_tabs, get_index, get_text_coords, get_viewport, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, capture_packed_som, get_element_thumbnail, click, type_text, navigate_to | — | なし |
+| **core** (18) | 常時 | get_sessions, search_all_tabs, get_index, get_text_coords, get_viewport, get_layout_map, get_framework_state, get_ui_catalog, get_network, find_target, refresh_data, capture_screenshot, capture_element_screenshot, capture_packed_som, get_element_thumbnail, click, type_text, navigate_to | — | なし |
 | **debug** (+6) | 自動 | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10ターン |
 | **state-nav** (+9) | 自動 | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8ターン |
 | **delta** (+3) | 自動 | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6ターン |

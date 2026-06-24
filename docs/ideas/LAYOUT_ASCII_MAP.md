@@ -1,6 +1,13 @@
 # ASCII layout map — a cheap every-turn spatial channel
 
-**Status:** design / proposed (2026-06-17)
+**Status:** v1 implemented (2026-06-24) — `server/layout-map.js` + MCP `get_layout_map` (core profile).
+
+**v1 が満たすもの:** viewport 相対グリッド、interactive 要素を kind 形状の ref トークンで配置（`[n]`=button / `{n}`=input / `<n>`=link）、reading 順の安定番号、borderless 既定（`border:true` で枠）、legend 任意（ref→kind+label+中心座標）、衝突は右シフト→収まらなければ legend で `⚠offgrid` 明示、viewport 外は除外してカウント。`width` 既定40（12-120）。データは既存の `raw/ui/elements.json`＋`raw/visual/viewport.json` のみ（新規収集なし）。テスト: `tests/unit/layout-map.test.js`（8）。
+**v1 で見送り（将来）:** grid 内ラベル（今は legend のみ）、text-coords によるテキスト領域アンカー、ui-catalog との共有 ref（現状は地図内ローカル番号）、scroll above/below-fold ヒント、密度に応じた width 自動選択。
+
+---
+
+（以下は当時の設計メモ。Status: design / proposed (2026-06-17)）
 
 ## The idea
 
