@@ -2,10 +2,12 @@
  * tests/unit/tui-field-edit.test.js
  *
  * Exercises the field-edit overlay's pure helpers (server/tui/app.js):
- * detectFields() locates the `""` / `"https://"` placeholders inside a real
- * action-catalog command template, and substituteFields() splices typed
- * values back in. The interactive parts (→/← triggers, Tab/Enter stepping
- * through fields) live in the raw-mode key loop and aren't unit-tested here.
+ * detectFields() locates the editable JSON values (empty placeholders AND
+ * already-filled string/number values, minus the structural type/tabId keys)
+ * inside a real action-catalog command template, substituteFields() splices
+ * typed values back in, and stepNumber() does the numeric ±step (G). The
+ * interactive parts (→/← triggers, Tab/Enter/Ctrl-Alt+↑↓ stepping through
+ * fields) live in the raw-mode key loop and aren't unit-tested here.
  */
 
 import { describe, it } from 'node:test';
@@ -14,7 +16,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { baseCatalog, expandCatalog } = require('../../server/cli-shell');
-const { detectFields, substituteFields } = require('../../server/tui/app');
+const { detectFields, substituteFields, stepNumber } = require('../../server/tui/app');
 
 function actionEntry(typeName) {
   const cat = expandCatalog(baseCatalog(), [], []);
@@ -45,17 +47,63 @@ describe('detectFields', () => {
     const fields = detectFields(entry.text);
     assert.deepStrictEqual(fields.map(f => f.key), ['url']);
     assert.strictEqual(entry.text.slice(fields[0].start, fields[0].end), 'https://');
-    assert.strictEqual(fields[0].placeholder, 'https://');
+    assert.strictEqual(fields[0].value, 'https://');
+    assert.strictEqual(fields[0].type, 'string');
   });
 
-  it('does not flag a real default value (press_key key=Enter)', () => {
+  it('prefills an already-filled string value (press_key key=Enter)', () => {
     const entry = actionEntry('press_key');
-    assert.deepStrictEqual(detectFields(entry.text), []);
+    const fields = detectFields(entry.text);
+    assert.deepStrictEqual(fields.map(f => f.key), ['key']);
+    assert.strictEqual(fields[0].value, 'Enter');
+    assert.strictEqual(entry.text.slice(fields[0].start, fields[0].end), 'Enter');
   });
 
-  it('returns nothing for commands with no string placeholders', () => {
+  it('detects a numeric value with type=number (scroll deltaY)', () => {
+    const entry = actionEntry('scroll');
+    const fields = detectFields(entry.text);
+    assert.deepStrictEqual(fields.map(f => f.key), ['deltaY']);
+    assert.strictEqual(fields[0].type, 'number');
+    assert.strictEqual(fields[0].value, '500');
+    assert.strictEqual(entry.text.slice(fields[0].start, fields[0].end), '500');
+  });
+
+  it('skips the structural type/tabId keys (go_back has neither param)', () => {
     const entry = actionEntry('go_back');
     assert.deepStrictEqual(detectFields(entry.text), []);
+  });
+});
+
+describe('substituteFields (numbers)', () => {
+  it('splices a numeric value back unquoted', () => {
+    const entry = actionEntry('scroll');
+    const fields = detectFields(entry.text);
+    const out = substituteFields(entry.text, fields, ['-250']);
+    assert.ok(out.includes('"deltaY":-250'), out);
+    assert.ok(JSON.parse(out.replace(/^POST \/api\/action /, '')), 'result stays valid JSON');
+  });
+
+  it('keeps the original number when the field is left blank', () => {
+    const entry = actionEntry('scroll');
+    const fields = detectFields(entry.text);
+    const out = substituteFields(entry.text, fields, ['']);
+    assert.ok(out.includes('"deltaY":500'));
+  });
+});
+
+describe('stepNumber', () => {
+  it('steps integers up and down', () => {
+    assert.strictEqual(stepNumber('500', 10), '510');
+    assert.strictEqual(stepNumber('500', -1), '499');
+  });
+  it('can cross zero into negatives', () => {
+    assert.strictEqual(stepNumber('5', -10), '-5');
+  });
+  it('avoids float drift on decimal steps', () => {
+    assert.strictEqual(stepNumber('0.2', 0.1), '0.3');
+  });
+  it('leaves a non-numeric value untouched', () => {
+    assert.strictEqual(stepNumber('abc', 1), 'abc');
   });
 });
 

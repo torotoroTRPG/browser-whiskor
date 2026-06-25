@@ -37,5 +37,29 @@ module.exports = function registerSourceTools(registry) {
         return { error: e.message };
       }
     },
+  }, {
+    definition: {
+      name: 'capture_sources',
+      description: "Capture the page's resources (JS/CSS/HTML) of a tab via the DevTools getResources() API, which reads from the browser cache and so bypasses the CORS limits that block the page-context source fetcher — letting cross-origin CDN bundles (e.g. a SPA's main.*.js) actually be stored. REQUIRES the browser-whiskor DevTools panel to be OPEN on the target tab (getResources is only available there); if it isn't, returns { ok:false, error:'no_devtools' }. With `includeNetwork`, also captures XHR/fetch response bodies (API JSON) that getResources never sees, via the DevTools network HAR. Stored files land in the tab's source cache (download via the dashboard /export?tabId= or GET /api/sources/:tabId/zip). Returns { ok, stored, count }.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:         { type: 'number', description: 'Tab to capture (from get_sessions).' },
+          includeBinary: { type: 'boolean', description: 'Also capture binary assets (images/fonts/media) as raw bytes, not just JS/CSS/HTML. Default false — code only.' },
+          includeNetwork:{ type: 'boolean', description: 'Also capture XHR/fetch response bodies recorded by the DevTools network panel (API responses getResources() misses). Default false. Only what DevTools observed while open; combine with `reload` to also catch the initial page load.' },
+          reload:        { type: 'boolean', description: 'With includeNetwork, reload the page first so ALL requests (including the initial load) are recorded, then wait for the network to go quiet. Default false — RELOADING DESTROYS THE CURRENT PAGE STATE, so opt in deliberately. Raise `timeoutMs` (e.g. 30000) to allow for the reload+settle time.' },
+          timeoutMs:     { type: 'number', description: 'How long to wait for the panel to respond (default 15000; raise to ~30000 when using reload).' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._sourceCapture) return { error: 'Source capture not available in this mode.' };
+      try {
+        return await cb._sourceCapture(args || {});
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
   }]);
 };

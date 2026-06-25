@@ -73,11 +73,12 @@
     install(api) {},
 
     async collect(api, ctx) {
-      const cfg = window.__SI_CONFIG__?.plugins?.intelligence?.sourceFetcher || {};
+      const cfg = api.getConfig()?.plugins?.intelligence?.sourceFetcher || {};
       if (cfg.enabled === false) return null;
 
       const storeJs        = cfg.storeJs          || false;
-      const maxCssBytes    = cfg.maxCssSizeBytes   || 524288; // 512 KB
+      const maxCssBytes    = cfg.maxCssSizeBytes   || 524288;  // 512 KB
+      const maxJsBytes     = cfg.maxJsSizeBytes    || 5242880; // 5 MB
       const updateDetect   = cfg.updateDetection   !== false;
 
       // Gather URLs: from ctx, from document.styleSheets, and from script tags
@@ -138,7 +139,8 @@
           continue;
         }
 
-        if (kind === 'css' && text.length > maxCssBytes) {
+        const maxBytes = kind === 'js' ? maxJsBytes : maxCssBytes;
+        if (text.length > maxBytes) {
           // Exceeds cap: hash only
           const hash = hashContent(text);
           results.push({ url, kind, acquisition_level: 3, hash, byteLength: text.length, stored: false, capped: true });

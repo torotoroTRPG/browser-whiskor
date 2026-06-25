@@ -63,13 +63,17 @@ function scheduleSave() {
 
 // ── Source content storage ────────────────────────────────────────────────────
 
-function storeContent(sessionDir, hash, kind, content) {
+// Persist one source file. encoding='base64' is written as raw bytes (binary
+// assets — images/fonts captured via the DevTools getResources path); anything
+// else is written as UTF-8 text.
+function storeContent(sessionDir, hash, kind, content, encoding) {
   if (!content || !hash) return null;
   const contentDir = path.join(sessionDir, 'raw', 'sources', 'content');
   try {
     ensureDir(contentDir);
     const fname = path.join(contentDir, `${hash.slice(0, 8)}.${kind}`);
-    fs.writeFileSync(fname, content, 'utf8');
+    if (encoding === 'base64') fs.writeFileSync(fname, Buffer.from(content, 'base64'));
+    else                       fs.writeFileSync(fname, content, 'utf8');
     return fname;
   } catch (e) {
     console.error('[source-store] Failed to store content:', e.message);
@@ -77,11 +81,25 @@ function storeContent(sessionDir, hash, kind, content) {
   }
 }
 
+function _contentPath(sessionDir, hash, kind) {
+  return path.join(sessionDir, 'raw', 'sources', 'content', `${hash.slice(0, 8)}.${kind}`);
+}
+
 function readContent(sessionDir, hash, kind) {
   if (!hash) return null;
-  const fname = path.join(sessionDir, 'raw', 'sources', 'content', `${hash.slice(0, 8)}.${kind}`);
   try {
+    const fname = _contentPath(sessionDir, hash, kind);
     if (fs.existsSync(fname)) return fs.readFileSync(fname, 'utf8');
+  } catch (_) {}
+  return null;
+}
+
+// Raw bytes for a stored file (any kind, incl. binary) — used by the ZIP export.
+function readContentBuffer(sessionDir, hash, kind) {
+  if (!hash) return null;
+  try {
+    const fname = _contentPath(sessionDir, hash, kind);
+    if (fs.existsSync(fname)) return fs.readFileSync(fname);
   } catch (_) {}
   return null;
 }
@@ -98,9 +116,12 @@ function handleSourceContent(msg, sessionDir, sessionId) {
   const files   = Array.isArray(payload.files) ? payload.files : [];
   const changed = [];
 
+  const manifestRows = [];
+
   for (const file of files) {
-    const { url, kind, hash, byteLength, stored, content } = file;
+    const { url, kind, hash, byteLength, stored, content, encoding } = file;
     if (!url || !hash) continue;
+    const enc = encoding === 'base64' ? 'base64' : 'utf-8';
 
     const prev = _hashes[url];
     const isChanged = prev && prev.hash !== hash;
@@ -120,22 +141,35 @@ function handleSourceContent(msg, sessionDir, sessionId) {
       });
     }
 
-    // Update hash registry
+    // Update cross-session hash registry
     _hashes[url] = {
       hash,
       byteLength:  byteLength || null,
       acquiredAt:  Date.now(),
       sessionId:   sessionId || 'unknown',
       kind:        kind || null,
+      encoding:    enc,
     };
     _dirty = true;
     scheduleSave();
 
-    // Persist content if provided
+    // Persist content if provided (base64 → raw bytes for binary assets)
     if (stored && content && sessionDir) {
-      storeContent(sessionDir, hash, kind || 'css', content);
+      storeContent(sessionDir, hash, kind || 'css', content, enc);
     }
+
+    manifestRows.push({
+      url, kind: kind || 'css', hash,
+      byteLength: byteLength || null,
+      stored: !!(stored && content),
+      encoding: enc,
+      acquisitionLevel: file.acquisition_level ?? null,
+      capped: !!file.capped,
+    });
   }
+
+  // Per-session manifest powers listing + the folder-structured ZIP export.
+  if (sessionDir && manifestRows.length) updateSessionManifest(sessionDir, manifestRows);
 
   return changed;
 }
@@ -150,7 +184,8 @@ function getSourceFile(url, sessionDir) {
   if (!entry) return null;
 
   let content = null;
-  if (sessionDir && entry.hash) {
+  // Don't read binary assets back as text (would be mojibake); hash-only for those.
+  if (sessionDir && entry.hash && entry.encoding !== 'base64') {
     content = readContent(sessionDir, entry.hash, entry.kind || 'css');
   }
 
@@ -200,12 +235,100 @@ function getHashMap() {
   return map;
 }
 
+// ── Per-session source manifest (url → file meta) ──────────────────────────────
+// The cross-session _hashes registry is keyed by URL and overwritten by the most
+// recent session, so it can't reconstruct one session's file set. We keep a small
+// per-session manifest (files.json) for listing + the folder-structured ZIP export.
+function _manifestPath(sessionDir) {
+  return path.join(sessionDir, 'raw', 'sources', 'files.json');
+}
+
+function readSessionManifest(sessionDir) {
+  try {
+    const fp = _manifestPath(sessionDir);
+    if (fs.existsSync(fp)) {
+      const m = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      if (m && m.files) return m;
+    }
+  } catch (_) {}
+  return { files: {} };
+}
+
+function updateSessionManifest(sessionDir, rows) {
+  const m = readSessionManifest(sessionDir);
+  for (const r of rows) {
+    m.files[r.url] = {
+      kind: r.kind, hash: r.hash, byteLength: r.byteLength,
+      stored: r.stored, encoding: r.encoding,
+      acquisitionLevel: r.acquisitionLevel, capped: r.capped,
+      path: urlToPath(r.url), updatedAt: Date.now(),
+    };
+  }
+  try {
+    ensureDir(path.dirname(_manifestPath(sessionDir)));
+    fs.writeFileSync(_manifestPath(sessionDir), JSON.stringify(m, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[source-store] Failed to write files.json:', e.message);
+  }
+}
+
+// ── URL → folder path (shared rule; see combined-design DESIGN §3) ─────────────
+// host + pathname, query/fragment stripped, trailing "/" → index.html, illegal
+// filename chars → "_". Special schemes (blob:/data:/chrome-extension:) → null.
+function urlToPath(rawUrl) {
+  if (!rawUrl) return null;
+  let u;
+  try { u = new URL(rawUrl); }
+  catch { try { u = new URL(rawUrl, 'http://_relative'); } catch { return null; } }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  let pathname = u.pathname || '/';
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  let p = (u.hostname || '_') + pathname;
+  p = p.replace(/\/{2,}/g, '/');
+  p = p.split('/').map(seg => seg.replace(/[\\:*?"<>|]/g, '_')).join('/');
+  if (p.length > 200) {                       // keep host, truncate the tail
+    const i = p.indexOf('/');
+    const host = i > 0 ? p.slice(0, i) : '_';
+    p = host + '/' + p.slice(-180);
+  }
+  return p;
+}
+
+// ── Listing + ZIP export for one session ───────────────────────────────────────
+function getSessionSources(sessionDir) {
+  const m = readSessionManifest(sessionDir);
+  return Object.entries(m.files).map(([url, meta]) => ({ url, ...meta }));
+}
+
+// Rebuild a folder-structured ZIP (host/path/file.ext) from the session manifest,
+// reading each stored file's raw bytes by hash. Returns a Buffer or null if empty.
+function buildSourcesZip(sessionDir) {
+  const m = readSessionManifest(sessionDir);
+  const entries = [];
+  const used = new Set();
+  for (const [url, meta] of Object.entries(m.files)) {
+    if (!meta.stored) continue;
+    const buf = readContentBuffer(sessionDir, meta.hash, meta.kind);
+    if (!buf) continue;
+    let name = meta.path || urlToPath(url) || `_unmapped/${meta.hash.slice(0, 8)}.${meta.kind}`;
+    if (used.has(name)) name = `${name}.${meta.hash.slice(0, 8)}`; // disambiguate collisions
+    used.add(name);
+    entries.push({ name, data: buf });
+  }
+  if (!entries.length) return null;
+  const { buildZip } = require('./zip-writer');
+  return buildZip(entries);
+}
+
 module.exports = {
   handleSourceContent,
   getSourceFile,
   listTrackedUrls,
   getRecentChanges,
   getHashMap,
+  getSessionSources,
+  buildSourcesZip,
+  urlToPath,
   // For testing
   _reset() { _hashes = {}; _loaded = false; _dirty = false; },
 };

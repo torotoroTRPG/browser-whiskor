@@ -72,6 +72,10 @@ function setSourceContext(fn) {
   registry.setCallbacks({ _sourceContext: fn });
 }
 
+function setSourceCapture(fn) {
+  registry.setCallbacks({ _sourceCapture: fn });
+}
+
 function setNavigateBroadcast(fn) {
   registry.setCallbacks({ _navigateBroadcast: fn });
 }
@@ -162,6 +166,7 @@ module.exports = {
   setOcrRegion,
   setUninstrumentedTabs,
   setSourceContext,
+  setSourceCapture,
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,

@@ -636,7 +636,7 @@
     async collect(api, ctx) {
       if (!ctx || !ctx.targetSelector) return null;
 
-      const cfg = window.__SI_CONFIG__?.plugins?.intelligence?.cssOrigin || {};
+      const cfg = api.getConfig()?.plugins?.intelligence?.cssOrigin || {};
       const maxProps    = cfg.maxPropertiesPerElement || 20;
       const maxEls      = cfg.maxElements            || 50;
       const acqLevel    = cfg.acquisitionLevel       ?? 4;

@@ -25,7 +25,9 @@ param([switch]$NoStart, [switch]$NoRegister)
 
 $root = Split-Path -Parent $PSScriptRoot
 
-# 1. Register whk / whiskor on PATH (npm link) when not yet available
+# 1. Register whk / whiskor on PATH (npm link) when not yet available.
+#    npm link creates a symlink in npm's global bin dir (already on PATH from
+#    the Node installer) — it does NOT modify PATH or any environment variable.
 if (-not $NoRegister) {
     $whk = Get-Command whk -ErrorAction SilentlyContinue
     if (-not $whk) {

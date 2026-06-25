@@ -573,6 +573,19 @@ async function handleServerMessage(msg) {
       break;
     }
 
+    case 'SOURCE_CAPTURE_REQUEST': {
+      // Agent asked (via server) to capture this tab's sources. getResources()
+      // lives in the DevTools panel, so forward to that tab's panel port. If no
+      // panel is open, ack immediately so the server waiter doesn't hang.
+      const port = panelPorts.get(msg.tabId);
+      if (port) {
+        port.postMessage({ type: 'SOURCE_CAPTURE_REQUEST', reqId: msg.reqId, tabId: msg.tabId, opts: msg.opts || null });
+      } else {
+        sendToServer({ type: 'SOURCE_CAPTURE_DONE', reqId: msg.reqId, tabId: msg.tabId, ok: false, error: 'no_devtools' });
+      }
+      break;
+    }
+
     case 'MANUAL_COLLECT': {
       const tabId   = msg.tabId;
       const plugins = msg.plugins || null;
@@ -1396,6 +1409,22 @@ chrome.runtime.onMessage.addListener((message, _sender) => {
     args: [reqId, resources],
     world: 'MAIN',
   }).catch(() => {});
+});
+
+// ── DevTools source capture → server ──────────────────────────────────────────
+// panel.js captures page resources via getResources()/getContent() (which reads
+// from the browser cache, bypassing the CORS limits that block the page-context
+// fetch() in source-fetcher.js) and sends the result here. Forward it as
+// SOURCE_CONTENT so the server stores it through the same pipeline as Layer 1.
+// The panel supplies tabId (devtools-page messages have no sender.tab).
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'SOURCE_CAPTURE_RESULT') {
+    sendToServer({ type: 'SOURCE_CONTENT', tabId: message.tabId, payload: message.payload, from: 'devtools' });
+  } else if (message.type === 'SOURCE_CAPTURE_DONE') {
+    // Ack for a server-initiated capture — resolves core.requestSourceCapture().
+    sendToServer({ type: 'SOURCE_CAPTURE_DONE', reqId: message.reqId, tabId: message.tabId,
+      ok: message.ok, stored: message.stored, count: message.count, error: message.error });
+  }
 });
 
 // ── DevTools panel ports ───────────────────────────────────────────────────────
