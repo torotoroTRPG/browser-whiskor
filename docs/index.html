@@ -8,8 +8,8 @@
   <style>
     :root {
       --base-font-size: 14px;
-      --theme-color: #3a4d7a;
-      --heading-color: #2a3a5c;
+      --theme-color: #1a3ab5;
+      --heading-color: #0e1f6e;
       --strong-color: #e05525;
       --mono-font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
       --sidebar-width: 16rem;
@@ -22,7 +22,7 @@
 
     /* blockquote: theme-simple fades these to near-invisible */
     blockquote { color: inherit !important; opacity: 0.82; border-left-color: var(--theme-color) !important; }
-    blockquote strong { color: inherit; }
+    blockquote strong { color: var(--strong-color); }
 
     /* inline code readability */
     code { background: rgba(14, 47, 244, 0.06) !important; color: inherit !important; }
@@ -31,8 +31,8 @@
     th { color: var(--heading-color) !important; }
     @media (prefers-color-scheme: dark) {
       :root {
-        --theme-color: #6b7faa;
-        --heading-color: #9aa8c4;
+        --theme-color: #5b7cff;
+        --heading-color: #8ea4ff;
         --strong-color: #ff8a65;
         --sidebar-background: #161b22;
         --sidebar-border-color: #30363d;
@@ -52,7 +52,7 @@
       width: 420px;
       height: 420px;
       background: url('icon.svg') no-repeat center / contain;
-      opacity: 0.015;
+      opacity: 0.02;
       pointer-events: none;
       z-index: 0;
     }

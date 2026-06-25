@@ -7,7 +7,7 @@
   - [Roadmap](ROADMAP.md)
 - **Guides**
   - [理想機能メモ](理想機能メモ.md)
-  - [LobeHub Quality Plan](LOBEHUB_QUALITY_PLAN.md)
+
   - [Config Propagation Bug](forensic-report_config-propagation-bug.md)
 - **Ideas & Proposals**
   - [Index](ideas/index.md)
