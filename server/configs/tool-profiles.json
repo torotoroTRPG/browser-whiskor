@@ -71,7 +71,7 @@
     "tools": [
       "explain_element", "why_did_this_change",
       "get_source_file", "detect_site_updates", "get_source_context",
-      "ocr_region"
+      "capture_sources", "ocr_region"
     ],
     "autoUnload": true,
     "idleTurns": 5,

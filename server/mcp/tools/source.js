@@ -37,5 +37,26 @@ module.exports = function registerSourceTools(registry) {
         return { error: e.message };
       }
     },
+  }, {
+    definition: {
+      name: 'capture_sources',
+      description: "Capture the page's resources (JS/CSS/HTML) of a tab via the DevTools getResources() API, which reads from the browser cache and so bypasses the CORS limits that block the page-context source fetcher — letting cross-origin CDN bundles (e.g. a SPA's main.*.js) actually be stored. REQUIRES the browser-whiskor DevTools panel to be OPEN on the target tab (getResources is only available there); if it isn't, returns { ok:false, error:'no_devtools' }. Stored files land in the tab's source cache (download via the dashboard /export?tabId=). Returns { ok, stored, count }.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:     { type: 'number', description: 'Tab to capture (from get_sessions).' },
+          timeoutMs: { type: 'number', description: 'How long to wait for the panel to respond (default 15000).' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      if (!cb._sourceCapture) return { error: 'Source capture not available in this mode.' };
+      try {
+        return await cb._sourceCapture(args || {});
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
   }]);
 };

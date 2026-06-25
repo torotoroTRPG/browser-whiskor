@@ -52,6 +52,7 @@ function handleMessage(msg) {
     case 'SESSION_UPDATE':  onSession(msg); break;
     // ── CSS Origin Level 1 bridge ──────────────────────────────────────────
     case 'CSS_ORIGIN_RESOURCE_REQUEST': onCssOriginResourceRequest(msg); return; // skip addToStream
+    case 'SOURCE_CAPTURE_REQUEST':      onSourceCaptureRequest(msg); return;     // skip addToStream
   }
   addToStream(msg);
 }
@@ -179,9 +180,9 @@ function setCaptureStatus(s) {
   if (el) el.textContent = s || '';
 }
 
-async function captureAllSources() {
+async function captureAllSources(reqId = null) {
   const dw = chrome.devtools?.inspectedWindow;
-  if (!dw?.getResources) { setCaptureStatus('getResources() unavailable here'); return; }
+  if (!dw?.getResources) { setCaptureStatus('getResources() unavailable here'); srcCaptureDone(reqId, { ok: false, error: 'no_getResources' }); return; }
   setCaptureStatus('Scanning…');
   const resources = await new Promise((resolve) => dw.getResources((r) => resolve(r || [])));
 
@@ -194,7 +195,7 @@ async function captureAllSources() {
     seen.add(r.url);
     targets.push({ r, kind });
   }
-  if (!targets.length) { setCaptureStatus('No text resources found'); return; }
+  if (!targets.length) { setCaptureStatus('No text resources found'); srcCaptureDone(reqId, { ok: true, stored: 0, count: 0 }); return; }
 
   const files = [];
   let stored = 0;
@@ -224,6 +225,20 @@ async function captureAllSources() {
   setCaptureStatus(`Captured ${stored}/${targets.length} → server`);
   const ov = document.getElementById('ov-sources');
   if (ov) ov.textContent = stored;
+  srcCaptureDone(reqId, { ok: true, stored, count: files.length });
+}
+
+// Ack a server-initiated capture so core.requestSourceCapture() resolves.
+// Button-initiated captures pass no reqId and skip this.
+function srcCaptureDone(reqId, info) {
+  if (!reqId) return;
+  chrome.runtime.sendMessage({ type: 'SOURCE_CAPTURE_DONE', tabId, reqId, ...info });
+}
+
+// Server → panel: an agent requested a capture for this tab (via the SW).
+function onSourceCaptureRequest(msg) {
+  setCaptureStatus('Capturing (agent)…');
+  captureAllSources(msg.reqId).catch((e) => srcCaptureDone(msg.reqId, { ok: false, error: String((e && e.message) || e) }));
 }
 
 document.getElementById('btn-capture-sources').addEventListener('click', () => {

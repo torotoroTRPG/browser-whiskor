@@ -45,6 +45,7 @@ class WhiskorCore extends EventEmitter {
     this.dashboardSockets = new Set();
     this.logSubscribers = new Set();  // For dashboard log subscriptions
     this._pendingActions = new Map();
+    this._pendingCaptures = new Map(); // reqId → { resolve, timer, tabId } (DevTools source capture)
     this._wsToTabs = new Map();       // WebSocket → Set<tabId>
     this._tabDisconnectedAt = new Map(); // tabId → timestamp
     this._wsToApp  = new Map();       // WebSocket → appId (null = unregistered/public)
@@ -131,6 +132,28 @@ class WhiskorCore extends EventEmitter {
     }
     this.broadcast(msg);
     return false;
+  }
+
+  // Ask the DevTools panel on this tab to capture all page resources via
+  // getResources() (which reads the browser cache, so it bypasses the CORS
+  // limits that block the page-context source-fetcher) and ingest them as
+  // SOURCE_CONTENT. The file contents ride the normal SOURCE_CONTENT path; this
+  // promise resolves with a summary once the panel acks (SOURCE_CAPTURE_DONE),
+  // or { ok:false } on timeout / no panel open. Agent-facing entry point shared
+  // by POST /api/source/capture and the capture_sources MCP tool.
+  requestSourceCapture(tabId, opts = {}) {
+    return new Promise((resolve) => {
+      const reqId = 'cap_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const timer = setTimeout(() => {
+        this._pendingCaptures.delete(reqId);
+        resolve({
+          ok: false, error: 'capture_timeout', tabId,
+          hint: 'No DevTools panel responded. Open the browser-whiskor DevTools panel on the target tab — getResources() requires DevTools to be open.',
+        });
+      }, opts.timeoutMs || 15000);
+      this._pendingCaptures.set(reqId, { resolve, timer, tabId });
+      this.sendToTab({ type: 'SOURCE_CAPTURE_REQUEST', reqId, tabId, opts });
+    });
   }
 
   broadcastToDashboard(msg) {
@@ -573,6 +596,24 @@ class WhiskorCore extends EventEmitter {
           } else {
             console.warn(`[ext] ${info.browser} extension v${info.version} != server v${SERVER_VERSION} — still stale after reload request. Refresh its files (whk setup) and reload it in the browser.`);
           }
+        }
+        break;
+      }
+
+      case 'SOURCE_CAPTURE_DONE': {
+        // Ack for requestSourceCapture(). The file contents (if any) already
+        // arrived separately as SOURCE_CONTENT; this just resolves the waiter.
+        const p = this._pendingCaptures.get(msg.reqId);
+        if (p) {
+          clearTimeout(p.timer);
+          this._pendingCaptures.delete(msg.reqId);
+          p.resolve({
+            ok: msg.ok !== false,
+            stored: msg.stored ?? null,
+            count: msg.count ?? null,
+            error: msg.error || null,
+            tabId: msg.tabId,
+          });
         }
         break;
       }
