@@ -606,12 +606,16 @@ Full request/response details: `docs/http-api-reference.md`.
 
 ## Dependencies
 
-**Server dependencies:**
-- **`ws`** (^8.18.0) — WebSocket server
-- **`@xenova/transformers`** (^2.0.0) — ONNX-based semantic search (MiniLM model, added in v0.3.2)
-- **`@playwright/test`** (^1.60.0, devDependency) — E2E testing only (not required for runtime)
+**Server (2 runtime dependencies):**
+- **`ws`** (^8.18.0) — WebSocket server for browser extension communication
+- **`@xenova/transformers`** (^2.0.0) — ONNX-based semantic search pipeline (MiniLM model). Handles model loading, tokenization, inference, and HuggingFace Hub caching. Runs entirely locally in a dedicated worker thread — no external API calls or authentication
 
-**Extension side:** Zero-dependency vanilla JS.
+**Dev only:**
+- **`@playwright/test`** (^1.60.0) — E2E testing (`npm run test:e2e`); not required for runtime
+
+**Extension side:** Zero-dependency vanilla JS. React Fiber traversal uses the bundled [bippy](https://github.com/aidenybai/bippy) library.
+
+Full license texts in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 > **Note:** The semantic search feature uses a local ONNX model (~50MB), downloaded automatically on first server start (`intelligence.miniLM.downloadOnStart`) or manually via `npm run download-model`. No external API calls or authentication required. Model is cached in `.model-cache/`.
 

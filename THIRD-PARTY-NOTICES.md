@@ -37,6 +37,17 @@ SOFTWARE.
 
 ---
 
+## @xenova/transformers (Transformers.js)
+
+- **Version:** ^2.0.0 (installed: 2.17.2)
+- **Author:** Xenova (Joshua Lochner)
+- **Repository:** https://github.com/xenova/transformers.js
+- **License:** Apache-2.0
+
+Transformers.js provides the ONNX-based feature extraction pipeline for semantic text search (MiniLM model). It handles model loading, tokenization, ONNX inference, and HuggingFace Hub caching in a single dependency. The model runs entirely locally in a dedicated worker thread — no external API calls or authentication required.
+
+---
+
 ## Playwright
 
 - **Version:** ^1.50.0
@@ -50,7 +61,7 @@ Playwright is used as an **optional** end-to-end (E2E) testing framework. It is 
 
 ## ws
 
-- **Version:** ^8.18.0
+- **Version:** ^8.18.0 (installed: 8.21.0)
 - **Repository:** https://github.com/websockets/ws
 - **License:** MIT
 
