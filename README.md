@@ -54,7 +54,7 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (69 tools, configurable visibility)                 │
+│  MCP Layer (70 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
@@ -67,7 +67,7 @@ AI Agent (Claude / Cursor / etc.)
 │  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
 │  mcp/tools/intelligence.js ← 6 intelligence tools              │
 │  mcp/tools/ocr.js       ← ocr_region (pixel OCR, bring-your-own)│
-│  mcp/tools/source.js    ← get_source_context (uploaded source) │
+│  mcp/tools/source.js    ← get_source_context + capture_sources │
 │  mcp/tools/replay.js    ← replay_session                       │
 │                                                                │
 │  Tool visibility: per-tool on/off, category toggle, presets    │
@@ -86,8 +86,10 @@ AI Agent (Claude / Cursor / etc.)
 │  som-stats.js / som-cache.js / som-thumbnails.js ← packed-SoM  │
 │                          usage stats, freshness cache, thumbs  │
 │  source-index.js       ← Uploaded source storage + slicing     │
+│  source-store.js       ← Source content persistence (hash/dedup)│
 │  source-correlation.js ← Runtime ↔ source correlation          │
 │  zip-writer.js / zip-reader.js ← dependency-free ZIP I/O       │
+│  layout-map.js         ← Coarse ASCII spatial map renderer     │
 │  config-change-log.js  ← Config audit, validation, auto-revert │
 │  config-loader.js      ← config.json + .env + mcp-tools.json   │
 │  delta-engine.js       ← Smart delta aggregation, motion clustering │
@@ -158,7 +160,14 @@ See `docs/archive/v0.3.6-improvements.md` for the rationale and the dual-hash im
 ```bash
 cd browser-whiskor
 npm install
+
+# Option A — npm start (manual extension load)
 npm start          # supervised (auto-restart); raw worker: npm run start:raw
+
+# Option B — whk CLI (recommended: manages extension + server together)
+.\scripts\setup.ps1     # first time: registers `whk` on PATH (npm link) → whk setup
+whk                     # after that: refresh extension files → restart server
+whk shell               # interactive TUI shell (type to search, arrows, Enter to run)
 ```
 
 > **Note on Machine Learning Models:** 
@@ -288,11 +297,11 @@ Warning codes:
 
 ---
 
-## MCP Tools (69 tools)
+## MCP Tools (70 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 69 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
@@ -302,7 +311,7 @@ Instead of exposing all 69 tools at once, browser-whiskor uses **dynamic profile
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
 | **advanced-actions** (+12) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, type_secret, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
 | **tabs** (+4) | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6 turns |
-| **intelligence** (+6) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context, ocr_region | "explain", "why", "source", "cause", "ocr", "canvas" | 5 turns |
+| **intelligence** (+7) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context, capture_sources, ocr_region | "explain", "why", "source", "cause", "ocr", "canvas" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
 
@@ -327,6 +336,7 @@ Instead of exposing all 69 tools at once, browser-whiskor uses **dynamic profile
 | Tool | Description |
 |------|-------------|
 | `get_sessions` | Active tabs (tabId, URL, data freshness) |
+| `search_all_tabs` | Cross-session text search (exact, fuzzy, or semantic) |
 | `get_index` | Session file listing with summaries |
 | `get_text_coords` | Text + absolute coordinates with fuzzy search and similarity scoring |
 | `ocr_region` | Read text from **pixels** via a native OCR engine (Tesseract, bring-your-own) — for canvas/WebGL apps (Unity, games, charts) where the DOM is one `<canvas>`, or icon-only controls with no text node. Whole-tab or a cropped selector/rect; output matches `get_text_coords` (Tesseract-compatible word boxes). Returns `ocr_unavailable` with setup steps if no binary is installed |
@@ -365,7 +375,7 @@ Instead of exposing all 69 tools at once, browser-whiskor uses **dynamic profile
 
 | Tool | Description |
 |------|-------------|
-| `navigate_to` | Navigate to URL |
+| `navigate_to` | Navigate to URL (+ `waitUntil`, `thenCollect`, `timeoutMs` for waiting on page lifecycle and triggering post-navigate collection) |
 | `click` | Click by selector, text, or coordinates |
 | `right_click` | Right-click (context menu) by selector, text, or coordinates |
 | `type_text` | Text input (React synthetic-event aware; physical `code`/`keyCode` + CJK/IME composition; trusted via CDP when high-fidelity input is enabled) |
@@ -403,6 +413,7 @@ Instead of exposing all 69 tools at once, browser-whiskor uses **dynamic profile
 | `get_source_file` | Retrieve source file content by URL or hash |
 | `detect_site_updates` | Cross-session: detect which CSS/JS files have changed |
 | `get_source_context` | Slice context out of user-uploaded project source: by file/line range, by symbol, or by observed component name (see Source Upload & Correlation) |
+| `capture_sources` | Capture the page's JS/CSS/HTML via DevTools `getResources()` (CORS-free, bypasses page-context limits). Opt-in `includeNetwork` adds XHR/fetch response bodies from the HAR; `reload` captures the initial page load too. Requires the DevTools panel to be open on the target tab |
 
 ### Capture
 
@@ -549,24 +560,37 @@ This design keeps token usage low while giving AI agents a clear understanding o
 ## HTTP API
 
 ```
-GET  http://localhost:7892/health             → Connection status (+ identity, secret-guard counts)
-GET  http://localhost:7892/api/config         → Current config
-POST http://localhost:7892/api/config         → Change config
-GET  http://localhost:7892/api/sessions       → Session list
-GET  http://localhost:7892/api/sessions/:tabId → Session detail (DELETE removes it)
-POST http://localhost:7892/api/collect        → Manual collection
-POST http://localhost:7892/api/screenshot     → Screenshot
-POST http://localhost:7892/api/packed-som     → Packed Set-of-Marks capture
-POST http://localhost:7892/api/element-thumbnail → Per-element thumbnail
-POST http://localhost:7892/api/ocr            → Read text from pixels (canvas/WebGL, icon-only); bring-your-own Tesseract
-POST http://localhost:7892/api/action         → Execute action
-POST http://localhost:7892/api/embed          → Text embedding (MiniLM)
-POST http://localhost:7892/api/source/upload  → Upload project source (files or base64 zip)
-POST http://localhost:7892/api/source/context → Query uploaded source slices
-GET  http://localhost:7892/api/graphs         → State graph listing
-GET  http://localhost:7892/export             → Download session cache as a ZIP (optional ?tabId= scopes to one session)
-GET  http://localhost:7892/                   → Dashboard
+GET  /health                          → Connection status (identity, extensions, secretGuard)
+GET  /api/config                      → Current config
+POST /api/config                      → Change config
+GET  /api/sessions                    → Session list (?q=&sort=&page=)
+GET  /api/sessions/:tabId            → Session detail (DELETE removes it)
+GET  /api/search?q=<term>            → Cross-session text search (?mode=exact|fuzzy|semantic)
+GET  /api/logs?limit=N               → Server log ring buffer (?level=warn)
+POST /api/collect                     → Manual collection
+POST /api/screenshot                  → Screenshot
+POST /api/packed-som                  → Packed Set-of-Marks capture
+POST /api/element-thumbnail           → Per-element thumbnail
+GET  /api/ocr                         → OCR engine availability
+POST /api/ocr                         → Read text from pixels (canvas/WebGL); bring-your-own Tesseract
+POST /api/source/capture              → Capture page sources via DevTools (panel must be open)
+POST /api/source/upload               → Upload project source (files or base64 zip)
+POST /api/source/context              → Query uploaded source slices
+GET  /api/sources/:tabId             → List captured source files
+GET  /api/sources/:tabId/zip         → Download captured sources as a folder ZIP
+POST /api/action                      → Execute action (+ MCP tool name aliases)
+POST /api/embed                       → Text embedding (MiniLM)
+GET  /api/graphs                      → State graph listing
+GET  /api/sessions/:tabId/states     → State nodes seen by a session
+GET  /api/sessions/:tabId/map        → ASCII state-graph visualization
+POST /api/extension/reload            → Ask connected extension(s) to self-reload
+POST /api/shutdown                    → Graceful stop (flushes → exit 0)
+GET  /api/uninstrumented-tabs        → Tabs without whiskor sessions
+GET  /export                          → Download session cache as ZIP (?tabId= to scope)
+GET  /                                → Dashboard
 ```
+
+All endpoints on `http://localhost:7892`.
 
 Full request/response details: `docs/http-api-reference.md`.
 
@@ -597,7 +621,9 @@ Agents can modify server settings via `set_config`, but this is **disabled by de
 
 ### Enabling agent config control
 
-Set in `config.json`:
+Configuration is layered: `config.json` (committed defaults) → `config.local.json` (git-ignored personal overrides, deep-merged) → `.env` / `WHISKOR_*` env vars. Personal settings (e.g. `security.allowExecuteJs: true`) go in `config.local.json` so the committed defaults stay clean.
+
+Set in `config.json` (or `config.local.json`):
 ```json
 {
   "agentControl": {
@@ -709,16 +735,51 @@ Upload the target site's source (frontend, backend, or any slice of it) and whis
 
 See `docs/ideas/SOURCE_UPLOAD_CORRELATION.md` for the design notes.
 
+## DevTools Source Capture (`capture_sources`)
+
+A separate path from the upload API: `capture_sources` reads the page's resources directly from the browser's DevTools cache, so it captures cross-origin CDN bundles (a SPA's `main.*.js`) that the page-context `fetch()` cannot reach. Requires the browser-whiskor DevTools panel to be open on the target tab.
+
+- **Layer 1** (default): `chrome.devtools.inspectedWindow.getResources()` — JS, CSS, HTML, JSON from the browser cache. Deduplicates by content hash against the page-context source-fetcher.
+- **Layer 2** (`includeNetwork: true`): also captures XHR/fetch response bodies from the DevTools network HAR — the API JSON that `getResources()` never sees. With `reload: true`, reloads the page first so the initial load's requests are captured too (**destroys current page state** — opt in deliberately).
+- Stored files land in the tab's source cache. Download via `GET /api/sources/:tabId/zip` (folder-structured ZIP) or the dashboard export.
+
+```json
+{ "name": "capture_sources", "arguments": { "tabId": 1234, "includeNetwork": true } }
+```
+
+## CLI (`whk`)
+
+The `whk` command manages the extension and server together. First-time setup: `.\scripts\setup.ps1` registers `whk` globally via `npm link`, then copies the extension into `~/.whiskor/` and starts the server. After that, `whk` (bare) refreshes extension files, asks the browser to reload, and restarts the server.
+
+```bash
+whk                  # = whk restart: refresh extension → reload → restart server
+whk setup            # first-time install or update the managed extension, then start
+whk stop             # graceful shutdown (POST /api/shutdown)
+whk shell            # full-screen interactive TUI (type to search, arrows, Enter)
+whk shell --classic  # original inline prompt (no alt-screen)
+whk GET /health      # direct HTTP client
+whk help api         # detailed endpoint reference
+whk skills           # list bundled agent skills
+```
+
+### TUI shell (`whk shell`)
+
+A zero-dependency full-screen shell: scrollable output, incremental-search popup with folder navigation (`action/`, `capture/`, `session/`, …), live completion of tabIds and siteVersions, and a real line editor.
+
+- **`→`** on a command opens field-edit: each JSON value (strings, numbers) is prefilled and editable. `Ctrl+↑/↓` = ±1, `Alt+↑/↓` = ±10 for numeric fields (quick scroll tuning).
+- **`!<command>`** runs in your local shell (`pwsh` / `$SHELL`), output below. Local-only, never exposed over HTTP/MCP.
+- **`logs [n]`** pulls server logs, **`map [tabId]`** shows an ASCII state graph, **`export [path]`** saves the transcript.
+
 ## Testing & Quality
 
-**406 automated tests** run via `npm test` (373 unit, 28 integration, 5 stress), plus 9 Playwright E2E spec files (`npm run test:e2e`) that drive a real browser with the extension loaded.
+**628 automated tests** run via `npm test` (594 unit, 29 integration, 5 stress), plus Playwright E2E specs (`npm run test:e2e`) that drive a real browser with the extension loaded.
 
 | Category | Count | Scope |
 |----------|-------|-------|
-| **Unit** | 373 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, secret guard, packed SoM, correlator |
-| **Integration** | 28 | Server ↔ Client flows, error recovery, multi-tab, source correlation |
+| **Unit** | 594 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, secret guard, packed SoM, correlator, TUI field-edit, shell escape, layout map, session search/list, source capture |
+| **Integration** | 29 | Server ↔ Client flows, error recovery, multi-tab, source correlation |
 | **Stress** | 5 | Large payloads (5000+ words), long sessions |
-| **E2E (Playwright)** | 9 spec files | Real-browser: injected collection, executor round-trip, packed SoM, secret masking, dashboard |
+| **E2E (Playwright)** | spec files | Real-browser: injected collection, executor round-trip, packed SoM, secret masking, dashboard |
 
 Two structural guards keep the suite honest:
 - **Hollow-test guard** (`scripts/_check-hollow-tests.js`, in CI and `validate.ps1`): a unit test that never imports production code fails the build — tests must exercise the real modules.
