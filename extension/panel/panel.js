@@ -137,6 +137,7 @@ document.getElementById('btn-export').addEventListener('click', () => {
 // 1 uses), so the server stores them under raw/sources/content/ via the
 // existing pipeline. DevTools must be open on the inspected tab for this.
 const CAPTURE_MAX_BYTES = 10 * 1024 * 1024; // safety valve; larger → hash-only
+const MAX_NET_FILES = 200;                  // cap network bodies per capture (WS transfer guard)
 
 // Same hash as Layer 1 (source-fetcher.js hashContent) so identical content
 // dedups across acquisition paths.
@@ -178,6 +179,140 @@ function srcGetContent(resource, ms) {
       });
     } catch (_) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
   });
+}
+
+// ── Network capture (Layer 2: XHR/fetch bodies via the DevTools HAR) ────────
+// getResources() only sees cached static resources (script/stylesheet/document/
+// image/font/media). The response bodies of XHR/fetch calls — the API JSON a
+// SPA actually runs on — live in the network panel's HAR instead. We read them
+// with chrome.devtools.network.getHAR() and, optionally, reload the page first
+// so the initial load's requests are recorded too. Emitted as the same
+// SOURCE_CONTENT file shape with acquisition_level:2. Feature-detected, so
+// browsers without devtools.network.getHAR just skip it (graceful degrade).
+
+// content-type / URL → storage extension (mirrors srcKind for the network side).
+function netKind(url, mime, includeBinary) {
+  const m = (mime || '').split(';')[0].trim().toLowerCase();
+  if (m === 'application/json' || m.endsWith('+json')) return 'json';
+  if (m === 'text/html')                               return 'html';
+  if (m === 'text/css')                                return 'css';
+  if (m.includes('javascript') || m === 'application/ecmascript') return 'js';
+  if (m === 'image/svg+xml')                           return 'svg';
+  if (m === 'application/xml' || m === 'text/xml')     return 'xml';
+  if (m.startsWith('text/'))                           return 'txt';
+  const u = (url || '').split('?')[0].split('#')[0].toLowerCase();
+  const em = u.match(/\.([a-z0-9]{1,8})$/);
+  const ext = em ? em[1] : null;
+  if (ext === 'mjs' || ext === 'cjs')      return 'js';
+  if (ext === 'htm')                       return 'html';
+  if (ext && SRC_TEXT_EXTS.includes(ext))  return ext;
+  if (!includeBinary)                      return null;
+  if (ext)                                 return ext;
+  return null;
+}
+
+// getContent() on a HAR entry (same callback shape as resource.getContent).
+function srcEntryContent(entry, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, ms);
+    try {
+      entry.getContent((content, encoding) => {
+        if (done) return;
+        done = true; clearTimeout(timer);
+        resolve({ content, encoding });
+      });
+    } catch (_) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
+  });
+}
+
+// Reload the inspected page and resolve once the network has been quiet for
+// `idleMs` (or `maxMs` elapses) — so getHAR() afterwards holds the full load.
+function srcReloadAndWait(net, idleMs = 1200, maxMs = 8000) {
+  return new Promise((resolve) => {
+    let last = Date.now();
+    let settled = false;
+    const onFin = () => { last = Date.now(); };
+    try { net.onRequestFinished.addListener(onFin); } catch (_) {}
+    try { chrome.devtools.inspectedWindow.reload({}); } catch (_) {}
+    const start = Date.now();
+    const iv = setInterval(() => {
+      if (settled) return;
+      if (Date.now() - last > idleMs || Date.now() - start > maxMs) {
+        settled = true;
+        clearInterval(iv);
+        try { net.onRequestFinished.removeListener(onFin); } catch (_) {}
+        resolve();
+      }
+    }, 200);
+  });
+}
+
+async function captureNetworkSources(opts, seenUrls) {
+  const net = chrome.devtools && chrome.devtools.network;
+  if (!net || typeof net.getHAR !== 'function') return { files: [], stored: 0, supported: false };
+  const includeBinary = !!(opts && opts.includeBinary);
+
+  // Buffer requests finishing from now on (covers a reload's traffic and any
+  // late XHR); getHAR() below also returns the history DevTools already holds.
+  const buffered = [];
+  const onFin = (req) => { try { buffered.push(req); } catch (_) {} };
+  let listening = false;
+  try { net.onRequestFinished.addListener(onFin); listening = true; } catch (_) {}
+
+  try {
+    if (opts && opts.reload && chrome.devtools?.inspectedWindow?.reload) {
+      setCaptureStatus('Reloading for full network capture…');
+      await srcReloadAndWait(net);
+    }
+    const har = await new Promise((resolve) => net.getHAR((h) => resolve(h || {})));
+
+    // Merge HAR history + buffered (buffered wins — fresher body), dedup by URL.
+    const byUrl = new Map();
+    for (const e of (har.entries || [])) { const u = e?.request?.url; if (u) byUrl.set(u, e); }
+    for (const e of buffered)             { const u = e?.request?.url; if (u) byUrl.set(u, e); }
+
+    const files = [];
+    let stored = 0;
+    let i = 0;
+    const total = byUrl.size;
+    for (const entry of byUrl.values()) {
+      i++;
+      if (files.length >= MAX_NET_FILES) break;
+      const url = entry.request && entry.request.url;
+      if (!url) continue;
+      const rt = String(entry._resourceType || '').toLowerCase();
+      const isApi = rt === 'xhr' || rt === 'fetch';
+      // Skip what getResources() already covered, unless it's an API call —
+      // those carry response bodies getResources never sees.
+      if (!isApi && seenUrls && seenUrls.has(url)) continue;
+      const mime = entry.response?.content?.mimeType || '';
+      const kind = netKind(url, mime, includeBinary);
+      if (!kind) continue;
+      setCaptureStatus(`Network ${i}/${total}…`);
+      const got = await srcEntryContent(entry, 5000);
+      if (!got || got.content == null) {
+        files.push({ url, kind, acquisition_level: 2, hash: null, byteLength: null, stored: false });
+        continue;
+      }
+      const isBin = got.encoding === 'base64';
+      if (isBin && !includeBinary) {
+        files.push({ url, kind, acquisition_level: 2, hash: null, byteLength: null, stored: false });
+        continue;
+      }
+      const data = got.content;
+      const hash = srcHash(data);
+      if (data.length > CAPTURE_MAX_BYTES) {
+        files.push({ url, kind, acquisition_level: 2, hash, byteLength: data.length, stored: false, capped: true });
+        continue;
+      }
+      files.push({ url, kind, acquisition_level: 2, hash, byteLength: data.length, stored: true, content: data, encoding: isBin ? 'base64' : 'utf-8' });
+      stored++;
+    }
+    return { files, stored, supported: true };
+  } finally {
+    if (listening) { try { net.onRequestFinished.removeListener(onFin); } catch (_) {} }
+  }
 }
 
 function setCaptureStatus(s) {
@@ -228,15 +363,27 @@ async function captureAllSources(reqId = null, opts = null) {
     stored++;
   }
 
+  // Layer 2: optionally append XHR/fetch response bodies from the network HAR.
+  let netStored = 0;
+  if (opts && opts.includeNetwork) {
+    const net = await captureNetworkSources(opts, seen);
+    if (!net.supported) {
+      setCaptureStatus('Network capture unavailable here (no devtools.network.getHAR)');
+    } else {
+      for (const f of net.files) files.push(f);
+      netStored = net.stored;
+    }
+  }
+
   chrome.runtime.sendMessage({
     type: 'SOURCE_CAPTURE_RESULT',
     tabId,
     payload: { timestamp: Date.now(), files, count: files.length },
   });
-  setCaptureStatus(`Captured ${stored}/${targets.length} → server`);
+  setCaptureStatus(`Captured ${stored}/${targets.length} resources${opts && opts.includeNetwork ? ` + ${netStored} network` : ''} → server`);
   const ov = document.getElementById('ov-sources');
-  if (ov) ov.textContent = stored;
-  srcCaptureDone(reqId, { ok: true, stored, count: files.length });
+  if (ov) ov.textContent = stored + netStored;
+  srcCaptureDone(reqId, { ok: true, stored: stored + netStored, count: files.length });
 }
 
 // Ack a server-initiated capture so core.requestSourceCapture() resolves.
