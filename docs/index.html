@@ -8,9 +8,9 @@
   <style>
     :root {
       --base-font-size: 14px;
-      --theme-color: #1a3ab5;
-      --heading-color: #0e1f6e;
-      --strong-color: #e05525;
+      --theme-color: #3a4d7a;
+      --heading-color: #2a3a5c;
+      --strong-color: inherit;
       --mono-font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
       --sidebar-width: 16rem;
       --sidebar-background: #fafbfc;
@@ -18,11 +18,17 @@
     }
     ::selection { background: rgba(254, 87, 46, 0.15); }
     h1, h2, h3, h4, h5, h6 { color: var(--heading-color) !important; }
-    strong { color: var(--strong-color); }
+    strong {
+      color: inherit;
+      background: linear-gradient(transparent 55%, rgba(254, 147, 46, 0.18) 55%, rgba(254, 147, 46, 0.18) 90%, transparent 90%);
+    }
+    @media (prefers-color-scheme: dark) {
+      strong { background: linear-gradient(transparent 55%, rgba(255, 160, 80, 0.15) 55%, rgba(255, 160, 80, 0.15) 90%, transparent 90%); }
+    }
 
     /* blockquote: theme-simple fades these to near-invisible */
     blockquote { color: inherit !important; opacity: 0.82; border-left-color: var(--theme-color) !important; }
-    blockquote strong { color: var(--strong-color); }
+    blockquote strong { color: inherit; }
 
     /* inline code readability */
     code { background: rgba(14, 47, 244, 0.06) !important; color: inherit !important; }
@@ -31,9 +37,9 @@
     th { color: var(--heading-color) !important; }
     @media (prefers-color-scheme: dark) {
       :root {
-        --theme-color: #5b7cff;
-        --heading-color: #8ea4ff;
-        --strong-color: #ff8a65;
+        --theme-color: #6b7faa;
+        --heading-color: #9aa8c4;
+        --strong-color: inherit;
         --sidebar-background: #161b22;
         --sidebar-border-color: #30363d;
         --mono-hue: 215;
