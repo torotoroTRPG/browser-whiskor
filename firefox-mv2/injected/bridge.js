@@ -45,3 +45,21 @@ _b.runtime.onMessage.addListener((message) => {
     window.postMessage({ __BROWSER_WHISKOR__: true, ...message }, '*');
   }
 });
+
+// ── Initial config pull (fresh page load) ─────────────────────────────────
+// The SW only *pushes* config to tabs on SET_CONFIG (server connect / config
+// change), reaching tabs that happen to be open at that moment. A tab loaded
+// afterwards gets nothing, so its MAIN-world plugins run with default config.
+// Read the persisted value on init and forward it, so config reaches plugins
+// on every page load. The MAIN-world listener (collector.js) is registered
+// synchronously at document_start, well before this async read resolves, and
+// 'load'-phase plugins (source-fetcher / css-origin) collect far later still.
+_b.storage.local.get('SI_CONFIG').then((result) => {
+  if (result && result.SI_CONFIG) {
+    window.postMessage({
+      __BROWSER_WHISKOR__: true,
+      type:    'CONFIG_UPDATE',
+      payload: result.SI_CONFIG,
+    }, '*');
+  }
+}).catch(() => {});

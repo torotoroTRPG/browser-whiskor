@@ -73,7 +73,7 @@
     install(api) {},
 
     async collect(api, ctx) {
-      const cfg = window.__SI_CONFIG__?.plugins?.intelligence?.sourceFetcher || {};
+      const cfg = api.getConfig()?.plugins?.intelligence?.sourceFetcher || {};
       if (cfg.enabled === false) return null;
 
       const storeJs        = cfg.storeJs          || false;
