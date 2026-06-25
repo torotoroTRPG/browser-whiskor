@@ -19,6 +19,16 @@
     ::selection { background: rgba(254, 87, 46, 0.15); }
     h1, h2, h3, h4, h5, h6 { color: var(--heading-color) !important; }
     strong { color: var(--strong-color); }
+
+    /* blockquote: theme-simple fades these to near-invisible */
+    blockquote { color: inherit !important; opacity: 0.82; border-left-color: var(--theme-color) !important; }
+    blockquote strong { color: var(--strong-color); }
+
+    /* inline code readability */
+    code { background: rgba(14, 47, 244, 0.06) !important; color: inherit !important; }
+
+    /* table header contrast */
+    th { color: var(--heading-color) !important; }
     @media (prefers-color-scheme: dark) {
       :root {
         --theme-color: #5b7cff;
