@@ -43,6 +43,9 @@ function baseCatalog() {
     // session/
     { cat: 'session', text: 'GET /api/sessions',            desc: 'List browser sessions' },
     { cat: 'session', text: 'GET /api/sessions/:tabId',     desc: 'Session detail for one tab' },
+    { cat: 'session', text: 'GET /api/search?q=',           desc: 'Cross-session text search (fill q=term)' },
+    { cat: 'session', text: 'GET /api/sessions/:tabId/raw/visual/text-coords.json', desc: 'Text + on-page coordinates (get_text_coords data)' },
+    { cat: 'session', text: 'GET /api/sessions/:tabId/raw/ui/elements.json', desc: 'UI catalog: buttons/inputs/links (get_ui_catalog data)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/delta/smart.json', desc: 'Smart delta (aggregated motion)' },
     { cat: 'session', text: 'DELETE /api/sessions/:tabId',  desc: 'Delete a session' },
 
@@ -58,6 +61,9 @@ function baseCatalog() {
     { cat: 'capture', text: 'POST /api/element-thumbnail {"tabId":0,"selector":""}', desc: 'Per-element thumbnail' },
     { cat: 'capture', text: 'POST /api/ocr {"tabId":0}',           desc: 'OCR text from pixels (canvas/WebGL, icon-only); selector/rect to crop' },
     { cat: 'capture', text: 'GET /api/ocr',                        desc: 'OCR engine availability (bring-your-own Tesseract)' },
+    { cat: 'capture', text: 'POST /api/source/capture {"tabId":0}', desc: 'Capture page sources via DevTools (panel must be open); +includeNetwork for XHR' },
+    { cat: 'capture', text: 'GET /api/sources/:tabId',             desc: 'List captured source files for a tab' },
+    { cat: 'capture', text: 'GET /api/sources/:tabId/zip',         desc: 'Download captured sources as a folder ZIP' },
 
     // action/ — one shortcut per action type (see skills/browser-whiskor-http)
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"click","text":""}}',            desc: 'Click by visible text (safest)' },
@@ -71,6 +77,9 @@ function baseCatalog() {
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"go_back"}}',                    desc: 'History back' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"reload"}}',                     desc: 'Reload the tab' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"list_tabs"}}',                  desc: 'List browser tabs (read-only)' },
+    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"switch_tab","targetTabId":0}}', desc: 'Activate (focus) a tab by id — see list_tabs' },
+    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"open_tab","url":"https://"}}',   desc: 'Open a new browser tab (optional url)' },
+    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"close_tab","targetTabId":0}}',  desc: 'Close a browser tab by id' },
 
     // shell/
     { cat: 'shell', text: 'refresh', desc: 'Re-fetch sessions/graphs for completion' },
