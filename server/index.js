@@ -565,6 +565,31 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       });
     }
 
+    // Captured sources for a session: list metadata, or download as a
+    // folder-structured ZIP (host/path/file.ext, rebuilt from the manifest).
+    //   GET /api/sources/:tabId       → { tabId, files: [...] }
+    //   GET /api/sources/:tabId/zip   → application/zip
+    if (method === 'GET' && p.startsWith('/api/sources/')) {
+      const rest  = p.slice('/api/sources/'.length).split('/');
+      const tabId = parseInt(rest[0], 10);
+      const sub   = rest[1] || '';
+      if (!Number.isFinite(tabId)) return sendJson({ error: 'Invalid tabId' }, 400);
+      const sessionDir = core.cache.getSessionDir ? core.cache.getSessionDir(tabId) : null;
+      if (!sessionDir) return sendJson({ error: 'No session for tabId' }, 404);
+      if (sub === 'zip') {
+        const buf = core.sourceStore && core.sourceStore.buildSourcesZip(sessionDir);
+        if (!buf) return sendJson({ error: 'No stored sources for this session' }, 404);
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="sources-${tabId}.zip"`,
+          'Content-Length': buf.length,
+        });
+        return res.end(buf);
+      }
+      const files = (core.sourceStore && core.sourceStore.getSessionSources(sessionDir)) || [];
+      return sendJson({ tabId, count: files.length, files });
+    }
+
     // Serve a saved screenshot by filename so HTTP consumers can fetch the image
     // via the `url` field instead of inlining base64. Filename only (basename) —
     // path traversal is blocked by rejecting anything that isn't a bare name.

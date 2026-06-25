@@ -44,8 +44,9 @@ module.exports = function registerSourceTools(registry) {
       inputSchema: {
         type: 'object',
         properties: {
-          tabId:     { type: 'number', description: 'Tab to capture (from get_sessions).' },
-          timeoutMs: { type: 'number', description: 'How long to wait for the panel to respond (default 15000).' },
+          tabId:         { type: 'number', description: 'Tab to capture (from get_sessions).' },
+          includeBinary: { type: 'boolean', description: 'Also capture binary assets (images/fonts/media) as raw bytes, not just JS/CSS/HTML. Default false — code only.' },
+          timeoutMs:     { type: 'number', description: 'How long to wait for the panel to respond (default 15000).' },
         },
         required: ['tabId'],
       },

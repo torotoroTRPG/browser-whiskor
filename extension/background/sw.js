@@ -579,7 +579,7 @@ async function handleServerMessage(msg) {
       // panel is open, ack immediately so the server waiter doesn't hang.
       const port = panelPorts.get(msg.tabId);
       if (port) {
-        port.postMessage({ type: 'SOURCE_CAPTURE_REQUEST', reqId: msg.reqId, tabId: msg.tabId });
+        port.postMessage({ type: 'SOURCE_CAPTURE_REQUEST', reqId: msg.reqId, tabId: msg.tabId, opts: msg.opts || null });
       } else {
         sendToServer({ type: 'SOURCE_CAPTURE_DONE', reqId: msg.reqId, tabId: msg.tabId, ok: false, error: 'no_devtools' });
       }

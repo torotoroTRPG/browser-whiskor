@@ -144,18 +144,23 @@ function srcFnv32(str) {
 }
 function srcHash(text) { return srcFnv32(text) + '_' + text.length; }
 
-function srcKind(r) {
+const SRC_TEXT_EXTS = ['js', 'css', 'html', 'json', 'svg', 'txt', 'map', 'xml'];
+function srcKind(r, includeBinary) {
   switch (r.type) {
     case 'script':     return 'js';
     case 'stylesheet': return 'css';
     case 'document':   return 'html';
   }
-  const u = (r.url || '').split('?')[0].toLowerCase();
-  if (u.endsWith('.js') || u.endsWith('.mjs'))   return 'js';
-  if (u.endsWith('.css'))                        return 'css';
-  if (u.endsWith('.htm') || u.endsWith('.html')) return 'html';
-  if (u.endsWith('.json'))                       return 'json';
-  return null; // binary / unknown — skipped in this capture
+  const u = (r.url || '').split('?')[0].split('#')[0].toLowerCase();
+  const m = u.match(/\.([a-z0-9]{1,8})$/);
+  const ext = m ? m[1] : null;
+  if (ext === 'mjs' || ext === 'cjs')     return 'js';
+  if (ext === 'htm')                      return 'html';
+  if (ext && SRC_TEXT_EXTS.includes(ext)) return ext;
+  if (!includeBinary) return null;                                     // binary only when opted in
+  if (ext)            return ext;                                      // png/jpg/woff2/… real ext
+  if (r.type === 'image' || r.type === 'font' || r.type === 'media') return r.type;
+  return null;
 }
 
 function srcGetContent(resource, ms) {
@@ -177,7 +182,8 @@ function setCaptureStatus(s) {
   if (el) el.textContent = s || '';
 }
 
-async function captureAllSources(reqId = null) {
+async function captureAllSources(reqId = null, opts = null) {
+  const includeBinary = !!(opts && opts.includeBinary);
   const dw = _b.devtools?.inspectedWindow;
   if (!dw?.getResources) { setCaptureStatus('getResources() unavailable here'); srcCaptureDone(reqId, { ok: false, error: 'no_getResources' }); return; }
   setCaptureStatus('Scanning…');
@@ -187,12 +193,12 @@ async function captureAllSources(reqId = null) {
   const targets = [];
   for (const r of resources) {
     if (!r || !r.url || seen.has(r.url)) continue;
-    const kind = srcKind(r);
+    const kind = srcKind(r, includeBinary);
     if (!kind) continue;
     seen.add(r.url);
     targets.push({ r, kind });
   }
-  if (!targets.length) { setCaptureStatus('No text resources found'); srcCaptureDone(reqId, { ok: true, stored: 0, count: 0 }); return; }
+  if (!targets.length) { setCaptureStatus('No resources found'); srcCaptureDone(reqId, { ok: true, stored: 0, count: 0 }); return; }
 
   const files = [];
   let stored = 0;
@@ -200,17 +206,22 @@ async function captureAllSources(reqId = null) {
     const { r, kind } = targets[i];
     setCaptureStatus(`Fetching ${i + 1}/${targets.length}…`);
     const res = await srcGetContent(r, 5000);
-    if (!res || res.content == null || res.encoding === 'base64') {
+    if (!res || res.content == null) {
       files.push({ url: r.url, kind, acquisition_level: 1, hash: null, byteLength: null, stored: false });
       continue;
     }
-    const text = res.content;
-    const hash = srcHash(text);
-    if (text.length > CAPTURE_MAX_BYTES) {
-      files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: text.length, stored: false, capped: true });
+    const isBin = res.encoding === 'base64';
+    if (isBin && !includeBinary) {
+      files.push({ url: r.url, kind, acquisition_level: 1, hash: null, byteLength: null, stored: false });
       continue;
     }
-    files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: text.length, stored: true, content: text });
+    const data = res.content;
+    const hash = srcHash(data);
+    if (data.length > CAPTURE_MAX_BYTES) {
+      files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: data.length, stored: false, capped: true });
+      continue;
+    }
+    files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: data.length, stored: true, content: data, encoding: isBin ? 'base64' : 'utf-8' });
     stored++;
   }
 
@@ -235,7 +246,7 @@ function srcCaptureDone(reqId, info) {
 // Server → panel: an agent requested a capture for this tab (via the SW).
 function onSourceCaptureRequest(msg) {
   setCaptureStatus('Capturing (agent)…');
-  captureAllSources(msg.reqId).catch((e) => srcCaptureDone(msg.reqId, { ok: false, error: String((e && e.message) || e) }));
+  captureAllSources(msg.reqId, msg.opts).catch((e) => srcCaptureDone(msg.reqId, { ok: false, error: String((e && e.message) || e) }));
 }
 
 document.getElementById('btn-capture-sources').addEventListener('click', () => {
