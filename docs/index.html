@@ -8,19 +8,28 @@
   <style>
     :root {
       --base-font-size: 14px;
-      --theme-color: #7c8ea0;
+      --theme-color: #1a3ab5;
+      --heading-color: #0e1f6e;
+      --strong-color: #e05525;
       --mono-font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
       --sidebar-width: 16rem;
       --sidebar-background: #fafbfc;
       --sidebar-border-color: #e8eaed;
     }
+    ::selection { background: rgba(254, 87, 46, 0.15); }
+    h1, h2, h3, h4, h5, h6 { color: var(--heading-color) !important; }
+    strong { color: var(--strong-color); }
     @media (prefers-color-scheme: dark) {
       :root {
+        --theme-color: #5b7cff;
+        --heading-color: #8ea4ff;
+        --strong-color: #ff8a65;
         --sidebar-background: #161b22;
         --sidebar-border-color: #30363d;
         --mono-hue: 215;
         --mono-saturation: 15%;
       }
+      ::selection { background: rgba(255, 138, 101, 0.2); }
       body { background: #0d1117; color: #c9d1d9; }
     }
 
