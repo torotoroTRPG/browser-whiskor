@@ -24,6 +24,26 @@
       body { background: #0d1117; color: #c9d1d9; }
     }
 
+    /* ── Background logo ── */
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -8%;
+      right: -4%;
+      width: 420px;
+      height: 420px;
+      background: url('../icons/icon.svg') no-repeat center / contain;
+      opacity: 0.035;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @media (prefers-color-scheme: dark) {
+      body::after { opacity: 0.05; filter: brightness(2); }
+    }
+    @media (max-width: 600px) {
+      body::after { width: 200px; height: 200px; bottom: -4%; right: -2%; }
+    }
+
     /* ── Landing cards ── */
     .card-grid {
       display: grid;
