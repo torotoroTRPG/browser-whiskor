@@ -180,4 +180,77 @@ function withFreshness(tabId, pluginId, data, cache) {
   return { ...data, _freshness: info };
 }
 
-module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, classifyIntent, withFreshness, filterByViewport };
+// ── Source-recovery hint ─────────────────────────────────────────────────────
+// When a framework snapshot comes from a production / minified build, the
+// component names, file paths, and line numbers an agent wants are NOT in the
+// DOM or Fiber tree — they were stripped at build time. But they ARE recoverable
+// from the page's shipped JS (and sourcemaps, if served). Agents repeatedly
+// conclude "this is impossible" because they don't know capture_sources exists.
+// This helper detects the minified case and returns a pointer to that capability.
+// The wording names the MCP tool AND the HTTP endpoint so it's useful no matter
+// which interface (MCP / HTTP / whk CLI) the agent is driving.
+
+// React built-in / wrapper names that are NOT user components — exclude from the
+// minified-ratio so a tree full of Context.Provider doesn't read as "minified".
+const REACT_BUILTINS = new Set([
+  'Anonymous', 'Context.Provider', 'Context.Consumer', 'Memo', 'Mode',
+  'Suspense', 'SuspenseList', 'Offscreen', 'Profiler', 'Fragment',
+  'ForwardRef', 'Lazy', 'Portal', 'StrictMode', 'Router', 'Routes', 'Route',
+]);
+
+// A real (non-weak) component name that is ≤3 chars and not a known built-in
+// looks like a minifier output (e.g. "O", "lH", "Vwe", "Kde").
+function _looksMinifiedName(n) {
+  if (!n || REACT_BUILTINS.has(n)) return false;
+  if (n.indexOf('.') >= 0) return false; // namespaced (e.g. Foo.Provider)
+  return /^[A-Za-z_$][\w$]{0,2}$/.test(n);
+}
+
+// Walk a serialized component tree (nodes keyed { n, w, c }) and return the
+// fraction of real, named components whose names look minified.
+function _minifiedRatio(tree) {
+  let total = 0, mini = 0, budget = 400;
+  const stack = Array.isArray(tree) ? [...tree] : (tree ? [tree] : []);
+  while (stack.length && budget-- > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== 'object') continue;
+    const name = node.n;
+    // Count only real names (w flag = derived/fallback, not a true displayName).
+    if (name && !node.w && !REACT_BUILTINS.has(name)) {
+      total++;
+      if (_looksMinifiedName(name)) mini++;
+    }
+    if (Array.isArray(node.c)) for (const c of node.c) stack.push(c);
+  }
+  return total >= 4 ? mini / total : 0;
+}
+
+// Returns a hint object when `data` (a framework snapshot) is from a minified /
+// production build, else null. `pluginId` is the freshness plugin id.
+function sourceRecoveryHint(pluginId, data) {
+  if (!data || typeof data !== 'object') return null;
+
+  let minified = false;
+  if (data.buildType === 'production') {
+    minified = true;                       // React: authoritative
+  } else if (data.buildType === 'development') {
+    return null;                           // names are real — no hint needed
+  } else if (_minifiedRatio(data.componentTree || data.tree) > 0.5) {
+    minified = true;                       // other frameworks: name heuristic
+  }
+  if (!minified) return null;
+
+  return {
+    code: 'MINIFIED_BUILD',
+    message:
+      'Production/minified build: component names, file paths, and line numbers ' +
+      'are stripped from the DOM/Fiber and cannot be read here. They are still ' +
+      'recoverable from the page\'s shipped JS. Capture the bundles (and ' +
+      'sourcemaps, if served) with the `capture_sources` tool — equivalently ' +
+      '`POST /api/source/capture {"tabId":N}` over HTTP / whk — then read slices ' +
+      'with `get_source_context` (`POST /api/source/context`). Requires the ' +
+      'browser DevTools panel open on the tab.',
+  };
+}
+
+module.exports = { tokenize, bigramSet, jaccard, fuzzyScore, classifyIntent, withFreshness, filterByViewport, sourceRecoveryHint };
