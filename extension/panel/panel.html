@@ -146,9 +146,11 @@ a.ext:hover{text-decoration:underline}
     <option value="off">Off</option>
   </select>
   <button id="btn-collect" title="Manually trigger all analyzers">▶ Collect</button>
+  <button id="btn-capture-sources" title="Capture all page resources (incl. cross-origin JS) via DevTools getResources() and store them server-side">⬇ Sources</button>
   <a class="ext" href="http://localhost:7892" target="_blank">Dashboard ↗</a>
   <button class="primary" id="btn-export">ZIP</button>
   <button id="btn-clear">Clear</button>
+  <span id="capture-status" class="mode-label"></span>
 </div>
 
 <div class="tabs">

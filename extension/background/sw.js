@@ -1398,6 +1398,17 @@ chrome.runtime.onMessage.addListener((message, _sender) => {
   }).catch(() => {});
 });
 
+// ── DevTools source capture → server ──────────────────────────────────────────
+// panel.js captures page resources via getResources()/getContent() (which reads
+// from the browser cache, bypassing the CORS limits that block the page-context
+// fetch() in source-fetcher.js) and sends the result here. Forward it as
+// SOURCE_CONTENT so the server stores it through the same pipeline as Layer 1.
+// The panel supplies tabId (devtools-page messages have no sender.tab).
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type !== 'SOURCE_CAPTURE_RESULT') return;
+  sendToServer({ type: 'SOURCE_CONTENT', tabId: message.tabId, payload: message.payload, from: 'devtools' });
+});
+
 // ── DevTools panel ports ───────────────────────────────────────────────────────
 
 chrome.runtime.onConnect.addListener((port) => {

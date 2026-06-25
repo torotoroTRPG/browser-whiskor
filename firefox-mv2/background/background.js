@@ -738,6 +738,17 @@ browser.runtime.onMessage.addListener((message) => {
   browser.tabs.executeScript(tabId, { code }).catch(() => {});
 });
 
+// ── DevTools source capture → server ─────────────────────────────────────
+// panel.js captures page resources via getResources()/getContent() (which reads
+// from the browser cache, bypassing the CORS limits that block the page-context
+// fetch() in source-fetcher.js) and sends the result here. Forward it as
+// SOURCE_CONTENT so the server stores it through the same pipeline as Layer 1.
+// The panel supplies tabId (devtools-page messages have no sender.tab).
+browser.runtime.onMessage.addListener((message) => {
+  if (message.type !== 'SOURCE_CAPTURE_RESULT') return;
+  sendToServer({ type: 'SOURCE_CONTENT', tabId: message.tabId, payload: message.payload, from: 'devtools' });
+});
+
 browser.runtime.onConnect.addListener((port) => {
   if (!port.name.startsWith('devtools-')) return;
   const tabId = parseInt(port.name.replace('devtools-', ''), 10);

@@ -125,6 +125,108 @@ document.getElementById('btn-export').addEventListener('click', () => {
   window.open('http://localhost:7892/export', '_blank');
 });
 
+// ── Source capture (DevTools getResources → server) ───────────────────────
+// getResources() reads from the browser's resource cache, so it bypasses the
+// CORS limits that block the page-context fetch() in source-fetcher.js. We
+// capture text resources and emit them as SOURCE_CONTENT (the same shape Layer
+// 1 uses), so the server stores them under raw/sources/content/ via the
+// existing pipeline. DevTools must be open on the inspected tab for this.
+// (Firefox's devtools.inspectedWindow may lack getResources — feature-detected.)
+const CAPTURE_MAX_BYTES = 10 * 1024 * 1024; // safety valve; larger → hash-only
+
+// Same hash as Layer 1 (source-fetcher.js hashContent) so identical content
+// dedups across acquisition paths.
+function srcFnv32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+function srcHash(text) { return srcFnv32(text) + '_' + text.length; }
+
+function srcKind(r) {
+  switch (r.type) {
+    case 'script':     return 'js';
+    case 'stylesheet': return 'css';
+    case 'document':   return 'html';
+  }
+  const u = (r.url || '').split('?')[0].toLowerCase();
+  if (u.endsWith('.js') || u.endsWith('.mjs'))   return 'js';
+  if (u.endsWith('.css'))                        return 'css';
+  if (u.endsWith('.htm') || u.endsWith('.html')) return 'html';
+  if (u.endsWith('.json'))                       return 'json';
+  return null; // binary / unknown — skipped in this capture
+}
+
+function srcGetContent(resource, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, ms);
+    try {
+      resource.getContent((content, encoding) => {
+        if (done) return;
+        done = true; clearTimeout(timer);
+        resolve({ content, encoding });
+      });
+    } catch (_) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
+  });
+}
+
+function setCaptureStatus(s) {
+  const el = document.getElementById('capture-status');
+  if (el) el.textContent = s || '';
+}
+
+async function captureAllSources() {
+  const dw = _b.devtools?.inspectedWindow;
+  if (!dw?.getResources) { setCaptureStatus('getResources() unavailable here'); return; }
+  setCaptureStatus('Scanning…');
+  const resources = await new Promise((resolve) => dw.getResources((r) => resolve(r || [])));
+
+  const seen = new Set();
+  const targets = [];
+  for (const r of resources) {
+    if (!r || !r.url || seen.has(r.url)) continue;
+    const kind = srcKind(r);
+    if (!kind) continue;
+    seen.add(r.url);
+    targets.push({ r, kind });
+  }
+  if (!targets.length) { setCaptureStatus('No text resources found'); return; }
+
+  const files = [];
+  let stored = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const { r, kind } = targets[i];
+    setCaptureStatus(`Fetching ${i + 1}/${targets.length}…`);
+    const res = await srcGetContent(r, 5000);
+    if (!res || res.content == null || res.encoding === 'base64') {
+      files.push({ url: r.url, kind, acquisition_level: 1, hash: null, byteLength: null, stored: false });
+      continue;
+    }
+    const text = res.content;
+    const hash = srcHash(text);
+    if (text.length > CAPTURE_MAX_BYTES) {
+      files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: text.length, stored: false, capped: true });
+      continue;
+    }
+    files.push({ url: r.url, kind, acquisition_level: 1, hash, byteLength: text.length, stored: true, content: text });
+    stored++;
+  }
+
+  _b.runtime.sendMessage({
+    type: 'SOURCE_CAPTURE_RESULT',
+    tabId,
+    payload: { timestamp: Date.now(), files, count: files.length },
+  });
+  setCaptureStatus(`Captured ${stored}/${targets.length} → server`);
+  const ov = document.getElementById('ov-sources');
+  if (ov) ov.textContent = stored;
+}
+
+document.getElementById('btn-capture-sources').addEventListener('click', () => {
+  captureAllSources().catch((e) => setCaptureStatus('Capture failed: ' + (e?.message || e)));
+});
+
 // Text search filter
 document.getElementById('text-search').addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
