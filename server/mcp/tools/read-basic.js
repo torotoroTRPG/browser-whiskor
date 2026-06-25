@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const { fuzzyScore, withFreshness, classifyIntent } = require('./read-helpers');
+const { fuzzyScore, withFreshness, classifyIntent, sourceRecoveryHint } = require('./read-helpers');
 const { resolveBackend, setBackend } = require('./backend-selector');
 const { renderLayoutMap } = require('../../layout-map');
 
@@ -532,7 +532,16 @@ module.exports = function registerBasicTools(registry) {
       if (!targetFile) return { error: `Framework '${fw}' not detected. Available: ${Object.keys(fwFileMap).filter(k => fwFileMap[k]).join(', ') || 'none'}` };
       const data = await cache.readSessionFile(args.tabId, targetFile);
       if (!data) return { error: `File ${targetFile} not readable.` };
-      return withFreshness(args.tabId, fwPluginMap[targetFw] || targetFw, data, cache);
+      const result = withFreshness(args.tabId, fwPluginMap[targetFw] || targetFw, data, cache);
+
+      // Minified/production build → component names, files, lines are stripped
+      // from the Fiber/DOM but recoverable via capture_sources. Surface that so
+      // agents don't conclude "impossible" (same shape MCP/HTTP/CLI all see).
+      const hint = sourceRecoveryHint(fwPluginMap[targetFw] || targetFw, data);
+      if (hint && result) {
+        result._warnings = [...(result._warnings || []), hint];
+      }
+      return result;
     },
   });
 

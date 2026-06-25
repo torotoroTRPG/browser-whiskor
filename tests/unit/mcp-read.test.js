@@ -127,3 +127,32 @@ describe('4.2 get_text_coords', () => {
     assert.match(res.error, /TEXT_COORDS|refresh_data/);
   });
 });
+
+describe('4.2 get_framework_state — source-recovery hint', () => {
+  function frameworkCache(snapshot) {
+    return {
+      getSessionData: async () => ({ files: { raw: { react_snapshot: 'raw/react/snapshot.json' } } }),
+      readSessionFile: async () => snapshot,
+      freshnessInfo: () => ({ isStale: false, ageMs: 0 }),
+    };
+  }
+
+  it('appends a MINIFIED_BUILD warning pointing to capture_sources on a production build', async () => {
+    const snapshot = { buildType: 'production', componentTree: { n: 'App', c: [{ n: 'O' }, { n: 'lH' }] } };
+    const res = await readTools['get_framework_state'].handler({ tabId: 1 }, cbWith(frameworkCache(snapshot)));
+    const hint = (res._warnings || []).find((w) => w.code === 'MINIFIED_BUILD');
+    assert.ok(hint, 'expected a MINIFIED_BUILD warning');
+    assert.match(hint.message, /capture_sources/);
+    assert.match(hint.message, /api\/source\/capture/);
+  });
+
+  it('does NOT add the hint for a development build with readable names', async () => {
+    const snapshot = {
+      buildType: 'development',
+      componentTree: { n: 'App', c: [{ n: 'ChatPanel' }, { n: 'DiceSelect' }, { n: 'RoomHeader' }] },
+    };
+    const res = await readTools['get_framework_state'].handler({ tabId: 1 }, cbWith(frameworkCache(snapshot)));
+    const codes = (res._warnings || []).map((w) => w.code);
+    assert.ok(!codes.includes('MINIFIED_BUILD'));
+  });
+});

@@ -6,6 +6,16 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-06-26
+
+### Added
+
+- **Source-recovery hint on minified builds** — `get_framework_state` now detects a production/minified build (React `buildType`, or a minified-name ratio heuristic for other frameworks) and appends a `MINIFIED_BUILD` warning. The hint points agents to `capture_sources` (HTTP: `POST /api/source/capture`) + `get_source_context` so they recover real component names, file paths, and line numbers instead of concluding they're unobtainable. Surfaces in the same response shape over MCP, HTTP, and whk.
+
+### Docs
+
+- **GitHub Pages site polish** — reverted to vivid blue heading tones, removed the internal LobeHub quality plan from the public docs.
+
 ## [0.10.0] — 2026-06-25
 
 ### Added
