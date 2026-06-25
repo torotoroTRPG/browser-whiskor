@@ -6,6 +6,41 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-25
+
+### Added
+
+- **MCP `resources` and `prompts` primitives** — the server now declares and implements the MCP `resources` and `prompts` capabilities. Resources expose collected sessions as readable context (`whiskor://sessions`, `whiskor://session/{tabId}`). Prompts provide canned workflow templates (`investigate_tab`, `debug_errors`, `find_and_act`, `explain_change`, `map_states`). Both work identically in standalone and proxy mode.
+- **`get_layout_map` — coarse ASCII spatial map** — a new core-profile tool that renders the page's interactive elements as a compact ASCII layout map with kind-shaped references (`[n]` links, `{n}` buttons, `<n>` inputs) and a legend. Useful for spatial reasoning without a screenshot.
+- **`config.local.json` layer** — git-ignored personal config that deep-merges over `config.json`. Personal settings (e.g. `security.allowExecuteJs: true`) stay out of the committed defaults. CI guard (`scripts/_check-config-defaults.js`) catches accidental leaks.
+- **Shared text-target ranking (`text-rank.js`)** — `click(text:)` and `find_target` now share a UMD ranking library that scores candidates by kind priority (link/button > input/label > text), viewport visibility, accessible name, and reachability. Consistent ranking across browser and server.
+- **Action namespace bridge for HTTP** — `POST /api/action` accepts MCP tool names as aliases (`type_text` → `type`, `navigate_to` → `navigate`), returns `didYouMean` for typos, and redirects read-tool names to the correct surface instead of a dead-end error.
+- **`navigate_to` lifecycle waiting** — `navigate_to` gains `waitUntil` (`load`/`domcontentloaded`/`networkidle`), `thenCollect` (trigger collection after navigation), and `timeoutMs`. The extension's background layer waits for the specified lifecycle event before resolving.
+- **DevTools source capture (`capture_sources`)** — agent-triggered capture of page resources via `chrome.devtools.inspectedWindow.getResources()`, bypassing CORS limits that block the page-context source fetcher. Cross-origin CDN bundles (a SPA's `main.*.js`) are now retrievable. Requires the DevTools panel to be open on the target tab.
+- **Network/XHR body capture (Layer 2)** — `capture_sources` gains `includeNetwork` (default off) to also capture XHR/fetch response bodies from the DevTools HAR — the API JSON that `getResources()` never sees. With `reload: true`, reloads the page first so initial-load requests are captured too. Feature-detected; capped at 200 files and 10MB per file.
+- **Source listing and ZIP export** — `GET /api/sources/:tabId` lists captured source files; `GET /api/sources/:tabId/zip` downloads them as a folder-structured ZIP. Per-session manifest (`raw/sources/files.json`) tracks all stored files. Binary assets stored as raw bytes when `includeBinary` is set.
+- **TUI field-edit prefills existing values** — `→` on any command with JSON values (not just empty placeholders) opens the field-edit overlay with current values prefilled and editable. Structural keys (`type`, `tabId`) are skipped.
+- **TUI numeric field stepping** — in field-edit mode, `Ctrl+↑/↓` = ±1, `Alt+↑/↓` = ±10 on numeric fields (quick scroll/delta tuning, can cross zero).
+- **TUI catalog backfill** — 10 entries added: source capture/list/zip, cross-session search, text-coords/ui-catalog raw snapshots, switch/open/close_tab actions.
+- **TUI `!` escape hatch** — a line starting with `!` runs in the user's local shell (`pwsh` → `powershell` → `cmd` on Windows, `$SHELL` on POSIX). Non-interactive, 30s timeout. Never exposed over HTTP/MCP. Both full-screen TUI and classic shell.
+- **Dashboard keyboard tab navigation** — ←/→, Home/End, Enter/Space, and number keys 1-9 navigate between dashboard tabs. ARIA tablist with roving tabindex and focus-visible styling.
+
+### Fixed
+
+- **Dashboard tab hover flicker** — `.tab` used `transition: all` which could animate layout properties; now restricted to `color` + `box-shadow` only, making hover/focus layout-immobile.
+- **Config propagation to MAIN world** — `source-fetcher` and `css-origin` read a dead `__SI_CONFIG__`; SW now pushes config on fresh page load.
+- **`source-fetcher` honors `maxJsSizeBytes`** — was a dead config key; now actually caps JS file capture size.
+
+### Security
+
+- **`ws` 8.20.1 → 8.21.0** — fixes a High-severity DoS vulnerability (npm audit).
+
+### Docs
+
+- **README/CLAUDE.md/CLI help synced** — tool count 69→70, test count 406→628, HTTP API table expanded with 11 undocumented endpoints, CLI/TUI section added, DevTools Source Capture section added, config.local.json layering documented.
+- **THIRD-PARTY-NOTICES** — added `@xenova/transformers` (Apache-2.0).
+- **`setup.ps1`** — clarified that `npm link` does not modify PATH or environment variables.
+
 ## [0.9.0] — 2026-06-20
 
 ### Added
