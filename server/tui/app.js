@@ -30,7 +30,7 @@ const { Scrollback } = require('./scrollback');
 const { highlightJsonLine } = require('./highlight');
 const {
   baseCatalog, expandCatalog, filterCandidates, parseCommand,
-  requestJson, loadHistory, appendHistory,
+  requestJson, loadHistory, appendHistory, runShellEscape, shellOutputLines,
 } = require('../cli-shell');
 
 const PKG_VERSION = require('../../package.json').version;
@@ -420,6 +420,24 @@ async function startTui({ host, port }) {
   const print = (text, kind = 'plain') => sb.push(text, kind);
 
   async function execute(line) {
+    // `!cmd` → run in the local host shell (see runShellEscape in cli-shell.js).
+    // Local-only escape hatch; never exposed over HTTP/MCP.
+    if (line.trimStart().startsWith('!')) {
+      const cmdline = line.trimStart().slice(1).trim();
+      if (!cmdline) { print('usage: !<command> — runs in your local shell (pwsh / $SHELL)', 'warn'); return; }
+      const res = await runShellEscape(cmdline);
+      if (res.failed) { print(`shell unavailable: ${res.error}`, 'error'); return; }
+      const o = shellOutputLines(res.out);
+      const e = shellOutputLines(res.err);
+      for (const l of o.lines) print(l, 'plain');
+      if (o.extra) print(`… (${o.extra} more stdout lines)`, 'plain');
+      for (const l of e.lines) print(l, 'warn');
+      if (e.extra) print(`… (${e.extra} more stderr lines)`, 'plain');
+      if (res.killed) print(`(timed out — process killed)`, 'error');
+      else print(`[${res.shell}] exit ${res.code}`, res.code === 0 ? 'info' : 'error');
+      return;
+    }
+
     // TUI-only builtin: mouse capture toggle. With capture on, the wheel
     // scrolls the output pane but terminal text selection needs Shift held;
     // 'mouse' flips the trade-off without leaving the shell.
@@ -502,6 +520,7 @@ async function startTui({ host, port }) {
         if (cmd.name === 'help') {
           print(`Syntax:  GET <path> · POST <path> [json] · DELETE <path>`, 'info');
           print(`Builtins: help · refresh · clear · logs [n] · export [path] · map [tabId] · mouse · exit`, 'info');
+          print(`Shell:    !<command> runs in your local shell (pwsh / $SHELL) — local only`, 'info');
           print(`Folders: categories (action/, capture/, …) open like folders — Enter/Tab/double-click`, 'plain');
           print(`         opens one, Esc / '..' / Backspace-on-empty goes back. Typing at the root`, 'plain');
           print(`         searches across everything; inside a folder it filters that folder.`, 'plain');
@@ -683,7 +702,10 @@ async function startTui({ host, port }) {
     // to 'GET /health') — only a line that parses as a runnable command is
     // sent as typed. Folder rows open instead of executing.
     const typedKind = parseCommand(editor.text).kind;
-    const useSelected = cands.length && (state.navigated || typedKind === 'unknown' || typedKind === 'empty');
+    // A `!`-prefixed line is always run as typed (shell escape), never replaced
+    // by a highlighted candidate.
+    const bang = editor.text.trimStart().startsWith('!');
+    const useSelected = !bang && cands.length && (state.navigated || typedKind === 'unknown' || typedKind === 'empty');
     const chosen = useSelected ? cands[Math.min(state.sel, cands.length - 1)] : null;
     if (chosen && (chosen.folder || chosen.up)) { enterFolder(chosen); render(); return; }
     const line = chosen ? chosen.text : editor.text;

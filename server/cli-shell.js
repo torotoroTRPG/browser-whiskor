@@ -205,6 +205,68 @@ function requestJson({ host, port }, method, pathname, body = null, timeoutMs = 
   });
 }
 
+// ── `!` escape hatch: run a raw command in the user's local shell ───────────────
+// A line beginning with `!` drops to the host shell (pwsh on Windows, $SHELL on
+// POSIX) so you can `!git status` / `!ls` without leaving the whiskor shell. This
+// is purely local — it is NEVER exposed over HTTP or MCP, so it adds no surface
+// beyond the terminal the user already controls. Non-interactive, with a timeout.
+const SHELL_ESCAPE_TIMEOUT_MS = 30000;
+
+function pickShells() {
+  if (process.platform === 'win32') {
+    const argsPwsh = (c) => ['-NoProfile', '-NonInteractive', '-Command', c];
+    const comspec = process.env.ComSpec || 'cmd.exe';
+    return [
+      { cmd: 'pwsh',       args: argsPwsh },
+      { cmd: 'powershell', args: argsPwsh },
+      { cmd: comspec,      args: (c) => ['/d', '/s', '/c', c] },
+    ];
+  }
+  const sh = process.env.SHELL || '/bin/sh';
+  return [{ cmd: sh, args: (c) => ['-c', c] }];
+}
+
+/**
+ * Run `cmdline` in the first available host shell. Resolves to
+ * { out, err, code, killed, shell } on completion, or { failed, error } if no
+ * shell could be spawned. Never throws. Output is buffered (not streamed) so the
+ * caller can render it into scrollback / the line REPL however it likes.
+ */
+async function runShellEscape(cmdline) {
+  const { spawn } = require('child_process');
+  const shells = pickShells();
+  for (let i = 0; i < shells.length; i++) {
+    const sh = shells[i];
+    const res = await new Promise((resolve) => {
+      let child;
+      try { child = spawn(sh.cmd, sh.args(cmdline), { windowsHide: true }); }
+      catch (e) { resolve({ spawnError: e }); return; }
+      let out = '', err = '', killed = false;
+      const timer = setTimeout(() => { killed = true; try { child.kill(); } catch (_) {} }, SHELL_ESCAPE_TIMEOUT_MS);
+      timer.unref?.();
+      child.stdout?.on('data', (d) => { out += d.toString(); });
+      child.stderr?.on('data', (d) => { err += d.toString(); });
+      child.on('error', (e) => { clearTimeout(timer); resolve({ spawnError: e }); });
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code, out, err, killed }); });
+    });
+    // ENOENT just means this shell isn't installed — fall through to the next.
+    if (res.spawnError) {
+      if (res.spawnError.code === 'ENOENT' && i < shells.length - 1) continue;
+      return { failed: true, error: res.spawnError.message, shell: sh.cmd };
+    }
+    return { ...res, shell: sh.cmd };
+  }
+  return { failed: true, error: 'no host shell available' };
+}
+
+/** Split shell output into capped, EOL-normalised lines for display. */
+function shellOutputLines(text, cap = 500) {
+  if (!text) return { lines: [], extra: 0 };
+  const all = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (all.length && all[all.length - 1] === '') all.pop();
+  return { lines: all.slice(0, cap), extra: Math.max(0, all.length - cap) };
+}
+
 // ── Shell ─────────────────────────────────────────────────────────────────────
 
 const HISTORY_FILE = path.join(os.homedir(), '.whiskor', 'shell-history.txt');
@@ -226,6 +288,7 @@ function printHelp(write) {
   write(`
 Syntax:   GET <path>   ·   POST <path> [json]   ·   DELETE <path>
 Builtins: help · refresh (re-fetch ids for completion) · clear · exit
+Shell:    !<command>  runs in your local shell (pwsh / $SHELL), local only
 Keys:     type = filter   ↑/↓ = select   Tab = adopt   Enter = run
           Ctrl+P/N = history   Ctrl+U = clear line   Ctrl+L = clear screen
           Ctrl+C / Ctrl+D = exit
@@ -275,6 +338,22 @@ async function startShell({ host, port }) {
   write(`Type to search, Tab to adopt, Enter to run. 'help' for keys, 'exit' to leave.\n\n`);
 
   async function execute(line, ctx) {
+    // `!cmd` → run in the local host shell (see runShellEscape). Local only.
+    if (line.trimStart().startsWith('!')) {
+      const cmdline = line.trimStart().slice(1).trim();
+      if (!cmdline) { write(`usage: !<command> — runs in your local shell (pwsh / $SHELL)\n`); return; }
+      const res = await runShellEscape(cmdline);
+      if (res.failed) { write(`\x1b[31mshell unavailable: ${res.error}\x1b[0m\n`); return; }
+      const o = shellOutputLines(res.out);
+      const e = shellOutputLines(res.err);
+      if (o.lines.length) write(o.lines.join('\n') + '\n');
+      if (o.extra) write(`\x1b[90m… (${o.extra} more stdout lines)\x1b[0m\n`);
+      if (e.lines.length) write(`\x1b[33m${e.lines.join('\n')}\x1b[0m\n`);
+      if (e.extra) write(`\x1b[90m… (${e.extra} more stderr lines)\x1b[0m\n`);
+      if (res.killed) write(`\x1b[31m(timed out after ${SHELL_ESCAPE_TIMEOUT_MS / 1000}s — killed)\x1b[0m\n`);
+      else write(`${res.code === 0 ? '\x1b[32m' : '\x1b[31m'}[${res.shell}] exit ${res.code}\x1b[0m\n`);
+      return;
+    }
     const cmd = parseCommand(line);
     switch (cmd.kind) {
       case 'empty': return;
@@ -419,7 +498,10 @@ async function startShell({ host, port }) {
       // to 'GET /health') — only a line that parses as a runnable command is
       // sent as typed.
       const typedKind = parseCommand(state.input).kind;
-      const line = cands.length && (state.navigated || typedKind === 'unknown' || typedKind === 'empty')
+      // A `!`-prefixed line is always run as typed (shell escape), never replaced
+      // by a highlighted candidate.
+      const bang = state.input.trimStart().startsWith('!');
+      const line = !bang && cands.length && (state.navigated || typedKind === 'unknown' || typedKind === 'empty')
         ? cands[state.sel].text
         : state.input;
       clearBelow();
@@ -466,4 +548,6 @@ module.exports = {
   requestJson,
   loadHistory,
   appendHistory,
+  runShellEscape,
+  shellOutputLines,
 };
