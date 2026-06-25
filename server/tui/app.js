@@ -83,19 +83,39 @@ function resolveCandidates(catalog, categories, dir, query) {
 // ── Free-input field detection (for the field-edit overlay) ──────────────────
 
 /**
- * Find `"key":""` / `"key":"https://"` placeholders inside a candidate's
- * command text — these are the values a user is expected to fill in before
- * sending (selector, text, url, …). `start`/`end` are offsets into `text`
- * so a typed value can be spliced back in place.
+ * Find the editable JSON values inside a candidate's command text — both empty
+ * placeholders (`"key":""` / `"key":"https://"`) and ALREADY-FILLED values
+ * (`"deltaY":500`, `"key":"Enter"`), so → opens field-edit on any of them and
+ * prefills the current value. `start`/`end` are offsets into `text` (the value
+ * region, inside the quotes for strings) so a typed value splices back in place.
+ * `type` is 'string' | 'number'; `value` is the current value, decoded for the
+ * editor (JSON-unescaped for strings).
  */
-const FIELD_RE = /"(\w+)":"(https:\/\/|)"/g;
+const FIELD_RE = /"(\w+)":\s*(?:"((?:[^"\\]|\\.)*)"|(-?\d+(?:\.\d+)?))/g;
+// Structural keys the overlay never edits: `type` is the action discriminator
+// (pick a different catalog entry instead) and `tabId` is auto-filled from the
+// live session by expandCatalog — surfacing them would just be noise to tab past.
+const FIELD_SKIP_KEYS = new Set(['type', 'tabId']);
 function detectFields(text) {
   const fields = [];
   let m;
   FIELD_RE.lastIndex = 0;
   while ((m = FIELD_RE.exec(text))) {
-    const start = m.index + `"${m[1]}":"`.length;
-    fields.push({ key: m[1], start, end: start + m[2].length, placeholder: m[2] });
+    const key = m[1];
+    if (FIELD_SKIP_KEYS.has(key)) continue;
+    if (m[3] !== undefined) {
+      // Numeric literal — sits at the end of the match, no surrounding quotes.
+      const start = m.index + m[0].length - m[3].length;
+      fields.push({ key, start, end: start + m[3].length, value: m[3], type: 'number' });
+    } else {
+      // String — inner content is the last (inner.length + 1) chars of the match
+      // (closing quote included), regardless of whitespace after the colon.
+      const inner = m[2] || '';
+      const start = m.index + m[0].length - inner.length - 1;
+      let value = inner;
+      try { value = JSON.parse('"' + inner + '"'); } catch { /* keep raw */ }
+      fields.push({ key, start, end: start + inner.length, value, type: 'string' });
+    }
   }
   return fields;
 }
@@ -106,15 +126,30 @@ function jsonStringEscape(s) {
 }
 
 /** Splice typed field values back into a command template (as found by
- *  `detectFields`). A blank value keeps the original placeholder. */
+ *  `detectFields`). A blank value keeps the original placeholder/value. Numbers
+ *  are spliced raw (unquoted); strings are JSON-escaped. */
 function substituteFields(text, fields, values) {
   let result = text;
   for (let i = fields.length - 1; i >= 0; i--) {
+    const f = fields[i];
     const val = values[i];
-    if (!val) continue;
-    result = result.slice(0, fields[i].start) + jsonStringEscape(val) + result.slice(fields[i].end);
+    if (val === undefined || val === null || val === '') continue;
+    const piece = f.type === 'number' ? String(val) : jsonStringEscape(val);
+    result = result.slice(0, f.start) + piece + result.slice(f.end);
   }
   return result;
+}
+
+/** Step a numeric field's value by `delta` (G: Ctrl/Alt+↑↓ in field-edit).
+ *  Preserves integer vs decimal; clamps tiny float error. Returns a string. */
+function stepNumber(current, delta) {
+  const n = parseFloat(current);
+  if (!isFinite(n)) return current;
+  const next = n + delta;
+  // Keep it an integer when both inputs are integers; otherwise round to the
+  // step's precision so 0.1 steps don't accrue 0.30000000000000004.
+  if (Number.isInteger(n) && Number.isInteger(delta)) return String(next);
+  return String(parseFloat(next.toFixed(6)));
 }
 
 // ── Transcript export ─────────────────────────────────────────────────────────
@@ -210,7 +245,7 @@ async function startTui({ host, port }) {
     stopped: false,
     mouse: true,
     fieldCmd: null,        // candidate being edited (fieldedit mode)
-    fields: [],            // [{ key, start, end, placeholder }] for fieldCmd.text
+    fields: [],            // [{ key, start, end, value, type }] for fieldCmd.text
     fieldValues: [],       // confirmed value per field so far
     fieldIdx: 0,           // index of the field currently being typed
     fieldEditor: null,     // LineEditor for the active field's value
@@ -227,9 +262,10 @@ async function startTui({ host, port }) {
     resetPopup();
   }
 
-  /** → on a leaf candidate with `""`/`"https://"` placeholders opens the
-   *  field-edit overlay instead of doing nothing. Returns false (no-op) for
-   *  folders, '..' rows, or commands with nothing to fill in. */
+  /** → on a leaf candidate with editable JSON values opens the field-edit
+   *  overlay, prefilling each field with its current value (empty placeholders
+   *  stay empty). Returns false (no-op) for folders, '..' rows, or commands
+   *  with nothing to fill in. */
   function tryEnterFieldEdit(c) {
     if (!c || c.folder || c.up) return false;
     const fields = detectFields(c.text || '');
@@ -237,9 +273,9 @@ async function startTui({ host, port }) {
     state.mode = 'fieldedit';
     state.fieldCmd = c;
     state.fields = fields;
-    state.fieldValues = fields.map(() => '');
+    state.fieldValues = fields.map(f => f.value || '');
     state.fieldIdx = 0;
-    state.fieldEditor = new LineEditor();
+    state.fieldEditor = new LineEditor(state.fieldValues[0] || '');
     return true;
   }
 
@@ -471,9 +507,10 @@ async function startTui({ host, port }) {
           print(`         searches across everything; inside a folder it filters that folder.`, 'plain');
           print(`Keys: type=filter  ↑/↓=select (↑ on a fresh line = history)  Tab=adopt  Enter=run`, 'plain');
           print(`      On an empty line: →=open folder, or open field-edit for a command with`, 'plain');
-          print(`      "" / "https://" placeholders (selector, text, url, …); ←=back out of folder.`, 'plain');
-          print(`      Field-edit: type each value, Tab/Enter=next field (last=apply to the input`, 'plain');
-          print(`      line for review), Esc/Backspace-on-empty=cancel.`, 'plain');
+          print(`      JSON values (selector, text, url, deltaY, …); ←=back out of folder.`, 'plain');
+          print(`      Field-edit: each value is prefilled & editable, Tab/Enter=next field`, 'plain');
+          print(`      (last=apply to the input line for review), Esc/Backspace-on-empty=cancel.`, 'plain');
+          print(`      In a numeric field: Ctrl+↑↓ = ±1, Alt+↑↓ = ±10 (quick scroll/delta tuning).`, 'plain');
           print(`      Wheel / PgUp/PgDn / Ctrl+↑↓ = scroll output  Ctrl+L=clear  Ctrl+R=history search`, 'plain');
           print(`      Ctrl+A/E=home/end  Ctrl+W=del word  Ctrl+K=kill to end  Ctrl+U=clear line`, 'plain');
           print(`Mouse capture is ON by default (wheel scrolls; hold Shift to select text).`, 'plain');
@@ -712,6 +749,17 @@ async function startTui({ host, port }) {
         }
         render(); return;
       }
+      // G: step a numeric field — Ctrl+↑↓ = ±1, Alt+↑↓ = ±10 (can cross zero
+      // into negatives). Quick repeated adjust for scroll deltas etc.
+      if ((key.ctrl || key.meta) && (key.name === 'up' || key.name === 'down')) {
+        const f = state.fields[state.fieldIdx];
+        if (f && f.type === 'number') {
+          const step = (key.meta ? 10 : 1) * (key.name === 'up' ? 1 : -1);
+          state.fieldEditor.set(stepNumber(state.fieldEditor.text, step));
+          render();
+        }
+        return;
+      }
       if (key.name === 'left')   { if (key.ctrl || key.meta) state.fieldEditor.wordLeft(); else state.fieldEditor.left(); render(); return; }
       if (key.name === 'right')  { if (key.ctrl || key.meta) state.fieldEditor.wordRight(); else state.fieldEditor.right(); render(); return; }
       if (key.name === 'home')   { state.fieldEditor.home(); render(); return; }
@@ -748,8 +796,8 @@ async function startTui({ host, port }) {
     if (key.name === 'right') {
       if (key.ctrl || key.meta) { editor.wordRight(); render(); return; }
       // On an empty line, → "descends" into the highlighted row: open a
-      // folder, or open the field-edit overlay for a command with `""`/
-      // `"https://"` placeholders. Otherwise it's a normal cursor move.
+      // folder, or open the field-edit overlay for a command with editable
+      // JSON values (prefilled). Otherwise it's a normal cursor move.
       if (editor.text === '') {
         const cands = candidates();
         const c = cands[Math.min(state.sel, cands.length - 1)];
@@ -829,4 +877,4 @@ async function startTui({ host, port }) {
   restoreScreen();
 }
 
-module.exports = { startTui, visibleSlice, resolveCandidates, categoriesOf, formatTranscript, detectFields, substituteFields };
+module.exports = { startTui, visibleSlice, resolveCandidates, categoriesOf, formatTranscript, detectFields, substituteFields, stepNumber };
