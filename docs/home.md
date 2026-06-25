@@ -42,4 +42,4 @@ Load the extension: Chrome → `chrome://extensions` → Load unpacked → `exte
 
 - **MCP**: `node server/index.js --mcp` — 70 tools with dynamic profiles
 - **HTTP**: `skills/browser-whiskor-http/` — ready-to-use agent skill over plain HTTP
-- **Raw docs**: [`llm.txt`](llm.txt) — all key docs concatenated for LLM ingestion
+- **Raw docs**: [`llm.txt`](https://torotorotrpg.github.io/browser-whiskor/llm.txt) — all key docs concatenated for LLM ingestion

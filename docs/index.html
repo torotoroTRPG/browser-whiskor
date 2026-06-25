@@ -10,7 +10,7 @@
       --base-font-size: 14px;
       --theme-color: #3a4d7a;
       --heading-color: #2a3a5c;
-      --strong-color: inherit;
+      --strong-color: #e05525;
       --mono-font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
       --sidebar-width: 16rem;
       --sidebar-background: #fafbfc;
@@ -18,13 +18,7 @@
     }
     ::selection { background: rgba(254, 87, 46, 0.15); }
     h1, h2, h3, h4, h5, h6 { color: var(--heading-color) !important; }
-    strong {
-      color: inherit;
-      background: linear-gradient(transparent 55%, rgba(254, 147, 46, 0.18) 55%, rgba(254, 147, 46, 0.18) 90%, transparent 90%);
-    }
-    @media (prefers-color-scheme: dark) {
-      strong { background: linear-gradient(transparent 55%, rgba(255, 160, 80, 0.15) 55%, rgba(255, 160, 80, 0.15) 90%, transparent 90%); }
-    }
+    strong { color: var(--strong-color); }
 
     /* blockquote: theme-simple fades these to near-invisible */
     blockquote { color: inherit !important; opacity: 0.82; border-left-color: var(--theme-color) !important; }
@@ -39,7 +33,7 @@
       :root {
         --theme-color: #6b7faa;
         --heading-color: #9aa8c4;
-        --strong-color: inherit;
+        --strong-color: #ff8a65;
         --sidebar-background: #161b22;
         --sidebar-border-color: #30363d;
         --mono-hue: 215;
@@ -57,7 +51,7 @@
       right: -4%;
       width: 420px;
       height: 420px;
-      background: url('../icons/icon.svg') no-repeat center / contain;
+      background: url('icon.svg') no-repeat center / contain;
       opacity: 0.015;
       pointer-events: none;
       z-index: 0;
