@@ -104,4 +104,47 @@ describe('8.2 autoRevertIfNeeded', () => {
     assert.ok(pushed.some(p => p.security && p.security.allowActions === true),
       'revert must push allowActions back to true');
   });
+
+  test('reverts a number change by restoring its default value', () => {
+    log.addChange({
+      patch: { react: { maxDepth: 999 } },
+      warnings: [{ severity: 'warning', message: 'bad depth' }],
+    });
+
+    const pushed = [];
+    const report = log.autoRevertIfNeeded(
+      { agentControl: { autoRevertConfig: true } },
+      (patch) => pushed.push(patch),
+    );
+
+    assert.ok(report, 'should produce a revert report for number change');
+    const rule = log.NON_RECOMMENDED_RULES.find(r => r.path === 'react.maxDepth');
+    assert.ok(pushed.some(p => p.react && p.react.maxDepth === rule.defaultValue),
+      `revert must restore maxDepth to default (${rule.defaultValue})`);
+  });
+
+  test('does not mark unrelated changes as reverted (no markAllReverted sweep)', () => {
+    const safeMarker = `__safe_${Date.now()}_${Math.random()}`;
+    log.addChange({
+      patch: { server: { wsPort: 9999 } },
+      warnings: [],
+      note: safeMarker,
+    });
+
+    log.addChange({
+      patch: { security: { allowExecuteJs: false } },
+      warnings: [{ severity: 'danger', message: 'disabled js' }],
+    });
+
+    const report = log.autoRevertIfNeeded(
+      { agentControl: { autoRevertConfig: true } },
+      () => {},
+    );
+
+    assert.ok(report, 'dangerous change should be reverted');
+    const safe = log._getAll().find(c => c.note === safeMarker);
+    assert.ok(safe, 'safe change must still exist');
+    assert.strictEqual(safe.reverted, false,
+      'unrelated safe change must NOT be marked as reverted');
+  });
 });
