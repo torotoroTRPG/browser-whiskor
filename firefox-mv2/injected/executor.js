@@ -459,6 +459,23 @@
 
   // Compact descriptor of where an action landed — lets the agent confirm it typed into
   // the intended element (e.g. when no selector was given and activeElement was used).
+  // React redefines `value` on the element INSTANCE to track programmatic writes;
+  // only a write through the PROTOTYPE's native setter makes the following input
+  // event register as a real change. The setter must come from the element's own
+  // interface: calling the HTMLInputElement setter on a <textarea> throws, and the
+  // old `el.value =` fallback updated React's tracker directly — the input event
+  // then looked like a no-op and onChange never fired (React textareas appeared
+  // to accept text while the component state stayed empty).
+  function setNativeValue(el, v) {
+    const proto = (typeof HTMLTextAreaElement !== 'undefined' && el instanceof HTMLTextAreaElement) ? HTMLTextAreaElement.prototype
+                : (typeof HTMLSelectElement   !== 'undefined' && el instanceof HTMLSelectElement)   ? HTMLSelectElement.prototype
+                : (typeof HTMLInputElement    !== 'undefined' && el instanceof HTMLInputElement)    ? HTMLInputElement.prototype
+                : null;
+    const d = proto && Object.getOwnPropertyDescriptor(proto, 'value');
+    if (d && d.set) { try { d.set.call(el, v); return; } catch (_) {} }
+    el.value = v;
+  }
+
   function describeTarget(el) {
     if (!el) return null;
     const cls = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '');
@@ -815,16 +832,15 @@
       }
 
       if (action.clear) {
-        el.value = '';
+        setNativeValue(el, '');
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
       }
 
       // Type character by character for React synthetic event compatibility.
-      // Use the prototype's native value setter so React's onChange sees the update,
+      // setNativeValue writes through the element's own prototype setter so React's
+      // onChange sees the update (see the helper for why the interface must match),
       // and emit beforeinput/input (InputEvent with inputType+data) like a real keypress.
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
-                                     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
       for (const char of text) {
         fireKey(el, 'keydown',  char);
         fireKey(el, 'keypress', char);
@@ -832,8 +848,7 @@
         const end   = el.selectionEnd ?? start;
         el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: char, bubbles: true, cancelable: true }));
         const next = el.value.slice(0, start) + char + el.value.slice(end);
-        if (nativeInputValueSetter) { try { nativeInputValueSetter.call(el, next); } catch (_) { el.value = next; } }
-        else el.value = next;
+        setNativeValue(el, next);
         try { el.selectionStart = el.selectionEnd = start + char.length; } catch (_) {}
         el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: char, bubbles: true }));
         fireKey(el, 'keyup', char);
@@ -848,7 +863,22 @@
     },
 
     async press_key(action) {
-      const focused = document.activeElement || document.body || document.documentElement || document;
+      // Optional element targeting: selector/text (same resolution as click) focuses
+      // the element first, so keys land where the agent intends instead of wherever
+      // focus happens to be. Without a target, legacy behaviour: the focused element.
+      let focused;
+      if (action.selector || action.text) {
+        const el = resolveTarget(action);
+        if (!el) return { ok: false, error: `Element not found for press_key: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
+        scrollIntoView(el);
+        try { el.focus(); } catch (_) {}
+        // Dispatch on the focused element when focus() took; otherwise on the element
+        // itself — many key handlers live on non-focusable nodes.
+        focused = (document.activeElement && (document.activeElement === el || el.contains(document.activeElement)))
+          ? document.activeElement : el;
+      } else {
+        focused = document.activeElement || document.body || document.documentElement || document;
+      }
       // Modifier names set modifier flags; every other part is a real key. More
       // than one real key is a chord ("w+d"): all go down in order, then come up
       // in reverse — previously the extra keys were silently dropped.
@@ -871,7 +901,9 @@
       // holdMs: keep the chord held before release (games / long-press UIs). Capped at 5s.
       if (action.holdMs > 0) await new Promise(r => setTimeout(r, Math.min(action.holdMs, 5000)));
       for (const k of [...keys].reverse()) focused.dispatchEvent(new KeyboardEvent('keyup', evOpts(k)));
-      return { ok: true, key: action.key, ...(keys.length > 1 ? { chord: keys } : {}), target: focused.tagName };
+      return { ok: true, key: action.key, ...(keys.length > 1 ? { chord: keys } : {}), target: focused.tagName,
+               ...((action.selector || action.text) ? { targetInfo: describeTarget(focused.tagName ? focused : null) } : {}),
+               ...selectorAmbiguity(action), ...textMatchNote(action) };
     },
 
     hover(action) {
@@ -885,7 +917,7 @@
       return { ok: true, tagName: el.tagName, ...textMatchNote(action) };
     },
 
-    mouse_scroll(action) {
+    async mouse_scroll(action) {
       const x = action.x != null ? action.x - window.scrollX : (action.selector ? (() => { const el = findBySelector(action.selector); const r = el.getBoundingClientRect(); return r.left + r.width/2; })() : window.innerWidth / 2);
       const y = action.y != null ? action.y - window.scrollY : (action.selector ? (() => { const el = findBySelector(action.selector); const r = el.getBoundingClientRect(); return r.top + r.height/2; })() : window.innerHeight / 2);
       const deltaX = action.deltaX || 0;
@@ -897,8 +929,58 @@
         clientX: x, clientY: y, deltaX, deltaY, deltaMode: 0,
       };
 
-      el.dispatchEvent(new WheelEvent('wheel', evOpts));
-      return { ok: true, at: { x: x + window.scrollX, y: y + window.scrollY }, delta: { deltaX, deltaY } };
+      // Synthetic wheel events are untrusted: the browser performs NO default
+      // scrolling for them — only page wheel handlers can react. The old code
+      // returned ok:true unconditionally, so on native scrollers this was a
+      // silent no-op. Now: measure what actually moved (nearest scrollable
+      // ancestor + window), and when no handler consumed the event and nothing
+      // moved, fall back to scrolling the container directly — reported as
+      // via:'scroll_fallback' so the agent knows which mechanism worked.
+      const scrollable = (() => {
+        let n = el;
+        while (n && n !== document.body && n !== document.documentElement) {
+          try {
+            const s = getComputedStyle(n);
+            if (/(auto|scroll|overlay)/.test(s.overflowY + s.overflowX) &&
+                (n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)) return n;
+          } catch (_) {}
+          n = n.parentElement;
+        }
+        return null;
+      })();
+      const read = () => ({
+        win: { x: window.scrollX, y: window.scrollY },
+        container: scrollable ? { x: scrollable.scrollLeft, y: scrollable.scrollTop } : null,
+      });
+      const movedSince = (a, b) =>
+        a.win.x !== b.win.x || a.win.y !== b.win.y ||
+        (a.container && b.container && (a.container.x !== b.container.x || a.container.y !== b.container.y));
+
+      const before = read();
+      const consumed = !el.dispatchEvent(new WheelEvent('wheel', evOpts)); // preventDefault() → page handled it
+      // Wheel handlers often apply the scroll asynchronously (rAF) — give them a beat.
+      await new Promise(r => setTimeout(r, 120));
+      let after = read();
+      let scrolled = movedSince(after, before);
+      let via = scrolled ? 'wheel_handler' : null;
+
+      if (!scrolled && !consumed && (deltaX || deltaY)) {
+        const t = scrollable || window;
+        if (t === window) window.scrollBy({ left: deltaX, top: deltaY, behavior: 'instant' });
+        else { t.scrollLeft += deltaX; t.scrollTop += deltaY; }
+        after = read();
+        scrolled = movedSince(after, before);
+        if (scrolled) via = 'scroll_fallback';
+      }
+
+      return {
+        ok: true, at: { x: x + window.scrollX, y: y + window.scrollY }, delta: { deltaX, deltaY },
+        scrolled, ...(via ? { via } : {}), ...(consumed ? { handledByPage: true } : {}),
+        before, after,
+        ...(scrolled ? {} : { _hint: consumed
+          ? 'A wheel handler consumed the event (preventDefault) but no scroll position changed — the page may track scroll state internally (canvas/virtual view); verify visually or via capture.'
+          : 'Nothing moved: synthetic wheel is untrusted (no native scroll), no wheel handler reacted, and the direct-scroll fallback found no room to move. The area may already be at its boundary, or the scrollable element may be elsewhere — try scroll_page with the container selector.' }),
+      };
     },
 
     async right_click(action) {
@@ -997,15 +1079,68 @@
       return { ok: true, from: { x: fromX, y: fromY }, to: { x: toX, y: toY }, targetTag: targetEl?.tagName };
     },
 
-    scroll(action) {
+    async scroll(action) {
+      // Truthful return contract: report the TARGET's own before/after position
+      // (container scrollLeft/Top, or window scrollX/Y), the distance actually
+      // moved, and whether an edge was hit. Previously the window position was
+      // returned even when scrolling an inner container — it never appeared to
+      // move and a boundary was indistinguishable from a successful scroll.
+      const readPos = (t) => t === window
+        ? { x: window.scrollX, y: window.scrollY,
+            maxX: Math.max(0, (document.documentElement.scrollWidth  || 0) - window.innerWidth),
+            maxY: Math.max(0, (document.documentElement.scrollHeight || 0) - window.innerHeight) }
+        : { x: t.scrollLeft, y: t.scrollTop,
+            maxX: Math.max(0, t.scrollWidth  - t.clientWidth),
+            maxY: Math.max(0, t.scrollHeight - t.clientHeight) };
+      // behavior:'smooth' animates past our return — wait until the position
+      // stops moving (or ~600ms) so `after` is where the page actually ended up.
+      const settle = async (t) => {
+        let last = readPos(t);
+        const t0 = Date.now();
+        while (Date.now() - t0 < 600) {
+          await new Promise(r => setTimeout(r, 80));
+          const cur = readPos(t);
+          if (cur.x === last.x && cur.y === last.y) return cur;
+          last = cur;
+        }
+        return last;
+      };
+      const summarize = (t, before, after, extra) => {
+        const out = {
+          ok: true,
+          target: t === window ? 'window' : (action.selector || action.toElement),
+          before: { x: before.x, y: before.y },
+          after:  { x: after.x,  y: after.y },
+          moved:  { dx: after.x - before.x, dy: after.y - before.y },
+          atBoundary: { top: after.y <= 0, bottom: after.y >= after.maxY,
+                        left: after.x <= 0, right: after.x >= after.maxX },
+          // Back-compat: scrollX/scrollY stay the window position as before.
+          scrollX: window.scrollX, scrollY: window.scrollY,
+          ...extra,
+        };
+        if (out.moved.dx === 0 && out.moved.dy === 0 && !action.toElement) {
+          out._hint = 'Position did not change. Check atBoundary — the target may already be at its edge — or the scrollable container may be a different element (pass its selector).';
+        }
+        return out;
+      };
+
       if (action.toElement) {
         const el = findBySelector(action.toElement);
-        if (el) { scrollIntoView(el); return { ok: true, scrolledTo: action.toElement }; }
-        return { ok: false, error: `Scroll target not found: ${action.toElement}` };
+        if (!el) return { ok: false, error: `Scroll target not found: ${action.toElement}` };
+        const before = readPos(window);
+        scrollIntoView(el);
+        const after = await settle(window);
+        const r = el.getBoundingClientRect();
+        return summarize(window, before, after, {
+          scrolledTo: action.toElement,
+          elementInViewport: r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth,
+        });
       }
 
       const target = action.selector ? findBySelector(action.selector) : window;
+      if (!target) return { ok: false, error: `Scroll container not found: ${action.selector}` };
       const behavior = action.behavior || 'instant';
+      const before = readPos(target);
 
       if (action.x != null || action.y != null) {
         (target === window ? window : target).scrollTo({ left: action.x, top: action.y, behavior });
@@ -1014,12 +1149,15 @@
         const dy = action.deltaY || 0;
         if (target === window) {
           window.scrollBy({ left: dx, top: dy, behavior });
+        } else if (typeof target.scrollBy === 'function') {
+          target.scrollBy({ left: dx, top: dy, behavior });
         } else {
           target.scrollLeft += dx;
           target.scrollTop  += dy;
         }
       }
-      return { ok: true, scrollX: window.scrollX, scrollY: window.scrollY };
+      const after = behavior === 'smooth' ? await settle(target) : readPos(target);
+      return summarize(target, before, after);
     },
 
     select_option(action) {
@@ -1027,12 +1165,12 @@
       if (!el || el.tagName !== 'SELECT') return { ok: false, error: `SELECT not found: ${action.selector}` };
 
       if (action.value) {
-        el.value = action.value;
+        setNativeValue(el, action.value);
       } else if (action.label) {
         const lower = action.label.toLowerCase();
         const opt = [...el.options].find(o => o.text.toLowerCase().includes(lower) || o.value.toLowerCase().includes(lower));
         if (!opt) return { ok: false, error: `Option not found: ${action.label}` };
-        el.value = opt.value;
+        setNativeValue(el, opt.value);
       }
 
       el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1053,17 +1191,19 @@
     },
 
     focus(action) {
-      const el = findBySelector(action.selector);
-      if (!el) return { ok: false, error: `Element not found: ${action.selector}` };
+      // resolveTarget (not bare findBySelector) so text targeting works — the CDP
+      // press_key/type paths pre-focus through this action with selector OR text.
+      const el = resolveTarget(action);
+      if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
       scrollIntoView(el);
       el.focus();
-      return { ok: true, focused: document.activeElement === el };
+      return { ok: true, focused: document.activeElement === el, ...textMatchNote(action) };
     },
 
     clear_input(action) {
       const el = findBySelector(action.selector);
       if (!el) return { ok: false, error: `Element not found: ${action.selector}` };
-      el.value = '';
+      setNativeValue(el, ''); // prototype setter — a bare el.value='' is invisible to React
       el.dispatchEvent(new Event('input',  { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true };

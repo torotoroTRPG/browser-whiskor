@@ -190,7 +190,7 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'click',
-      description: 'Click an element in the page. You can target by CSS selector, by visible text, or by absolute coordinates. Fires full mouse event sequence (mouseover, mouseenter, mousedown, mouseup, click) for maximum React/Vue compatibility.',
+      description: 'Click an element in the page. You can target by CSS selector, by visible text, or by absolute coordinates. Fires full mouse event sequence (mouseover, mouseenter, mousedown, mouseup, click) for maximum React/Vue compatibility. If the click starts a file download, the result carries `downloadsStarted` and diagnosis reads `download_started` (a download changes no page state — it is still a success).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -337,12 +337,14 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'press_key',
-      description: 'Send a keyboard event to the focused element. Supports modifier combos like "Control+a", "Control+c", "Shift+Tab", "Escape", "Enter", "ArrowDown", etc.',
+      description: 'Send a keyboard event to the focused element, or to a specific element via selector/text (it is focused first). Supports modifier combos like "Control+a", "Control+c", "Shift+Tab", "Escape", "Enter", "ArrowDown", etc.',
       inputSchema: {
         type: 'object',
         properties: {
           tabId: { type: 'number', description: 'Tab ID' },
           key:   { type: 'string', description: 'Key or combo (e.g. "Enter", "Escape", "Tab", "Control+a", "Shift+ArrowDown")' },
+          selector: { type: 'string', description: 'CSS selector of the element to send the key to (focused before dispatch; default: currently focused element)' },
+          text:     { type: 'string', description: 'Visible text of the target element (fallback if selector is absent, same resolution as click)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
         },
@@ -350,7 +352,7 @@ module.exports = function registerWriteTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      return observeAction(cb, args.tabId, { type: 'press_key', key: args.key, inputMode: _inputMode(cb) }, args);
+      return observeAction(cb, args.tabId, { type: 'press_key', key: args.key, selector: args.selector, text: args.text, inputMode: _inputMode(cb) }, args);
     },
   });
 
@@ -380,7 +382,7 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'scroll_page',
-      description: 'Scroll the page or a specific element. Can scroll to absolute position, by delta amount, or directly to a target element.',
+      description: 'Scroll the page or a specific element. Can scroll to absolute position, by delta amount, or directly to a target element. Returns the target\'s own before/after positions, the distance actually moved, and atBoundary flags — moved {0,0} with atBoundary set means the edge was reached, not a failure.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -497,7 +499,7 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'mouse_scroll',
-      description: 'Fire a wheel event at a specific position on the page. Useful for scrollable areas that require wheel events rather than scrollBy/scrollTo. Can specify delta or number of lines.',
+      description: 'Fire a wheel event at a specific position on the page (for areas whose JS listens to wheel: canvas apps, zoom, virtual scrollers). Synthetic wheel triggers no native scrolling, so the result reports what actually moved (`scrolled`, `via`: wheel_handler | scroll_fallback) — when no handler reacts, the nearest scrollable container is scrolled directly as a fallback. For plain containers prefer scroll_page.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -1,7 +1,7 @@
 # Future Ideas — index
 
 > docs/ideas/ にある設計提案の索引。各 doc は「構想〜詳細設計」で、実装の有無は下記の通り。
-> Created: 2026-05-22 / Last updated: 2026-06-20
+> Created: 2026-05-22 / Last updated: 2026-07-02
 
 ## どこに何があるか（3つの置き場）
 
@@ -22,6 +22,7 @@
 
 ## 設計のみ / 構想（未実装）
 
+- **whiskor-for-dev**（→ `docs/vision/whiskor-for-dev/`）— whiskor を「runtime 側の開発環境」へ拡張する横断構想。深掘りは ideas ではなく vision 配下に層別仕様として置く（3 軸 / ホスト非依存コア / 能力＝権限の壁 / ループ閉鎖 / フルスタック trace / Servo・Chromium ヒンジ）。2026-06-26（[[project_whiskor_for_dev_direction]]）
 - **CLICK_EVIDENCE_AND_SOM_SCOPE** — クリック証拠バッファ + packed 範囲指定（[[project_click_evidence_som_scope]]）
 - **MINILM_CLICK_TEXT_MATCHING** — click(text:) に MiniLM 統合（find_target で代替可ゆえ優先度低、[[project_minilm_click_text]]）
 - **NAMESPACE_MAP_AND_AI_COLLAB_VERIFICATION** — 名前空間マップ / piggyback 検証 / production mode（[[project_namespace_map_ai_verification]]）
@@ -31,6 +32,8 @@
 - **VOICE_CONTROL_AND_AGENT_NOTIFICATIONS** — co-pilot を拡張する人↔agent 双方向チャネル。音声操作(STT, pull キュー＋ resource / bring-your-own Whisper) と agent トースト通知(notify ツール＋決定論的 config ルール)。TTS は低優先。"アプリが agent を発火" は whiskor 責務外と整理（[[project_voice_and_notifications]]、理想機能メモ 項目15）
 - **DEBUG_DASHBOARD_REDESIGN** — DevPanel の作り直し（Frameworks タブが使いにくい、[[project_devpanel_frameworks_tab]]）
 - **ARCHITECTURE_EXTENDED_PROPOSALS** / **ARCHITECTURE_INTELLIGENCE_LAYER** — 広範なアーキ提案（intelligence 層の青写真。一部は explain/why 系として実現済）
+- **AGENT_MACROS** — agent 自作可能な合成アクション/マクロ層。第1例 `full_page_read`（scroll＋読取＋マージを worker 側で1呼び出しに）。権限は基底ツールのゲートを継承。CDP 経由ソースキャプチャ（panel 不要化）の代替案も記載（2026-07-02）
+- **SELF_UPDATE** — 新コードのDL＆置換アップデータ。起動時のバージョン確認＋通知（＋osToast＋autoSetup）は**実装済み**（`server/update-checker.js`）。この doc はその先＝bundle限定・SHA256検証・staged swap・setup連鎖・supervised restart・git checkout除外の設計。config seam `updateCheck.selfUpdate`（既定false・inert）確保済み（2026-07-02）
 - **MCP 大規模改築**（ツール数削減・動的ロード高度化）— 理想機能メモ 項目13。専用 doc は未作成（構想段階）
 - **Network Directory** — network を browsable なディレクトリ構造で（旧 index からの持ち越し、未着手）
 

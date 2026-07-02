@@ -19,6 +19,10 @@ const fs = require('fs');
 const FIX = process.argv.includes('--fix');
 const TARGETS = ['extension/manifest.json', 'firefox-mv2/manifest.json'];
 const VERSION_RE = /("version"\s*:\s*")[^"]+(")/;
+// docs/version.json is what GitHub Pages serves (main:/docs) and what the
+// server's update-checker compares against. Kept in the same guard as the
+// manifests so it can never silently drift from package.json.
+const PAGES_VERSION_FILE = 'docs/version.json';
 
 const expected = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
 if (!expected) {
@@ -45,6 +49,29 @@ for (const file of TARGETS) {
   } else {
     console.error(`FAIL: ${file} version "${actual}" != package.json "${expected}"`);
     mismatches++;
+  }
+}
+
+// Pages version.json — object payload (not a bare string), so update the fields
+// rather than a regex replace. Preserves the _comment and any extra keys.
+if (fs.existsSync(PAGES_VERSION_FILE)) {
+  const raw = fs.readFileSync(PAGES_VERSION_FILE, 'utf8');
+  let obj;
+  try { obj = JSON.parse(raw); } catch (e) {
+    console.error(`FAIL: ${PAGES_VERSION_FILE} is not valid JSON: ${e.message}`);
+    process.exit(1);
+  }
+  if (obj.version !== expected || obj.tag !== `v${expected}`) {
+    if (FIX) {
+      const before = obj.version;
+      obj.version = expected;
+      obj.tag = `v${expected}`;
+      fs.writeFileSync(PAGES_VERSION_FILE, JSON.stringify(obj, null, 2) + '\n');
+      fixed.push(`${PAGES_VERSION_FILE}: ${before} -> ${expected}`);
+    } else {
+      console.error(`FAIL: ${PAGES_VERSION_FILE} version "${obj.version}" != package.json "${expected}"`);
+      mismatches++;
+    }
   }
 }
 

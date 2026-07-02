@@ -36,7 +36,7 @@
     "check-config": "node scripts/_check-config-defaults.js",
     "check-tests": "node scripts/_check-hollow-tests.js",
     "sync-version": "node scripts/_check-version.js --fix",
-    "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json"
+    "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json docs/version.json"
   },
   "dependencies": {
     "ws": "^8.18.0",

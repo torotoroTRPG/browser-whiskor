@@ -77,7 +77,8 @@
     "storage",
     "tabs",
     "webNavigation",
-    "debugger"
+    "debugger",
+    "downloads"
   ],
   "host_permissions": [
     "<all_urls>",

@@ -6,6 +6,31 @@ All notable changes to browser-whiskor.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-02
+
+### Added
+
+- **Startup update check + notification** — on normal (non-MCP) startup the server fetches the published version from `docs/version.json` (served by GitHub Pages at `main:/docs`, kept in sync with `package.json` by `npm version`) and compares it with this build. A newer release surfaces in the log, `GET /health` `update`, and a dashboard banner. `updateCheck.osToast` (on by default) also fires a desktop notification via the bundled cross-platform `scripts/_notify.js`. This is a version **check only** — it never downloads or runs code. Opt-in `autoSetup` re-syncs the local bundled extension via `whk setup` on detection. Config: `updateCheck` (`enabled`/`url`/`osToast`/`notifyCommand`/`autoSetup`). A future download-and-swap updater is scoped in `docs/ideas/SELF_UPDATE.md` (`selfUpdate` seam, currently inert).
+- **`press_key` element targeting** — `press_key` accepts `selector`/`text` (same resolution as `click`) and focuses the element before dispatching, instead of only hitting whatever happens to be focused.
+- **Download detection on `click`** — a click that starts a file download now reports `downloadsStarted` (url/filename/state) and the diagnosis reads `download_started` instead of the misleading `no_state_change` (a download changes no page state — it is still a success). Requires the new `downloads` permission. The CDP fallback path no longer re-clicks (which would download twice).
+- **`whk where`** — a new CLI command that prints the resolved, real paths (this CLI's entry + package root, the managed extension dir with each staged browser's version) and the live server (`/health` identity, version, connected extensions, sessions), including a warning when a different install is serving the port. No path is exposed over HTTP/MCP.
+
+### Changed
+
+- **Truthful scroll return values** — `scroll_page` now returns the *target's own* before/after position, `moved`, and `atBoundary` flags (previously it returned the window position even when scrolling an inner container, so a moved container looked stationary and a boundary was indistinguishable from success). `mouse_scroll` reports what actually moved (`scrolled`, `via`) and falls back to scrolling the nearest scrollable container directly when no wheel handler reacts, instead of always reporting success for an untrusted synthetic wheel.
+- **Session cleanup on tab close** — the extension's `TAB_CLOSED` signal is now consumed server-side: the session is marked `closed` (surfaced in `get_sessions`) and swept after a short retention window, and its capture caches are evicted immediately. Fixed a latent bug where a session with a missing timestamp compared against `NaN` and was never evicted.
+- **bippy** updated 0.5.40 → 0.5.42 (version label follow-through; code unchanged upstream).
+
+### Fixed
+
+- **React textarea `onChange` not firing** — `type_text` / `clear_input` / `select_option` selected the value setter from `HTMLInputElement.prototype` unconditionally, which threw on a `<textarea>` and fell back to a plain `el.value =` write that React's value tracker swallowed, so `onChange` never fired (text appeared to type while component state stayed empty). The setter is now chosen from the element's own interface.
+- **Japanese mojibake via `mcp-client.js`** — the non-interactive MCP CLI now switches the Windows console to UTF-8 automatically on a TTY, so `chcp 65001` is no longer needed for it (data was always UTF-8; only the legacy console rendering was broken).
+
+### Security
+
+- **postMessage relay hardening** — the ISOLATED-world bridges now drop SW/panel-origin control types (`EXT_HELLO`, `TAB_INVENTORY`, `TAB_CLOSED`, `*_RESULT`, …) and malformed types on the page→SW path, so a page can't impersonate SW-level messages to the server, and the Chrome bridge no longer spreads `event.data.payload` onto the message envelope (parity with Firefox). The trust boundary is documented: MAIN-world collectors share the page's JS context, so postMessage cannot cryptographically authenticate the sender — but no command/debugger path is reachable via this channel (those are on the separate WebSocket channel), so impact is bounded to observation data.
+- **Fail-closed origin default** — the code-side fallback for `security.allowedMcpOrigins` changed from `['*']` (allow all) to `['localhost', '127.0.0.1']`, matching the shipped `config.json`. A minimal config that omits the `security` block no longer falls open to all origins; `'*'` must be an explicit opt-in.
+
 ## [0.10.1] — 2026-06-26
 
 ### Added

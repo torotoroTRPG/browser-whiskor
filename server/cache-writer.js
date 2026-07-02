@@ -23,15 +23,24 @@ const CACHE_ROOT = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', '
 
 const STALE_THRESHOLD_MS = 30_000; // 30s
 const MAX_SESSION_IDLE_MS = 2 * 60 * 60 * 1000; // 2 hours
+// A session whose browser tab is known to be CLOSED (TAB_CLOSED from the
+// extension) is kept briefly for retrospection, then dropped — well before the
+// 2h idle backstop. Pinned (keep) sessions are never swept.
+const CLOSED_SESSION_RETENTION_MS = 15 * 60 * 1000; // 15 min
 
-// tabId → { dir, index, networkRequests[], consoleLogs[], updatedAt }
+// tabId → { dir, index, networkRequests[], consoleLogs[], updatedAt, closedAt? }
 const sessions = new Map();
 
-// Periodic cleanup of inactive sessions
+// Periodic cleanup of inactive/closed sessions
 setInterval(() => {
   const now = Date.now();
   for (const [tabId, s] of sessions.entries()) {
-    if (!s.keep && (now - s.updatedAt > MAX_SESSION_IDLE_MS)) {
+    if (s.keep) continue;
+    const closedAt = s.closedAt || (s.index && s.index.closedAt);
+    if (closedAt && now - closedAt > CLOSED_SESSION_RETENTION_MS) {
+      console.log(`[cache] Evicting closed-tab session for tabId=${tabId}`);
+      removeSession(tabId);
+    } else if (now - s.updatedAt > MAX_SESSION_IDLE_MS) {
       console.log(`[cache] Evicting inactive session for tabId=${tabId}`);
       removeSession(tabId);
     }
@@ -64,7 +73,10 @@ async function loadSessionsFromDisk() {
               index,
               networkRequests: [],
               consoleLogs: [],
-              updatedAt: index.updatedAt || index.createdAt,
+              // Fallback to now: a missing timestamp made the idle-sweep compare
+              // against NaN (always false), so the session could never be evicted.
+              updatedAt: index.updatedAt || index.createdAt || Date.now(),
+              closedAt: index.closedAt || null,
               keep: false,
             });
           }
@@ -580,6 +592,7 @@ function getSessionList(opts = {}) {
   const now = Date.now();
   const brief = opts.brief === true;
   return [...sessions.entries()].map(([tabId, s]) => {
+    const closedAt = s.closedAt || s.index.closedAt || null;
     const entry = {
       tabId,
       url:       s.index.url,
@@ -589,6 +602,9 @@ function getSessionList(opts = {}) {
       dataAgeMs: now - s.updatedAt,
       isStale:   (now - s.updatedAt) > STALE_THRESHOLD_MS,
       keep:      !!s.keep,
+      // Tab no longer exists in the browser — data is read-only history and the
+      // session will be auto-removed after the closed-session retention window.
+      ...(closedAt ? { closed: true, closedAt } : {}),
       summary:   s.index.summary,
     };
     if (brief) return entry;
@@ -646,6 +662,19 @@ function removeSession(tabId) {
     try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch (_) {}
   }
   sessions.delete(tabId);
+}
+
+// The browser tab was closed (TAB_CLOSED from the extension). Mark rather than
+// delete: the session stays readable for CLOSED_SESSION_RETENTION_MS so a
+// just-finished flow can still be inspected, then the sweep removes it.
+// Persisted into _index.json so the retention also applies across restarts.
+function markSessionClosed(tabId) {
+  const s = sessions.get(tabId);
+  if (!s) return false;
+  s.closedAt = Date.now();
+  s.index.closedAt = s.closedAt;
+  writeJson(path.join(s.dir, '_index.json'), s.index);
+  return true;
 }
 
 function setSessionKeep(tabId, keep) {
@@ -707,6 +736,7 @@ function flushAllSync() {
 module.exports = {
   handleMessage, getSessionList, getSessionData, getSessionDir,
   readSessionFile, getConsoleLogs, freshnessInfo, removeSession,
+  markSessionClosed,
   storeSmartDelta, getSmartDelta, setSessionKeep, setSelfOrigin,
   loadSessionsFromDisk, flushAllSync,
   // exposed for tests

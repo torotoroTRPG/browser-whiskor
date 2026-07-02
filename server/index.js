@@ -102,7 +102,10 @@ const SECURITY = {
   allowExplorer:      _cfg.security?.allowExplorer      !== false,
   executeJsTimeoutMs: _cfg.security?.executeJsTimeoutMs ?? 15000,
   actionTimeoutMs:    _cfg.security?.actionTimeoutMs    ?? 15000,
-  allowedMcpOrigins:  _cfg.security?.allowedMcpOrigins  ?? ['*'],
+  // Fail-CLOSED fallback: if the security block is missing entirely, restrict to
+  // localhost like the shipped config.json — '*' (allow all) must always be an
+  // explicit opt-in in config, never something a missing block falls back to.
+  allowedMcpOrigins:  _cfg.security?.allowedMcpOrigins  ?? ['localhost', '127.0.0.1'],
 };
 
 // Descriptive instance identity (label, not security) surfaced on /health and MCP
@@ -900,6 +903,21 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           log('info', `[cache] Loaded ${cache.getSessionList().length} session(s) from disk`);
         } catch (e) {
           log('warn', `[cache] Failed to load sessions from disk: ${e.message}`);
+        }
+      });
+
+      // Update check (non-blocking, best-effort). Only in normal server mode
+      // (this callback never runs under MCP stdio). Compares this build against
+      // the published version.json; result is surfaced on /health. Never blocks
+      // or crashes startup — the module swallows all failures.
+      setImmediate(async () => {
+        try {
+          const { runUpdateCheck } = require('./update-checker');
+          const currentVersion = require('../package.json').version;
+          const status = await runUpdateCheck(_cfg.updateCheck, currentVersion, log);
+          if (core && core.setUpdateStatus) core.setUpdateStatus(status);
+        } catch (e) {
+          log('warn', `[update] check errored: ${e.message}`);
         }
       });
 

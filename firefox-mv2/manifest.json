@@ -63,7 +63,7 @@
     }
   ],
   "permissions": [
-    "activeTab", "storage", "tabs", "webNavigation", "<all_urls>"
+    "activeTab", "storage", "tabs", "webNavigation", "downloads", "<all_urls>"
   ],
   "browser_specific_settings": {
     "gecko": {

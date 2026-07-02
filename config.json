@@ -40,6 +40,18 @@
     "_comment_ja": "拡張機能が接続してきたとき、その manifest バージョンがサーバーの package.json バージョンと違えば（manifest は sync-version で package.json に追従）、`whk setup` で更新されたファイルを拾わせるためにサーバーが一度だけ自己リロード（chrome.runtime.reload）を依頼する。依頼は「古いバージョンごとにプロセス内で一度だけ」— ディスク上のファイルがまだ古い場合はリロードループにならず警告だけになる。false にすると不一致をログに出すのみ。"
   },
 
+  "updateCheck": {
+    "enabled": true,
+    "url": "https://torotorotrpg.github.io/browser-whiskor/version.json",
+    "timeoutMs": 4000,
+    "osToast": true,
+    "notifyCommand": "",
+    "autoSetup": false,
+    "selfUpdate": false,
+    "_comment_en": "On normal (non-MCP) server startup, fetch the published version from `url` (GitHub Pages serves main:/docs, kept in sync by `npm version`) and compare with this build's package.json version. This is a version CHECK only — it never downloads or runs project code. A newer release always shows in the log, GET /health `update`, and the dashboard banner. `enabled:false` disables the whole thing; `timeoutMs` bounds the best-effort fetch (failure is silent). `osToast:true` also fires a desktop notification via the bundled scripts/_notify.js (cross-platform, degrades to a printed line where no notifier exists). `notifyCommand` overrides that with your own command when non-empty (placeholders {current}/{latest}/{tag}/{url}). `autoSetup:true` (opt-in) runs `whk setup` on detection to re-sync the LOCAL bundled extension into the managed dir and reload it — it does NOT download the new release, so it only helps after you've updated the code yourself (git pull / new bundle); a string value overrides the command. `selfUpdate` is a reserved seam for a future download-and-swap updater (docs/ideas/SELF_UPDATE.md) and is currently inert.",
+    "_comment_ja": "通常（非MCP）起動時に `url`（GitHub Pages が main:/docs を配信、`npm version` で同期）から公開バージョンを取得し、このビルドの package.json 版と比較する。バージョンの「確認」のみで、プロジェクトコードのDLも実行もしない。新版は常にログ・GET /health の `update`・ダッシュボードのバナーに出る。`enabled:false` で全面無効、`timeoutMs` は best-effort fetch の上限（失敗は黙って無視）。`osToast:true` は同梱の scripts/_notify.js でデスクトップ通知も出す（クロスプラットフォーム、通知機構が無ければ印字にフォールバック）。`notifyCommand` を空でなくすると自前コマンドで上書き（{current}/{latest}/{tag}/{url} を置換）。`autoSetup:true`（opt-in）は検出時に `whk setup` を走らせローカル同梱拡張を管理ディレクトリへ再反映＋リロードする＝新版DLはしないので自分でコード更新（git pull / 新ZIP）した後にのみ有効。文字列で差し替え可。`selfUpdate` は将来のDL＆置換アップデータ用の予約 seam（docs/ideas/SELF_UPDATE.md）で現状無効。"
+  },
+
   "security": {
     "allowExecuteJs":      false,
     "allowActions":        true,
@@ -464,7 +476,8 @@
       "agentControl",
       "appIsolation",
       "permissions",
-      "extensionUpdate"
+      "extensionUpdate",
+      "updateCheck"
     ],
     "warnOnUnauthorized": true,
     "_comment_writable_en":  "agentWritablePaths: paths the agent is allowed to modify. [] means all elements in the array",

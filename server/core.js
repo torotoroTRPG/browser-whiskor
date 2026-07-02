@@ -53,6 +53,7 @@ class WhiskorCore extends EventEmitter {
     this._wsToExtInfo = new Map();    // WebSocket → { browser, version } from EXT_HELLO
     this._tabInventory = [];          // latest full browser tab list (TAB_INVENTORY push)
     this._tabInventoryAt = 0;         // when it was last reported
+    this._updateStatus = null;        // startup update-check result (see update-checker.js), surfaced on /health
     // Recent server log lines (everything routed through index.js log()).
     // Powers GET /api/logs so the shell/TUI can show and export server logs.
     this._logBuffer = [];
@@ -161,6 +162,11 @@ class WhiskorCore extends EventEmitter {
     for (const ws of this.dashboardSockets) {
       if (ws.readyState === 1) ws.send(raw);
     }
+  }
+
+  // Store the startup update-check result for /health (and the dashboard banner).
+  setUpdateStatus(status) {
+    this._updateStatus = status || null;
   }
 
   broadcastLog(level, ...args) {
@@ -341,7 +347,21 @@ class WhiskorCore extends EventEmitter {
         this._tabInventory = Array.isArray(msg.tabs) ? msg.tabs : [];
         this._tabInventoryAt = Date.now();
         break;
-        
+
+      // The browser tab was closed (tabs.onRemoved in the extension). Mark the
+      // session closed — get_sessions shows `closed: true` and the cache sweep
+      // removes it after the closed-session retention window — and drop the
+      // tab's capture caches immediately (a closed tab can never be recaptured).
+      case 'TAB_CLOSED':
+        if (msg.tabId != null) {
+          if (typeof this.cache.markSessionClosed === 'function') this.cache.markSessionClosed(msg.tabId);
+          this.somCache.evictTab(msg.tabId);
+          this.somThumbs.evictTab(msg.tabId);
+          this.broadcastToDashboard(msg);
+        }
+        break;
+
+
       // Data collection → cache + dashboard
       case 'FRAMEWORK_DETECTION':
       case 'DOM_GENERIC_SNAPSHOT':
@@ -685,6 +705,9 @@ class WhiskorCore extends EventEmitter {
           patterns:    (sg && sg.patternCount) || 0,
           refs:        (sg && sg.refCount) || 0,
         },
+        // Startup update check (update-checker.js). null until it has run or if
+        // disabled. { current, latest, updateAvailable, tag, url } when it ran.
+        update: this._updateStatus,
       } };
     }
 
