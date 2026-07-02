@@ -45,12 +45,14 @@ const NON_RECOMMENDED_RULES = [
     severity: 'info',
     message: 'Changing React tree depth may cause incomplete data or performance issues.',
     check: (key, val) => val > 100 || val < 10,
+    defaultValue: 80,
   },
   {
     path: 'textCoords.maxWords',
     severity: 'info',
     message: 'Very high maxWords may cause memory issues. Recommended: 5000-15000.',
     check: (key, val) => val > 20000,
+    defaultValue: 5000,
   },
 ];
 
@@ -165,13 +167,11 @@ function autoRevertIfNeeded(config, pushConfig) {
 
   const reverted = [];
   for (const change of nonRecommended) {
-    // Build a revert patch (flip booleans, restore defaults for numbers)
     const revertPatch = {};
     function buildRevert(obj, prefix) {
       for (const [key, val] of Object.entries(obj)) {
         const fullPath = prefix ? `${prefix}.${key}` : key;
         if (typeof val === 'boolean') {
-          // Flip back
           const parts = fullPath.split('.');
           let target = revertPatch;
           for (let i = 0; i < parts.length - 1; i++) {
@@ -179,9 +179,18 @@ function autoRevertIfNeeded(config, pushConfig) {
             target = target[parts[i]];
           }
           target[parts[parts.length - 1]] = !val;
+        } else if (typeof val === 'number') {
+          const rule = NON_RECOMMENDED_RULES.find(r => r.path === fullPath && r.defaultValue !== undefined);
+          if (rule) {
+            const parts = fullPath.split('.');
+            let target = revertPatch;
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!target[parts[i]]) target[parts[i]] = {};
+              target = target[parts[i]];
+            }
+            target[parts[parts.length - 1]] = rule.defaultValue;
+          }
         } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-          // Descend into nested patches so flips on e.g. security.allowActions
-          // are actually emitted (the patches pushConfig records are nested).
           buildRevert(val, fullPath);
         }
       }
@@ -198,10 +207,6 @@ function autoRevertIfNeeded(config, pushConfig) {
         reason: change.warnings.map(w => w.message).join('; '),
       });
     }
-  }
-
-  if (reverted.length) {
-    markAllReverted();
   }
 
   return reverted.length ? {

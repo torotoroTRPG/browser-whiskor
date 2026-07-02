@@ -25,12 +25,20 @@
  *   node manual/mcp-client.js profiles
  */
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SERVER_CMD = ['server/index.js', '--mcp'];
 const TIMEOUT_MS = 15000;
+
+// Windows: Node always emits UTF-8, but a legacy console at cp932/cp437 renders
+// it as mojibake (Japanese tool output, ローカライズされたタイトル等). Switch the
+// console codepage to UTF-8 before printing — same effect as running `chcp 65001`
+// first, scoped to this console window. No-op off-Windows / when piped.
+if (process.platform === 'win32' && process.stdout.isTTY) {
+  try { spawnSync('chcp', ['65001'], { shell: true, stdio: 'ignore' }); } catch (_) {}
+}
 
 // ── JSON-RPC helper ────────────────────────────────────────────────────────────
 function rpc(method, id, params) {

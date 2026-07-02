@@ -670,6 +670,11 @@
     <button class="btn btn-accent" id="btn-collect">▶ COLLECT</button>
   </header>
 
+  <a id="update-banner" href="#" target="_blank" rel="noopener"
+     style="display:none;padding:6px 14px;font-size:12px;text-decoration:none;
+            background:rgba(120,170,255,.14);color:#cdd7ff;border-bottom:1px solid rgba(120,170,255,.3);">
+  </a>
+
   <div class="main">
     <div class="sidebar">
       <div class="sidebar-label">SESSIONS</div>
@@ -3659,6 +3664,28 @@
       refreshSessions();
       connectWS();
       setInterval(refreshSessions, 5000);
+      loadHealth();
+    }
+
+    // Pull /health once for the real server version (replacing the placeholder
+    // header label) and the startup update-check result.
+    async function loadHealth() {
+      try {
+        var h = await (await fetch(S.api + '/health')).json();
+        var u = h && h.update;
+        if (u && (u.current || u.latest)) {
+          var verEl = document.querySelector('header .ver');
+          if (verEl && u.current) verEl.textContent = 'v' + u.current;
+          if (u.updateAvailable) {
+            var b = document.getElementById('update-banner');
+            if (b) {
+              b.textContent = '↑ Update available: v' + u.latest + ' (you have v' + u.current + ') — click for the release';
+              if (u.url) b.href = u.url;
+              b.style.display = 'block';
+            }
+          }
+        }
+      } catch (_) { /* health/update is best-effort */ }
     }
 
     // Wait for fonts before first render

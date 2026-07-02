@@ -74,6 +74,9 @@ await fetch("http://127.0.0.1:7892/api/action", {
 クリック後は SPA/Turbo の非同期遷移（fetch→DOM差し替え）も待って状態変化を判定する
 （イベント駆動、最大 ~800ms）。結果の `stateChanged` / `unexpectedBehavior: "no_state_change"`
 はこれを踏まえた値なので、`no_state_change` は「実際に何も変わらなかった」と解釈してよい。
+例外はダウンロード: クリックがファイルダウンロードを開始した場合、画面は何も変わらないが
+結果に `downloadsStarted`（url/filename/state）が付き、`unexpectedBehavior` は
+`"download_started"` になる — これは成功として扱う。
 
 要素解決の規則:
 
@@ -110,6 +113,7 @@ await fetch("http://127.0.0.1:7892/api/action", {
 { type: "press_key", key: "Control+Shift+K" }   // 修飾キーコンビネーション
 { type: "press_key", key: "w+d" }               // 通常キーの同時押し（全キー down → 逆順 up）
 { type: "press_key", key: "w", holdMs: 500 }    // 押しっぱなし（keyup まで最大5秒保持）
+{ type: "press_key", key: "Enter", selector: "input#q" }  // 要素指定: focus してから送出（text: も可）
 { type: "focus", selector: "input#name" }
 { type: "clear_input", selector: "input#name" }
 ```
@@ -130,6 +134,14 @@ await fetch("http://127.0.0.1:7892/api/action", {
 { type: "mouse_scroll", x: 400, y: 300, deltaY: 200 }    // 座標指定ホイール
 { type: "drag", fromX: 100, fromY: 200, toX: 400, toY: 200 }
 ```
+
+- `scroll` の返値は**対象自身**の `before`/`after`/`moved`/`atBoundary`（コンテナ指定時は
+  そのコンテナの scrollTop/Left）。`moved` が `{0,0}` でも `atBoundary` が立っていれば
+  「端に到達済み」であって失敗ではない
+- `mouse_scroll` の synthetic wheel はネイティブスクロールを起こさない（untrusted のため）。
+  wheel ハンドラが反応したか・何が動いたかを `scrolled` / `via`（`wheel_handler` |
+  `scroll_fallback`）で返す。誰も反応しなければ最寄りのスクロール可能コンテナを直接
+  スクロールするフォールバックが働く。素のコンテナには `scroll` を使う方が確実
 
 ### フォーム
 

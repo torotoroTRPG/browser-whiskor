@@ -106,6 +106,11 @@ Invoke-RestMethod http://localhost:7892/health
 chcp 65001
 ```
 
+> 文字化けについて: `mcp-client.js` は Windows の TTY で自動的に `chcp 65001` を実行する
+> ようになったので手動実行は不要。`mcp-shell.py` と素の PowerShell からの実行は引き続き
+> 事前の `chcp 65001` が必要（データ自体は常に UTF-8 で、壊れているのは表示だけ。
+> Windows Terminal は既定で UTF-8 なので化けない。レガシー conhost + cp932 の組合せで起きる）。
+
 ---
 
 ## 基本ワークフロー

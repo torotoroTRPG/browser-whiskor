@@ -6,7 +6,7 @@ This project incorporates third-party open source software. We thank the authors
 
 ## bippy
 
-- **Version:** 0.5.40
+- **Version:** 0.5.42
 - **Author:** Aiden Bai
 - **Repository:** https://github.com/aidenybai/bippy
 - **License:** MIT

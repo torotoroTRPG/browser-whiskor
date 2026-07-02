@@ -376,14 +376,14 @@ Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profile
 | Tool | Description |
 |------|-------------|
 | `navigate_to` | Navigate to URL (+ `waitUntil`, `thenCollect`, `timeoutMs` for waiting on page lifecycle and triggering post-navigate collection) |
-| `click` | Click by selector, text, or coordinates |
+| `click` | Click by selector, text, or coordinates. A click that starts a file download reports `downloadsStarted` + diagnosis `download_started` (success — a download changes no page state) |
 | `right_click` | Right-click (context menu) by selector, text, or coordinates |
 | `type_text` | Text input (React synthetic-event aware; physical `code`/`keyCode` + CJK/IME composition; trusted via CDP when high-fidelity input is enabled) |
 | `type_secret` | Type a registered secret by **ref name only** — the agent never sees the value; the worker resolves it from `secrets.local.json` and injects it directly (see Secret Guard) |
-| `press_key` | Keyboard shortcuts (trusted via CDP when high-fidelity input is enabled) |
+| `press_key` | Keyboard shortcuts — to the focused element, or to a specific one via `selector`/`text` (focused first; trusted via CDP when high-fidelity input is enabled) |
 | `hover` | Hover (dropdowns, tooltips) |
-| `scroll_page` | Scroll to position or element |
-| `mouse_scroll` | Fire wheel event at specific coordinates |
+| `scroll_page` | Scroll to position or element; returns the target's own before/after positions, `moved`, and `atBoundary` (a `{0,0}` move at a boundary is the edge, not a failure) |
+| `mouse_scroll` | Fire wheel event at specific coordinates; reports what actually moved (`scrolled`, `via`) and falls back to scrolling the container directly when no wheel handler reacts |
 | `drag` | Drag from coordinates/selector to coordinates |
 | `select_option` | `<select>` value |
 | `check_box` | Checkbox toggle |

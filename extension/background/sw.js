@@ -553,6 +553,62 @@ function waitForNavigation(tabId, waitUntil, timeoutMs) {
 // auto-switching before these would be wrong or redundant.
 const NO_AUTO_SWITCH_ACTIONS = new Set(['list_tabs', 'switch_tab', 'open_tab', 'close_tab', 'create_tab']);
 
+// ── Download tracking ─────────────────────────────────────────────────────────
+// A click that starts a download changes nothing on the page (no DOM/URL/title
+// change), so diagnosis honestly reports no_state_change — and agents misread
+// the click as failed. Track downloads.onCreated in a small buffer and stamp
+// click-ish action results with the downloads that began during the action.
+const recentDownloads = new Map(); // downloadId → { id, url, filename, state, startedAt }
+if (chrome.downloads?.onCreated) {
+  chrome.downloads.onCreated.addListener((item) => {
+    recentDownloads.set(item.id, {
+      id: item.id,
+      url: item.finalUrl || item.url || '',
+      filename: item.filename || '',
+      state: item.state || 'in_progress',
+      startedAt: Date.now(),
+    });
+    if (recentDownloads.size > 20) recentDownloads.delete(recentDownloads.keys().next().value);
+  });
+  // The final filename (and completion state) arrive after onCreated.
+  chrome.downloads.onChanged.addListener((delta) => {
+    const d = recentDownloads.get(delta.id);
+    if (!d) return;
+    if (delta.filename?.current) d.filename = delta.filename.current;
+    if (delta.state?.current)    d.state    = delta.state.current;
+  });
+}
+
+function downloadsSince(ts) {
+  const out = [];
+  for (const d of recentDownloads.values()) {
+    // small negative margin: onCreated can be stamped just before our own Date.now()
+    if (d.startedAt >= ts - 250) out.push({ id: d.id, url: d.url, filename: d.filename, state: d.state });
+  }
+  return out;
+}
+
+const DOWNLOAD_WATCH_ACTIONS = new Set(['click', 'press_key']);
+
+// Attach downloads that began during the action window, and clear the misleading
+// no_state_change verdict when the "no change" was in fact a download starting.
+async function annotateDownloads(action, result, startedAt) {
+  if (!chrome.downloads || !DOWNLOAD_WATCH_ACTIONS.has(action.type)) return result;
+  if (!result || typeof result !== 'object') return result;
+  let dls = downloadsSince(startedAt);
+  if (!dls.length && result.diagnosis?.unexpectedBehavior === 'no_state_change') {
+    await new Promise(r => setTimeout(r, 300)); // download creation can lag the click slightly
+    dls = downloadsSince(startedAt);
+  }
+  if (!dls.length) return result;
+  result.downloadsStarted = dls;
+  if (result.diagnosis?.unexpectedBehavior === 'no_state_change') {
+    result.diagnosis.unexpectedBehavior = 'download_started';
+    result.diagnosis.note = 'The page state did not change because the click started a download — treat as success.';
+  }
+  return result;
+}
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
 
@@ -609,6 +665,7 @@ async function handleServerMessage(msg) {
       }
       try {
         if (tabId != null && !NO_AUTO_SWITCH_ACTIONS.has(action.type)) await ensureTabActive(tabId);
+        const actionStart = Date.now();
         let result;
 
         switch (action.type) {
@@ -740,6 +797,7 @@ async function handleServerMessage(msg) {
             }
         }
 
+        result = await annotateDownloads(action, result, actionStart);
         sendToServer({ type: 'ACTION_RESULT', actionId, ok: true, result });
       } catch (e) {
         if (isTabGone(e)) {
@@ -1162,6 +1220,7 @@ async function cdpResolvePoint(tabId, action) {
 // Any CDP failure degrades to the synthetic path so the action still does its best.
 async function executeHighFidelity(tabId, action) {
   const mode = action.inputMode;
+  const hfStart = Date.now();
   try {
     if (action.type === 'click') {
       if (mode === 'always') {
@@ -1175,6 +1234,9 @@ async function executeHighFidelity(tabId, action) {
       // fallback: synthetic first; escalate only when it landed but nothing changed.
       const syn = await executeInPage(tabId, action);
       if (syn && syn.diagnosis && syn.diagnosis.unexpectedBehavior === 'no_state_change') {
+        // A download that started during the synthetic click IS the effect —
+        // re-clicking via CDP would download the file a second time.
+        if (chrome.downloads && downloadsSince(hfStart).length) return syn;
         const rect = syn.clickability && syn.clickability.rect;
         const pt = rect ? { ok: true, x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 } : await cdpResolvePoint(tabId, action);
         if (pt.ok) {
@@ -1215,6 +1277,11 @@ async function executeHighFidelity(tabId, action) {
 
     if (action.type === 'press_key') {
       if (mode === 'always') {
+        // CDP keys land on the focused element — honour selector/text targeting by
+        // focusing in-page first (same pattern as the type path above).
+        if (action.selector || action.text) {
+          try { await executeInPage(tabId, { type: 'focus', selector: action.selector, text: action.text }); } catch (_) {}
+        }
         await cdpAttach(tabId);
         await cdpPressKey(tabId, action.key);
         cdpKeepAlive(tabId);

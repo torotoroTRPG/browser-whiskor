@@ -79,6 +79,7 @@ browser-whiskor v3 (現在)          browser-whiskor v4+ (未来)
 | 5 | **Context Brain / Intelligence Layer** — Correlator, Source Map, Conclusion Cache等 | [`context-brain/`](context-brain/) | — | ✅ **実装済み (v0.3.x)** |
 | 6 | **SoM Variants** — 背景適応型6色SoM、モデル別統計、Agent向けチートシート | [`som-variants/`](som-variants/) | 中 | 🔮 未実装 (v4+) |
 | 7 | **Extended Proposals** — Proposals A–G (B, C, E, F, G実装済み; A部分実装; D未実装) | [`extended-proposals/`](extended-proposals/) | — | ✅ **大半実装済み (v0.3.x)** |
+| 8 | **whiskor-for-dev** — whiskor を runtime 側の開発環境へ。ホスト非依存コア / Tauri injector / バック側 reporter による全層 trace / ループ閉鎖 / 能力＝権限の壁 / Servo・Chromium ヒンジ。層別の深い仕様を束ねる傘 | [`whiskor-for-dev/`](whiskor-for-dev/) | 高 | 🔮 構想 (v4 方向) |
 
 ## 推奨実装順序
 
@@ -126,5 +127,6 @@ docs/vision/
 ├── tab-archive/                      ← タブ管理＋アーカイブ
 ├── context-brain/                    ← Intelligence Layer拡張
 ├── som-variants/                     ← SoM多モード＋チートシート
-└── extended-proposals/               ← 拡張Proposal A–G
+├── extended-proposals/               ← 拡張Proposal A–G
+└── whiskor-for-dev/                  ← runtime側の開発環境（層別仕様の傘）
 ```

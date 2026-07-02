@@ -159,6 +159,13 @@ function countEdges(g) {
 function addNode(siteVersion, data) {
   const g = getOrCreate(siteVersion);
   const config = getConfig();
+  // NOTE: `hash`/`reactHash` are the CLIENT-computed identity (injected react.js
+  // `_hash` + composite, reported via EXPLORER_STATE_UPDATE). They are adopted
+  // verbatim as the node key — the server never re-derives a react hash from the
+  // raw component tree here. server/state-fingerprint.js (FNV) is a DIFFERENT hash
+  // used only for auxiliary fingerprints (store keys, semantic labels), NOT for
+  // node identity. Do not start keying nodes with the server FNV: it would not
+  // match the client hash and would split one state into duplicate nodes.
   const { hash, reactHash, domHash, url, title, uiCatalog, reactState, domSnapshot } = data;
 
   // Normalize

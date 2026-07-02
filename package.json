@@ -1,6 +1,6 @@
 {
   "name": "browser-whiskor",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Agent-grade browser instrumentation with MCP server",
   "license": "MIT",
   "homepage": "https://github.com/torotoroTRPG/browser-whiskor#readme",
@@ -36,7 +36,7 @@
     "check-config": "node scripts/_check-config-defaults.js",
     "check-tests": "node scripts/_check-hollow-tests.js",
     "sync-version": "node scripts/_check-version.js --fix",
-    "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json"
+    "version": "node scripts/_check-version.js --fix && git add extension/manifest.json firefox-mv2/manifest.json docs/version.json"
   },
   "dependencies": {
     "ws": "^8.18.0",

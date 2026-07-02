@@ -389,6 +389,62 @@ function waitForNavigation(tabId, waitUntil, timeoutMs) {
 // auto-switching before these would be wrong or redundant.
 const NO_AUTO_SWITCH_ACTIONS = new Set(['list_tabs', 'switch_tab', 'open_tab', 'close_tab', 'create_tab']);
 
+// ── Download tracking ─────────────────────────────────────────────────────────
+// A click that starts a download changes nothing on the page (no DOM/URL/title
+// change), so diagnosis honestly reports no_state_change — and agents misread
+// the click as failed. Track downloads.onCreated in a small buffer and stamp
+// click-ish action results with the downloads that began during the action.
+const recentDownloads = new Map(); // downloadId → { id, url, filename, state, startedAt }
+if (browser.downloads && browser.downloads.onCreated) {
+  browser.downloads.onCreated.addListener((item) => {
+    recentDownloads.set(item.id, {
+      id: item.id,
+      url: item.url || '',
+      filename: item.filename || '',
+      state: item.state || 'in_progress',
+      startedAt: Date.now(),
+    });
+    if (recentDownloads.size > 20) recentDownloads.delete(recentDownloads.keys().next().value);
+  });
+  // The final filename (and completion state) arrive after onCreated.
+  browser.downloads.onChanged.addListener((delta) => {
+    const d = recentDownloads.get(delta.id);
+    if (!d) return;
+    if (delta.filename && delta.filename.current) d.filename = delta.filename.current;
+    if (delta.state && delta.state.current)       d.state    = delta.state.current;
+  });
+}
+
+function downloadsSince(ts) {
+  const out = [];
+  for (const d of recentDownloads.values()) {
+    // small negative margin: onCreated can be stamped just before our own Date.now()
+    if (d.startedAt >= ts - 250) out.push({ id: d.id, url: d.url, filename: d.filename, state: d.state });
+  }
+  return out;
+}
+
+const DOWNLOAD_WATCH_ACTIONS = new Set(['click', 'press_key']);
+
+// Attach downloads that began during the action window, and clear the misleading
+// no_state_change verdict when the "no change" was in fact a download starting.
+async function annotateDownloads(action, result, startedAt) {
+  if (!browser.downloads || !DOWNLOAD_WATCH_ACTIONS.has(action.type)) return result;
+  if (!result || typeof result !== 'object') return result;
+  let dls = downloadsSince(startedAt);
+  if (!dls.length && result.diagnosis && result.diagnosis.unexpectedBehavior === 'no_state_change') {
+    await new Promise(r => setTimeout(r, 300)); // download creation can lag the click slightly
+    dls = downloadsSince(startedAt);
+  }
+  if (!dls.length) return result;
+  result.downloadsStarted = dls;
+  if (result.diagnosis && result.diagnosis.unexpectedBehavior === 'no_state_change') {
+    result.diagnosis.unexpectedBehavior = 'download_started';
+    result.diagnosis.note = 'The page state did not change because the click started a download — treat as success.';
+  }
+  return result;
+}
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'SET_CONFIG': {
@@ -430,6 +486,7 @@ async function handleServerMessage(msg) {
       const { actionId, tabId, action } = msg;
       try {
         if (tabId != null && !NO_AUTO_SWITCH_ACTIONS.has(action.type)) await ensureTabActive(tabId);
+        const actionStart = Date.now();
         let result;
         if (action.type === 'navigate') {
           // waitUntil: 'none' keeps the old fire-and-forget behavior; default
@@ -498,6 +555,7 @@ async function handleServerMessage(msg) {
         } else {
           result = await executeInPage(tabId, action);
         }
+        result = await annotateDownloads(action, result, actionStart);
         sendToServer({ type: 'ACTION_RESULT', actionId, ok: true, result });
       } catch (e) {
         sendToServer({ type: 'ACTION_RESULT', actionId, ok: false, error: e.message });
