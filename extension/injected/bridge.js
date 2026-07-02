@@ -4,24 +4,50 @@
  * 1. Relays postMessage (MAIN world → collector) to background SW
  * 2. Relays chrome.storage config changes back to MAIN world
  * 3. Relays SW → MAIN world messages (CONFIG_UPDATE, MANUAL_COLLECT)
+ *
+ * SECURITY — trust boundary of this relay:
+ *   The MAIN-world collectors share the PAGE's JS context (they must, to read
+ *   React fiber / framework internals). So a postMessage arriving here cannot be
+ *   cryptographically distinguished from one the page itself crafted — any secret
+ *   we'd hand the collector, the page can read too. We therefore do NOT pretend to
+ *   authenticate the sender. Instead the model is: observation data coming through
+ *   this channel is treated as page-influenced (a hostile page can already lie
+ *   about its own DOM/state), and NO command path is reachable here — the SW's
+ *   click/type/debugger handling is on the separate WebSocket channel
+ *   (handleServerMessage), which page postMessage cannot reach. The tabId/frameId
+ *   the server trusts come from `sender` in the SW, never from the message body.
+ *   What we DO enforce below: (a) the type must be a well-formed string, and
+ *   (b) SW/panel-origin control types can't be impersonated by the page.
  */
 'use strict';
+
+// Control/result message types that legitimately originate ONLY from the SW or
+// the DevTools panel — never from a MAIN-world collector. Dropping them here
+// stops a page from impersonating SW-level messages (fake tab inventory, forged
+// action/capture results, a spoofed EXT_HELLO handshake, etc.) to the server.
+const RELAY_DENY = new Set([
+  'EXT_HELLO', 'TAB_INVENTORY', 'TAB_CLOSED',
+  'ACTION_RESULT', 'SCREENSHOT_RESULT', 'PACKED_SOM_RESULT', 'ELEMENT_CAPTURE_RESULT',
+  'SOURCE_CONTENT', 'SOURCE_CAPTURE_DONE', 'CONFIG_FROM_PANEL',
+  'CONFIG_UPDATE', 'MANUAL_COLLECT', // SW→MAIN commands; never relayed back (loop guard)
+]);
+const TYPE_RE = /^[A-Z][A-Z0-9_]*$/;
 
 // ── MAIN world → background SW ────────────────────────────────────────────
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (!event.data?.__BROWSER_WHISKOR__) return;
-  // Don't echo config updates back (prevents loop)
-  if (event.data.type === 'CONFIG_UPDATE' || event.data.type === 'MANUAL_COLLECT') return;
+  const type = event.data.type;
+  // Well-formed collector type only, and never a SW/panel-origin control type.
+  if (typeof type !== 'string' || !TYPE_RE.test(type) || RELAY_DENY.has(type)) return;
 
-  console.log('[SI Bridge] Relaying to SW:', event.data.type);
+  console.log('[SI Bridge] Relaying to SW:', type);
   chrome.runtime.sendMessage({
     from:     'collector',
     tabUrl:   location.href,
-    type:     event.data.type,
+    type,
     payload:  event.data.payload,
     reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
-    ...event.data.payload,
     realtime: !!event.data.realtime,
     ts:       Date.now(),
   }).catch(() => {});

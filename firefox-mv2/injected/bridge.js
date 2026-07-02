@@ -8,20 +8,43 @@ const _b = (typeof browser !== 'undefined') ? browser : chrome;
  * 1. Relays postMessage (MAIN world → collector) to background SW
  * 2. Relays _b.storage config changes back to MAIN world
  * 3. Relays SW → MAIN world messages (CONFIG_UPDATE, MANUAL_COLLECT)
+ *
+ * SECURITY — trust boundary of this relay:
+ *   The MAIN-world collectors share the PAGE's JS context (they must, to read
+ *   framework internals), so a postMessage here cannot be cryptographically
+ *   distinguished from one the page crafted — any secret handed to the collector
+ *   is readable by the page. We therefore do NOT authenticate the sender. The
+ *   model: observation data here is treated as page-influenced, and NO command
+ *   path is reachable — the SW's click/type/debugger handling is on the separate
+ *   WebSocket channel (handleServerMessage), unreachable from page postMessage;
+ *   the tabId/frameId the server trusts come from `sender`, not the message body.
+ *   Enforced below: type must be a well-formed string, and SW/panel-origin
+ *   control types can't be impersonated by the page.
  */
 'use strict';
+
+// Control/result message types that originate ONLY from the SW or DevTools panel,
+// never from a MAIN-world collector — dropped so a page can't impersonate them.
+const RELAY_DENY = new Set([
+  'EXT_HELLO', 'TAB_INVENTORY', 'TAB_CLOSED',
+  'ACTION_RESULT', 'SCREENSHOT_RESULT', 'PACKED_SOM_RESULT', 'ELEMENT_CAPTURE_RESULT',
+  'SOURCE_CONTENT', 'SOURCE_CAPTURE_DONE', 'CONFIG_FROM_PANEL',
+  'CONFIG_UPDATE', 'MANUAL_COLLECT', // SW→MAIN commands; never relayed back (loop guard)
+]);
+const TYPE_RE = /^[A-Z][A-Z0-9_]*$/;
 
 // ── MAIN world → background SW ────────────────────────────────────────────
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (!event.data?.__BROWSER_WHISKOR__) return;
-  // Don't echo config updates back (prevents loop)
-  if (event.data.type === 'CONFIG_UPDATE' || event.data.type === 'MANUAL_COLLECT') return;
+  const type = event.data.type;
+  // Well-formed collector type only, and never a SW/panel-origin control type.
+  if (typeof type !== 'string' || !TYPE_RE.test(type) || RELAY_DENY.has(type)) return;
 
   _b.runtime.sendMessage({
     from:     'collector',
     tabUrl:   location.href,
-    type:     event.data.type,
+    type,
     payload:  event.data.payload,
     reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
     realtime: !!event.data.realtime,
