@@ -145,6 +145,7 @@ Core Commands:
                       start the server (or hot-reload the extension if one is running)
   stop                Gracefully stop the running server (flushes buffers, exit 0)
   restart             Refresh extension files → reload extension → stop → start fresh
+  where               Show resolved paths (this CLI, managed dir) + the live server
   shell               Interactive HTTP API shell — type to search commands,
                       arrows to pick, Tab to adopt, Enter to run (alias: tui)
 
@@ -389,6 +390,19 @@ if (command === 'RESTART') {
   return;
 }
 
+// ── whk where ─────────────────────────────────────────────────────────────────
+// Show the REAL, resolved paths and the live server — not assumptions. Answers
+// "which whiskor is this / where is it installed / what's actually running?".
+// Everything is read locally (filesystem + /health of the local server); no new
+// path is exposed over HTTP/MCP (the managed dir stays a local-only concept).
+if (command === 'WHERE') {
+  runWhere().catch((err) => {
+    process.stderr.write('\x1b[31m[whk] where failed: ' + err.message + '\x1b[0m\n');
+    process.exit(1);
+  });
+  return;
+}
+
 // ── whk shell ─────────────────────────────────────────────────────────────────
 // Interactive HTTP API shell for humans. Default on a TTY: the full-screen TUI
 // (server/tui/app.js — scrollback pane, real line editor, status bar, Ctrl+R).
@@ -551,6 +565,68 @@ function _serverAddr() {
   const { loadConfig } = require('./config-loader');
   const cfg = loadConfig();
   return { host: cfg.server?.host || '127.0.0.1', port: cfg.server?.httpPort || 7892 };
+}
+
+async function runWhere() {
+  const { getManagedRoot, readManifestVersion, BROWSER_DIRS } = require('./extension-installer');
+  const packageRoot = path.join(__dirname, '..');
+  let pkgVersion = '?';
+  try { pkgVersion = require(path.join(packageRoot, 'package.json')).version; } catch (_) {}
+
+  const line = (label, value) => console.log(`  ${label.padEnd(18)} ${value}`);
+
+  console.log('\n\x1b[1mbrowser-whiskor — where\x1b[0m');
+
+  // This CLI: the actual file being executed and the package it belongs to.
+  console.log('\n\x1b[2mThis CLI\x1b[0m');
+  line('entry', process.argv[1] || __filename);
+  line('package root', packageRoot);
+  line('version', `v${pkgVersion}  (source of truth: package.json)`);
+  line('node', `${process.version}  (${process.execPath})`);
+
+  // Managed extension directory — the resolved absolute path (env override or
+  // ~/.whiskor), and which browsers are actually staged there, at what version.
+  const managedRoot = getManagedRoot();
+  console.log('\n\x1b[2mManaged extension dir\x1b[0m' +
+    (process.env.WHISKOR_MANAGED_DIR ? ' \x1b[2m(WHISKOR_MANAGED_DIR)\x1b[0m' : ''));
+  line('path', managedRoot);
+  if (!fs.existsSync(managedRoot)) {
+    line('status', 'not created yet — run `whk setup`');
+  } else {
+    let anyStaged = false;
+    for (const b of BROWSER_DIRS || []) {
+      const dir = path.join(managedRoot, b.dir);
+      if (fs.existsSync(path.join(dir, 'manifest.json'))) {
+        anyStaged = true;
+        let v = '?'; try { v = readManifestVersion(dir) || '?'; } catch (_) {}
+        line(b.label || b.dir, `v${v}  ${dir}`);
+      }
+    }
+    if (!anyStaged) line('status', 'dir exists but no extension staged — run `whk setup`');
+  }
+
+  // Running server — actual live values from /health (version, identity, ports),
+  // not what config says it *should* be.
+  const { host, port } = _serverAddr();
+  console.log('\n\x1b[2mRunning server\x1b[0m');
+  line('configured addr', `${host}:${port}  (config.json server.host/httpPort)`);
+  try {
+    const h = await _httpJson('GET', host, port, '/health');
+    line('status', '\x1b[32mrunning\x1b[0m');
+    if (h.identity) line('identity', `${h.identity.instanceId || '?'}${h.identity.name ? ` (${h.identity.name})` : ''}`);
+    if (h.update && h.update.current) {
+      line('server version', `v${h.update.current}${h.update.updateAvailable ? ` \x1b[33m(update available: v${h.update.latest})\x1b[0m` : ''}`);
+    }
+    const exts = Array.isArray(h.extensions) ? h.extensions : [];
+    line('extensions', exts.length ? exts.map(e => `${e.browser} v${e.version}`).join(', ') : '(none connected)');
+    line('sessions', String(h.sessions ?? '?'));
+    if (h.update && h.update.current && h.update.current !== pkgVersion) {
+      console.log(`\n  \x1b[33mNote:\x1b[0m the running server is v${h.update.current} but this CLI is v${pkgVersion} — a different install is serving this port.`);
+    }
+  } catch (_) {
+    line('status', '\x1b[2mnot responding — no server on this address\x1b[0m');
+  }
+  console.log('');
 }
 
 function _isRunning(host, port) {
