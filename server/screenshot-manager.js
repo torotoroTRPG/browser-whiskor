@@ -9,7 +9,14 @@ const { randomUUID } = require('crypto');
 const fs   = require('fs');
 const path = require('path');
 
-const SCREENSHOT_DIR = path.join(__dirname, '..', 'cache', 'screenshots');
+// handleResult persists every capture to disk. The location is overridable via
+// WHISKOR_SCREENSHOT_DIR so the test suite can redirect writes to a throwaway
+// temp dir — otherwise unit tests that feed placeholder data URLs through the
+// real handleResult would litter the developer's production cache/screenshots
+// with 1-byte junk files (they did: see scripts/_run-tests.js).
+const SCREENSHOT_DIR = process.env.WHISKOR_SCREENSHOT_DIR
+  ? path.resolve(process.env.WHISKOR_SCREENSHOT_DIR)
+  : path.join(__dirname, '..', 'cache', 'screenshots');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 const TIMEOUT_MS = 10000;

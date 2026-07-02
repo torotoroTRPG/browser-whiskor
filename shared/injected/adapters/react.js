@@ -303,7 +303,38 @@
     },
 
     detect: function() {
-      return B.hasRDTHook() || !!window.React || !!window.__webpack_require__;
+      // This flag drives summary.detectedFrameworks. It MUST mean "real React is
+      // on this page", not "React tooling could exist", because agents use it to
+      // decide whether get_framework_state / REACT_SNAPSHOT data will be there.
+      //
+      // Signals that are NOT evidence of React (removed — they caused false
+      // positives on plain webpack / MediaWiki / challenge pages):
+      //   - B.hasRDTHook(): bippy installs its OWN __REACT_DEVTOOLS_GLOBAL_HOOK__
+      //     (so it can catch a React that loads later), so this is true on EVERY
+      //     page once the adapter installs — it says nothing about React.
+      //   - window.__webpack_require__: a webpack signal, not a React one.
+      //
+      // React only truly registers by injecting a renderer into the hook (which
+      // is exactly what our data path, onCommitFiberRoot, depends on) or by
+      // tagging host DOM nodes with __reactFiber$…/__reactContainer$… . Those
+      // keep the flag aligned with whether a snapshot will actually be produced.
+      try {
+        var hook = B.getRDTHook && B.getRDTHook();
+        if (hook && hook.renderers && hook.renderers.size > 0) return true;
+      } catch (_) {}
+      if (window.React && window.React.version) return true;
+      try {
+        var nodes = document.querySelectorAll('body *');
+        var lim = Math.min(nodes.length, 300);
+        for (var i = 0; i < lim; i++) {
+          var keys = Object.keys(nodes[i]);
+          for (var j = 0; j < keys.length; j++) {
+            var k = keys[j];
+            if (k.charCodeAt(0) === 95 && (k.indexOf('__reactFiber$') === 0 || k.indexOf('__reactContainer$') === 0)) return true;
+          }
+        }
+      } catch (_) {}
+      return false;
     },
 
     install: function(api) {

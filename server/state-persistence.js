@@ -12,7 +12,12 @@ const zlib = require('zlib');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const GRAPH_DIR = path.join(__dirname, '..', 'cache', 'graphs');
+// Overridable via WHISKOR_GRAPH_DIR so the test suite writes graphs to a
+// throwaway temp dir instead of the developer's production cache/graphs
+// (same isolation as WHISKOR_SCREENSHOT_DIR; set by scripts/_run-tests.js).
+const GRAPH_DIR = process.env.WHISKOR_GRAPH_DIR
+  ? path.resolve(process.env.WHISKOR_GRAPH_DIR)
+  : path.join(__dirname, '..', 'cache', 'graphs');
 fs.mkdirSync(GRAPH_DIR, { recursive: true });
 
 const SNAPSHOTS_DIR = path.join(GRAPH_DIR, 'snapshots');

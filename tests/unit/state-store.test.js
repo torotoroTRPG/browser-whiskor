@@ -18,8 +18,10 @@ const require = createRequire(import.meta.url);
 const store = require('../../server/state-store');
 
 const SV = '__unit_state_store__';
+// Graphs persist to WHISKOR_GRAPH_DIR when set (scripts/_run-tests.js points it
+// at a temp dir so tests never write into the real cache/graphs).
 const GRAPH_FILE = path.join(
-  fileURLToPath(new URL('../../cache/graphs/', import.meta.url)),
+  process.env.WHISKOR_GRAPH_DIR || fileURLToPath(new URL('../../cache/graphs/', import.meta.url)),
   `${SV}.json.gz`,
 );
 

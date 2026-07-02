@@ -128,6 +128,12 @@
       this.maxDepth = 20;
       this.actionHistory = [];
       this.loopThreshold = 3; // revisit same state N times → backtrack
+      // Set when an action is dispatched; on the next loop tick, if the state
+      // hash changed, an EXPLORER_TRANSITION edge (from → to) is reported. The
+      // server's getUnvisitedActions filters candidates by recorded edge
+      // triggers, so without these edges it would keep proposing the same
+      // element and exploration could never advance.
+      this.pendingTransition = null; // { from, trigger, at }
     }
 
     start(opts = {}) {
@@ -156,6 +162,28 @@
         var currentHashInfo = window.__SI_CURRENT_HASH__ || { compositeHash: stateHash, reactHash: null, domHash: stateHash };
 
         if (!uiCatalog || !stateHash) continue;
+
+        // Report the edge for the action dispatched last tick (state changed →
+        // the click led somewhere). Stale entries (>15s) are dropped: the page
+        // may have navigated or the action may simply have done nothing.
+        if (this.pendingTransition) {
+          const pt = this.pendingTransition;
+          this.pendingTransition = null;
+          if (stateHash !== pt.from && Date.now() - pt.at < 15000) {
+            window.postMessage({
+              __BROWSER_WHISKOR__: true,
+              type: 'EXPLORER_TRANSITION',
+              siteVersion: window.__SI_VERSION__?.id,
+              payload: {
+                siteVersion: window.__SI_VERSION__?.id,
+                from: pt.from,
+                to: stateHash,
+                action: 'click',
+                trigger: pt.trigger,
+              }
+            }, '*');
+          }
+        }
 
         // Loop detection
         const prev = this.visitedStates.get(stateHash);
@@ -213,6 +241,11 @@
         console.log('[SI Explorer] Found match (score: ' + result.score.toFixed(2) + '):', result.element.tagName, result.element.textContent?.trim().slice(0, 30));
         this.currentDepth++;
         this.actionHistory.push({ type: action.type || 'click', target: target.text, depth: this.currentDepth });
+        this.pendingTransition = {
+          from: (window.__SI_CURRENT_HASH__ && window.__SI_CURRENT_HASH__.compositeHash) || computeCompositeHash(),
+          trigger: target.text,
+          at: Date.now(),
+        };
         this.simulateHumanClick(result.element);
       } else {
         console.warn('[SI Explorer] Element not found:', target.text);
@@ -230,6 +263,11 @@
           console.log('[SI Explorer] Fallback: clicking', el.tagName, text.slice(0, 30));
           this.currentDepth++;
           this.actionHistory.push({ type: 'fallback-click', target: text, depth: this.currentDepth });
+          this.pendingTransition = {
+            from: (window.__SI_CURRENT_HASH__ && window.__SI_CURRENT_HASH__.compositeHash) || computeCompositeHash(),
+            trigger: text,
+            at: Date.now(),
+          };
           this.simulateHumanClick(el);
           return;
         }

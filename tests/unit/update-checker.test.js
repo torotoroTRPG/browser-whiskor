@@ -78,6 +78,39 @@ describe('runUpdateCheck orchestration', () => {
   });
 });
 
+describe('runNotifyCommand injection guard', () => {
+  it('runs when substituted remote values are shell-safe', () => {
+    const ok = uc.runNotifyCommand('true {latest} {tag} {url}', {
+      latest: '0.12.0', tag: 'v0.12.0', url: 'https://github.com/o/r/releases/tag/v0.12.0',
+    });
+    assert.equal(ok, true);
+  });
+
+  it('refuses to run when a referenced placeholder value carries shell metacharacters', () => {
+    const logs = [];
+    const log = (level, msg) => logs.push(msg);
+    // A compromised/MITM'd version.json feeds an injected releaseUrl.
+    const ran = uc.runNotifyCommand('notify-send {url}', {
+      url: 'https://x; rm -rf ~',
+    }, log);
+    assert.equal(ran, false, 'must not spawn a shell command containing injected metacharacters');
+    assert.ok(logs.some(m => /shell metacharacters/.test(m)), 'should log the reason');
+  });
+
+  it('ignores unsafe values for placeholders the command does not reference', () => {
+    // {url} is dangerous but unused → command still runs on the safe {latest}.
+    const ran = uc.runNotifyCommand('true {latest}', {
+      latest: '0.12.0', url: 'https://x && evil',
+    });
+    assert.equal(ran, true);
+  });
+
+  it('refuses on a bare backtick / $() substitution attempt', () => {
+    assert.equal(uc.runNotifyCommand('echo {tag}', { tag: 'v1$(whoami)' }), false);
+    assert.equal(uc.runNotifyCommand('echo {tag}', { tag: 'v1`id`' }), false);
+  });
+});
+
 describe('docs/version.json sync', () => {
   it('matches package.json (kept in step by scripts/_check-version.js)', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

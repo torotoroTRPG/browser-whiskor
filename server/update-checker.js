@@ -86,17 +86,41 @@ async function checkForUpdate({ url, currentVersion, timeoutMs = 4000, fetchImpl
   }
 }
 
+// The placeholder values ({latest}/{tag}/{url}) come from a REMOTE JSON payload
+// (docs/version.json on GitHub Pages: data.version / data.tag / data.releaseUrl).
+// notifyCommand runs through `shell: true`, so any shell metacharacter smuggled
+// into one of those fields — if that host were compromised or MITM'd — would be
+// interpreted as part of the command (classic injection). Legitimate versions,
+// tags, and release URLs never contain shell metacharacters, so we refuse to
+// substitute a value that does. This keeps the freeform-command feature (the
+// user still writes an arbitrary shell command) while denying the remote data
+// any way to break out of the placeholder it was meant to fill.
+const SHELL_UNSAFE = /[;&|`$(){}<>\\'"\n\r\t\0*?[\]!~\s]/;
+function isShellSafeValue(v) {
+  return typeof v === 'string' && v.length > 0 && !SHELL_UNSAFE.test(v);
+}
+
 // Run a user-configured notify command (config.updateCheck.notifyCommand — empty
 // by default, meant to live in config.local.json). Placeholders {current}/{latest}
 // /{tag}/{url} are substituted. Fire-and-forget via the shell; failures are
 // swallowed (a broken personal toast must never disrupt the server).
-function runNotifyCommand(command, ctx = {}) {
+function runNotifyCommand(command, ctx = {}, log = () => {}) {
   if (!command || typeof command !== 'string') return false;
-  const filled = command
-    .replace(/\{current\}/g, ctx.current || '')
-    .replace(/\{latest\}/g,  ctx.latest  || '')
-    .replace(/\{tag\}/g,     ctx.tag     || '')
-    .replace(/\{url\}/g,     ctx.url      || '');
+  // A placeholder is only substituted if the command actually references it AND
+  // the (remote-derived) value is shell-safe. If the command uses a placeholder
+  // whose value is unsafe, we refuse to run the whole command rather than run a
+  // partially-substituted (and possibly injected) one.
+  const subs = { current: ctx.current, latest: ctx.latest, tag: ctx.tag, url: ctx.url };
+  let filled = command;
+  for (const [name, value] of Object.entries(subs)) {
+    const token = `{${name}}`;
+    if (!filled.includes(token)) continue;
+    if (!isShellSafeValue(value)) {
+      log('warn', `[update] notifyCommand skipped: {${name}} value is missing or contains shell metacharacters (${JSON.stringify(value)})`);
+      return false;
+    }
+    filled = filled.split(token).join(value);
+  }
   try {
     const child = spawn(filled, { shell: true, stdio: 'ignore', detached: true, windowsHide: true });
     child.on('error', () => {});
@@ -166,7 +190,7 @@ async function runUpdateCheck(updateCfg, currentVersion, log = () => {}) {
 
   // Desktop notification: a custom notifyCommand overrides the bundled toast.
   if (cfg.notifyCommand) {
-    if (runNotifyCommand(cfg.notifyCommand, result)) log('info', '[update] notifyCommand dispatched');
+    if (runNotifyCommand(cfg.notifyCommand, result, log)) log('info', '[update] notifyCommand dispatched');
   } else if (cfg.osToast !== false) {
     runOsToast(result);
   }
