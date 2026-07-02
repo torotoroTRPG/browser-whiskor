@@ -175,7 +175,7 @@ describe('10.3 Multi-Tab & Session Recovery', () => {
     }
   });
 
-  test('EXPLORER_STATE_UPDATE → dashboard receives state graph changes', async () => {
+  test('EXPLORER_STATE_UPDATE → node recorded in state graph + dashboard broadcast', async () => {
     const { server, teardown } = await setup();
     try {
       const sw = await createSWClient(server);
@@ -183,21 +183,75 @@ describe('10.3 Multi-Tab & Session Recovery', () => {
 
       const explorerPromise = dashboard.nextMessage(m => m.type === 'EXPLORER_STATE_UPDATE', 2000);
 
+      // Flat payload shape — what core.js actually consumes. (The previous
+      // version of this test sent { node, edge }, which the handler silently
+      // ignored: it verified only the dashboard broadcast while appearing to
+      // cover the state-graph write.)
       sw.ws.send(JSON.stringify({
         type: 'EXPLORER_STATE_UPDATE',
         tabId: 1,
         payload: {
-          node: { hash: 'abc123', url: 'https://example.com', label: 'Home' },
-          edge: { from: 'root', to: 'abc123', action: { type: 'click' } },
+          siteVersion: 'sv-test',
+          currentHash: 'abc123',
+          reactHash: null,
+          domHash: 'abc123',
+          url: 'https://example.com',
+          title: 'Home',
+          uiCatalog: null,
         },
       }));
 
       const explorerMsg = await explorerPromise;
-      assert.strictEqual(explorerMsg.payload.node.hash, 'abc123');
-      assert.strictEqual(explorerMsg.payload.edge.to, 'abc123');
+      assert.strictEqual(explorerMsg.payload.currentHash, 'abc123');
+
+      // The write path must actually have run.
+      const nodeWrite = server.stateGraphCalls.find(c => c.fn === 'addNode');
+      assert.ok(nodeWrite, 'stateMachine.addNode must be called');
+      assert.strictEqual(nodeWrite.siteVersion, 'sv-test');
+      assert.strictEqual(nodeWrite.data.hash, 'abc123');
+      assert.strictEqual(nodeWrite.data.url, 'https://example.com');
 
       await sw.close();
       await dashboard.close();
+    } finally {
+      await teardown();
+    }
+  });
+
+  test('EXPLORER_GET_NEXT_ACTION → node recorded + EXPLORER_NEXT_ACTION reply to SW', async () => {
+    const { server, teardown } = await setup();
+    try {
+      const sw = await createSWClient(server);
+
+      const replyPromise = sw.nextMessage(m => m.type === 'EXPLORER_NEXT_ACTION', 2000);
+
+      // Live injected-explorer protocol: siteVersion on the envelope,
+      // stateHash inside payload, url derived from the bridge-trusted tabUrl.
+      sw.ws.send(JSON.stringify({
+        type: 'EXPLORER_GET_NEXT_ACTION',
+        tabId: 7,
+        tabUrl: 'https://example.com/page',
+        siteVersion: 'sv-live',
+        payload: {
+          stateHash: 'h1',
+          reactHash: null,
+          domHash: 'h1',
+          uiCatalog: { buttons: [{ text: 'Next', disabled: false }], links: [] },
+        },
+      }));
+
+      const reply = await replyPromise;
+      assert.strictEqual(reply.tabId, 7);
+      assert.ok('target' in reply.payload, 'reply carries a target (or null)');
+      assert.ok(typeof reply.payload.candidateCount === 'number');
+
+      const nodeWrite = server.stateGraphCalls.find(c => c.fn === 'addNode' && c.siteVersion === 'sv-live');
+      assert.ok(nodeWrite, 'stateMachine.addNode must be called for the polled state');
+      assert.strictEqual(nodeWrite.data.hash, 'h1');
+      assert.strictEqual(nodeWrite.data.url, 'https://example.com/page');
+      assert.strictEqual(nodeWrite.data.origin, 'https://example.com');
+
+      await sw.close();
     } finally {
       await teardown();
     }

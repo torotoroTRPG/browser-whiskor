@@ -35,6 +35,14 @@ const INTENTIONALLY_UNCONSUMED = new Set([
   'SHADOW_DOM_DELTA',
 ]);
 
+// Types produced by injected code but consumed by the BACKGROUND (sw.js /
+// background.js), never forwarded to the server as-is — out of scope for the
+// server-side consumer check.
+const CONSUMED_BY_BACKGROUND = new Set([
+  'ACTION_COMPLETE',              // resolved inside executeInPage's listener
+  'CSS_ORIGIN_RESOURCE_REQUEST',  // routed to the DevTools panel port
+]);
+
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -51,12 +59,23 @@ function collectProducers() {
   const types = new Set();
   const reEmitType = /emitType:\s*'([A-Z0-9_]+)'/g;
   const reEmitCall = /\bemit\(\s*['"]([A-Z0-9_]+)['"]/g;
+  // Some producers (explorer.js, state-reporter.js, text-coords.js) bypass
+  // api.emit and call window.postMessage directly — the EXPLORER_GET_NEXT_ACTION
+  // type-drift went undetected because only the emit()/emitType convention was
+  // scanned. Match a __BROWSER_WHISKOR__-flagged object literal with its type.
+  const reDirectPost = /postMessage\(\s*\{[\s\S]{0,200}?__BROWSER_WHISKOR__[\s\S]{0,200}?type:\s*'([A-Z0-9_]+)'/g;
   for (const root of roots) {
     for (const file of walk(root)) {
+      // bridge.js is the relay itself: its postMessage calls go SW→MAIN world
+      // (CONFIG_UPDATE etc.), the opposite direction of this contract.
+      if (file.endsWith('bridge.js')) continue;
       const src = readFileSync(file, 'utf8');
       let m;
       while ((m = reEmitType.exec(src))) types.add(m[1]);
       while ((m = reEmitCall.exec(src))) types.add(m[1]);
+      while ((m = reDirectPost.exec(src))) {
+        if (!CONSUMED_BY_BACKGROUND.has(m[1])) types.add(m[1]);
+      }
     }
   }
   return types;
@@ -81,7 +100,11 @@ describe('injected → server message contract', () => {
     assert.ok(producers.size > 10, `expected many producer types, got ${producers.size}`);
     assert.ok(consumers.size > 10, `expected many consumer types, got ${consumers.size}`);
     // Spot-check the ones this work fixed, so a regression to the old names is loud.
-    for (const t of ['NETWORK_REQUEST', 'VUE3_SNAPSHOT', 'ALPINE_SNAPSHOT', 'PREACT_SNAPSHOT', 'SOLID_SNAPSHOT', 'PERF_METRICS', 'NETWORK_ERROR']) {
+    // EXPLORER_GET_NEXT_ACTION / EXPLORER_LOOP_DETECTED / EXPLORER_TRANSITION are
+    // direct-postMessage producers — they were invisible to this test (and the
+    // GET_NEXT_ACTION poll had no server case at all) until the scan above.
+    for (const t of ['NETWORK_REQUEST', 'VUE3_SNAPSHOT', 'ALPINE_SNAPSHOT', 'PREACT_SNAPSHOT', 'SOLID_SNAPSHOT', 'PERF_METRICS', 'NETWORK_ERROR',
+                     'EXPLORER_GET_NEXT_ACTION', 'EXPLORER_LOOP_DETECTED', 'EXPLORER_TRANSITION', 'STATE_HASH_REPORT']) {
       assert.ok(producers.has(t), `${t} should be an injected producer`);
       assert.ok(consumers.has(t), `${t} should have a server consumer`);
     }

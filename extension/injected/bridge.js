@@ -41,6 +41,14 @@ window.addEventListener('message', (event) => {
   // Well-formed collector type only, and never a SW/panel-origin control type.
   if (typeof type !== 'string' || !TYPE_RE.test(type) || RELAY_DENY.has(type)) return;
 
+  // siteVersion is part of the emit envelope (plugin-system.js api.emit and
+  // explorer.js both put it at the top level) and the server keys sessions and
+  // state graphs by it (cache-writer getSession / core.js graph handlers). It is
+  // page-influenced like the rest of the observation data — the server pairs it
+  // with the trusted tabUrl below before using it for any graph identity.
+  const siteVersion = (typeof event.data.siteVersion === 'string' && event.data.siteVersion.length <= 64)
+    ? event.data.siteVersion : undefined;
+
   console.log('[SI Bridge] Relaying to SW:', type);
   chrome.runtime.sendMessage({
     from:     'collector',
@@ -48,6 +56,7 @@ window.addEventListener('message', (event) => {
     type,
     payload:  event.data.payload,
     reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
+    siteVersion,
     realtime: !!event.data.realtime,
     ts:       Date.now(),
   }).catch(() => {});

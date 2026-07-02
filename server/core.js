@@ -535,42 +535,60 @@ class WhiskorCore extends EventEmitter {
         break;
 
       case 'EXPLORER_STATE_UPDATE': {
-        const { siteVersion, currentHash, reactHash, domHash, url, title, uiCatalog } = msg.payload || {};
-        if (siteVersion && currentHash) {
-          const reactSnapshot = this.cache.readSessionFile(msg.tabId, 'raw/react_snapshot.json');
-          this.stateMachine.addNode(siteVersion, {
-            hash: currentHash,
-            reactHash: reactHash || null,
-            domHash: domHash || currentHash,
-            url, title, uiCatalog,
-            reactState: reactSnapshot || null,
-          });
-        }
-        if (siteVersion && currentHash && uiCatalog) {
-          const candidates = this.stateMachine.getUnvisitedActions(siteVersion, currentHash, uiCatalog);
-          fromWs.send(JSON.stringify({
-            type: 'EXPLORER_NEXT_ACTION',
-            tabId: msg.tabId,
-            payload: {
-              target: candidates[0] || null,
-              candidateCount: candidates.length,
-              reason: candidates.length > 0
-                ? `Unvisited interactive element: "${candidates[0].text}"`
-                : 'No unvisited elements found — exploration complete for this state',
-            },
-          }));
-        }
+        // Flat-payload wire shape used by tests/dashboards. The live injected
+        // explorer speaks EXPLORER_GET_NEXT_ACTION below; both funnel into
+        // _recordExplorerState (node write + next-action reply).
+        const p = msg.payload || {};
+        this._recordExplorerState(msg, fromWs, {
+          siteVersion: p.siteVersion,
+          hash: p.currentHash,
+          reactHash: p.reactHash,
+          domHash: p.domHash,
+          url: p.url,
+          title: p.title,
+          uiCatalog: p.uiCatalog,
+        });
         this.broadcastToDashboard(msg);
         break;
       }
 
+      // Live protocol of injected/explorer.js: the exploration loop polls with
+      // its current composite hash + ui-catalog and expects an
+      // EXPLORER_NEXT_ACTION reply (which the SW relays into the MAIN world).
+      // Until this case existed the poll fell through to `default` and the
+      // autonomous explorer never received an answer.
+      case 'EXPLORER_GET_NEXT_ACTION': {
+        const p = msg.payload || {};
+        this._recordExplorerState(msg, fromWs, {
+          siteVersion: msg.siteVersion || p.siteVersion,
+          hash: p.stateHash,
+          reactHash: p.reactHash,
+          domHash: p.domHash,
+          url: msg.tabUrl, // bridge-trusted; the explorer doesn't send a url
+          title: null,
+          uiCatalog: p.uiCatalog,
+        });
+        this.broadcastToDashboard(msg);
+        break;
+      }
+
+      // Explorer hit a state-revisit loop and is backtracking — surface it on
+      // the dashboard (and keep the producer/consumer contract test honest).
+      case 'EXPLORER_LOOP_DETECTED':
+        this.broadcastToDashboard(msg);
+        break;
+
       case 'REACT_TRANSITION': {
         const { from, to, fromReact, toReact, trigger } = msg.payload || {};
-        if (msg.siteVersion && from && to) {
-          this.stateMachine.addEdge(msg.siteVersion, {
+        // siteVersion rides the emit envelope (top level, forwarded by the
+        // bridge); tolerate older payloads that carried it inside payload.
+        const siteVersion = msg.siteVersion || (msg.payload || {}).siteVersion;
+        if (siteVersion && from && to) {
+          this.stateMachine.addEdge(siteVersion, {
             from, to,
             action: 'react-update',
             trigger: trigger || null,
+            origin: this._pageOrigin(msg),
           });
         }
         // Feed to correlator — framework transitions improve causal-chain Rule 2/3
@@ -589,8 +607,9 @@ class WhiskorCore extends EventEmitter {
 
       case 'EXPLORER_TRANSITION': {
         const { siteVersion, from, to, action: act, trigger } = msg.payload || {};
-        if (siteVersion && from) {
-          this.stateMachine.addEdge(siteVersion, { from, to, action: act, trigger });
+        const sv = siteVersion || msg.siteVersion;
+        if (sv && from) {
+          this.stateMachine.addEdge(sv, { from, to, action: act, trigger, origin: this._pageOrigin(msg) });
         }
         break;
       }
@@ -640,6 +659,65 @@ class WhiskorCore extends EventEmitter {
 
       default:
         this.emit('unknown', msg);
+    }
+  }
+
+  /**
+   * The one identity a page cannot forge: its own URL, stamped as tabUrl by the
+   * bridge (ISOLATED world) on every relayed collector message. Returns the
+   * origin, or null when the message didn't come through the bridge (tests,
+   * direct WS clients) — callers then skip origin enforcement.
+   */
+  _pageOrigin(msg) {
+    if (!msg || !msg.tabUrl) return null;
+    try { return new URL(msg.tabUrl).origin; } catch (_) { return null; }
+  }
+
+  /**
+   * Shared state-graph write + next-action reply for EXPLORER_STATE_UPDATE and
+   * EXPLORER_GET_NEXT_ACTION. All identity fields here (siteVersion, hashes,
+   * url) arrive page-influenced, so: hashes are shape-checked, the node url is
+   * clamped to the tab's bridge-verified origin, and the graph write itself is
+   * origin-bound in state-store (a page can only poison the graph of its own
+   * origin — which it could do anyway by lying about its DOM).
+   */
+  _recordExplorerState(msg, fromWs, { siteVersion, hash, reactHash, domHash, url, title, uiCatalog }) {
+    const okHash = (h) => typeof h === 'string' && h.length > 0 && h.length <= 128;
+    if (!siteVersion || typeof siteVersion !== 'string' || !okHash(hash)) return;
+
+    const origin = this._pageOrigin(msg);
+    let safeUrl = url || msg.tabUrl || null;
+    if (origin && safeUrl) {
+      try { if (new URL(safeUrl).origin !== origin) safeUrl = msg.tabUrl; }
+      catch (_) { safeUrl = msg.tabUrl; }
+    }
+
+    const reactSnapshot = this.cache.readSessionFile(msg.tabId, 'raw/react_snapshot.json');
+    const node = this.stateMachine.addNode(siteVersion, {
+      hash,
+      reactHash: okHash(reactHash) ? reactHash : null,
+      domHash: okHash(domHash) ? domHash : hash,
+      url: safeUrl,
+      title: title || null,
+      uiCatalog,
+      reactState: reactSnapshot || null,
+      origin,
+    });
+    if (node === null) return; // graph belongs to another origin — rejected
+
+    if (uiCatalog) {
+      const candidates = this.stateMachine.getUnvisitedActions(siteVersion, hash, uiCatalog);
+      fromWs.send(JSON.stringify({
+        type: 'EXPLORER_NEXT_ACTION',
+        tabId: msg.tabId,
+        payload: {
+          target: candidates[0] || null,
+          candidateCount: candidates.length,
+          reason: candidates.length > 0
+            ? `Unvisited interactive element: "${candidates[0].text}"`
+            : 'No unvisited elements found — exploration complete for this state',
+        },
+      }));
     }
   }
 

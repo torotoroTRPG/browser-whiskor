@@ -95,14 +95,20 @@ export class MockExtensionSW {
     this._send({ type: 'TEXT_COORD_DELTA', tabId, deltas, timestamp: Date.now() });
   }
 
-  /** Push EXPLORER_STATE_UPDATE. */
-  sendExplorerState(hash, label = 'Page', tabId = this._tabId) {
-    this._send({ type: 'EXPLORER_STATE_UPDATE', tabId, hash, label, url: 'http://localhost/', timestamp: Date.now() });
+  /** Push EXPLORER_STATE_UPDATE (flat payload shape consumed by core.js). */
+  sendExplorerState(hash, title = 'Page', tabId = this._tabId, siteVersion = 'mock-site') {
+    this._send({
+      type: 'EXPLORER_STATE_UPDATE', tabId,
+      payload: { siteVersion, currentHash: hash, reactHash: null, domHash: hash, url: 'http://localhost/', title, uiCatalog: null },
+    });
   }
 
-  /** Push REACT_TRANSITION. */
-  sendReactTransition(fromHash, toHash, action = null) {
-    this._send({ type: 'REACT_TRANSITION', fromHash, toHash, action, timestamp: Date.now() });
+  /** Push REACT_TRANSITION (siteVersion on the envelope, from/to in payload). */
+  sendReactTransition(fromHash, toHash, trigger = null, siteVersion = 'mock-site') {
+    this._send({
+      type: 'REACT_TRANSITION', tabId: this._tabId, siteVersion,
+      payload: { from: fromHash, to: toHash, fromReact: fromHash, toReact: toHash, trigger, capturedAt: Date.now() },
+    });
   }
 
   /** Push STATE_HASH_REPORT. */

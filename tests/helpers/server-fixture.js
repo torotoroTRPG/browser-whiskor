@@ -65,8 +65,12 @@ export class ServerFixture extends EventEmitter {
         setBroadcast() {},
       },
       stateMachine: {
-        addNode() {},
-        addEdge() {},
+        // Recording stub: tests assert the state-graph write path actually ran
+        // (multi-tab.test.js previously sent a payload shape the real handler
+        // ignored, so addNode was never exercised and nobody noticed).
+        calls: [],
+        addNode(siteVersion, data) { this.calls.push({ fn: 'addNode', siteVersion, data }); return data; },
+        addEdge(siteVersion, data) { this.calls.push({ fn: 'addEdge', siteVersion, data }); return data; },
         getUnvisitedActions() { return []; },
         getAllGraphs() { return []; },
       },
@@ -208,6 +212,9 @@ export class ServerFixture extends EventEmitter {
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────
+
+  /** State-graph writes recorded by the stateMachine stub (addNode/addEdge). */
+  get stateGraphCalls() { return this._core.stateMachine.calls; }
 
   get wsUrl()   { return `ws://localhost:${this.wsPort}`; }
   get httpUrl() { return `http://localhost:${this.httpPort}`; }

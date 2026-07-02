@@ -154,10 +154,30 @@ function countEdges(g) {
   return c;
 }
 
+// ── Origin binding ────────────────────────────────────────────────────────────
+// siteVersion is a CLIENT-computed fingerprint carried in the (page-influenced)
+// message envelope, so a hostile page could claim ANOTHER site's siteVersion and
+// write forged nodes/edges into that site's graph — which navigate_to_state
+// would later replay. The one identity a page cannot forge is its own URL: the
+// bridge (ISOLATED world) stamps tabUrl on every relayed message. So each graph
+// is bound to the origin that first wrote to it; a write claiming the same
+// siteVersion from a different origin is rejected. Writers without an origin
+// (tests, direct WS clients — nothing page-forged arrives without a bridge
+// tabUrl) skip the check and never claim the binding.
+function originAllowed(g, origin) {
+  if (!origin) return true;
+  if (!g.origin) { g.origin = origin; return true; }
+  return g.origin === origin;
+}
+
 // ── Add Node ─────────────────────────────────────────────────────────────────
 
 function addNode(siteVersion, data) {
   const g = getOrCreate(siteVersion);
+  if (!originAllowed(g, data.origin)) {
+    console.warn(`[state-store] Rejected node write to graph "${siteVersion}": origin ${data.origin} does not match graph owner ${g.origin}`);
+    return null;
+  }
   const config = getConfig();
   // NOTE: `hash`/`reactHash` are the CLIENT-computed identity (injected react.js
   // `_hash` + composite, reported via EXPLORER_STATE_UPDATE). They are adopted
@@ -267,6 +287,10 @@ function addNode(siteVersion, data) {
 
 function addEdge(siteVersion, data) {
   const g = getOrCreate(siteVersion);
+  if (!originAllowed(g, data.origin)) {
+    console.warn(`[state-store] Rejected edge write to graph "${siteVersion}": origin ${data.origin} does not match graph owner ${g.origin}`);
+    return null;
+  }
   const { from, to, action, trigger, selector, replayAction } = data;
 
   if (!g.edges[from]) g.edges[from] = {};
@@ -274,8 +298,9 @@ function addEdge(siteVersion, data) {
 
   const edgeKey = `${action}:${trigger || '?'}`;
 
+  let edge;
   if (g.edges[from][edgeKey]) {
-    const edge = g.edges[from][edgeKey];
+    edge = g.edges[from][edgeKey];
     edge.count++;
     edge.lastSeen = Date.now();
     if (to && edge.to !== to) {
@@ -290,7 +315,7 @@ function addEdge(siteVersion, data) {
     }
     edge.confidence = computeConfidence(edge);
   } else {
-    const edge = {
+    edge = {
       from,
       to: to || null,
       action,
@@ -308,6 +333,7 @@ function addEdge(siteVersion, data) {
   }
 
   persistGraph(siteVersion, graphs);
+  return edge;
 }
 
 function computeConfidence(edge) {
