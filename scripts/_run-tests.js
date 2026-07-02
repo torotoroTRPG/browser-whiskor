@@ -13,6 +13,7 @@
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const args = process.argv.slice(2);
@@ -39,6 +40,24 @@ for (const dir of args) {
 if (!files.length) {
   console.error(`[run-tests] no *.test.js files found under: ${args.join(', ')}`);
   process.exit(1);
+}
+
+// Redirect disk-writing modules to a throwaway temp dir so tests never litter
+// the developer's real cache/. screenshot-manager.handleResult writes every
+// capture (including the placeholder data URLs unit tests feed it) to disk;
+// without this it dumped 1-byte junk into cache/screenshots. Only set it when
+// the caller hasn't already chosen a location.
+if (!process.env.WHISKOR_SCREENSHOT_DIR) {
+  const testShots = path.join(os.tmpdir(), 'whiskor-test-screenshots');
+  fs.mkdirSync(testShots, { recursive: true });
+  process.env.WHISKOR_SCREENSHOT_DIR = testShots;
+}
+if (!process.env.WHISKOR_GRAPH_DIR) {
+  // state-persistence writes graphs on every addNode/addEdge — keep test
+  // graphs out of the developer's cache/graphs for the same reason.
+  const testGraphs = path.join(os.tmpdir(), 'whiskor-test-graphs');
+  fs.mkdirSync(testGraphs, { recursive: true });
+  process.env.WHISKOR_GRAPH_DIR = testGraphs;
 }
 
 const res = spawnSync(process.execPath, [...nodeArgs, ...files], { stdio: 'inherit' });
