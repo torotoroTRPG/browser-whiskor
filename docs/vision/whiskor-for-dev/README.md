@@ -83,6 +83,8 @@ agent の **edit→verify の外側ループをライブ web app 上で閉じる
 |---|---|---|
 | `README.md`（本書） | 全体像・テーゼ・統合層図・3 軸・ロードマップ | ✅ |
 | [`discussion.md`](discussion.md) | 方向性の討論メモ（D=暫定決定＋覆る条件 / F=未決分岐 / C=候補 / T=火種）。仕様に落とす前の合意形成の土台 | ✅ |
+| [`2026-07-03_dev-loop-additions.md`](2026-07-03_dev-loop-additions.md) | 追記メモ: 開発者アダプタ（統合契約）・backend 代役/中継・編集→判定ループ・論理スクリーン・focus dossier。熟したら discussion へ昇格 | ✅ メモ |
+| [`dev-exec.md`](dev-exec.md) | 外部成果物（ビルド済み .js）のライブ実行と判定ループ。実行プリミティブ（blob/CDP）＋ intake（inline/file/push）＋ verdict 5値＋ dev mode（明示・可視・一時）＋不変条件 I-1〜I-10。追記メモ項目2の仕様化＋項目5のツールチェーン境界を吸収 | ✅ 仕様 |
 | [`host-model.md`](host-model.md) | ホスト非依存コア / 拡張 / Tauri injector / engine-embed。bridge 層と注入経路の図 | 🔮 未作成 |
 | [`loop-closure.md`](loop-closure.md) | runtime expectation primitive。inner/outer loop ＋ 期待↔実測の判定フロー | 🔮 未作成 |
 | [`full-stack-trace.md`](full-stack-trace.md) | UI操作→invoke/IPC→Rust→返り→UI差分の span 相関。reporter とハブのプロトコル | 🔮 未作成 |
