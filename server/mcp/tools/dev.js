@@ -16,16 +16,18 @@ module.exports = function registerDevTools(registry) {
   tools.push({
     definition: {
       name: 'exec_module',
-      description: 'Run a self-contained ES module (dependencies already bundled) on the REAL page runtime — real DOM, real framework state, real network. This is not a unit-test sandbox (jsdom/vitest simulate); it observes what actually happens in the running app. Only available while an operator has enabled dev mode. Pass inline `code` (a bundled ES module). Bare/relative imports are rejected — bundle first (esbuild --bundle). probe mode returns the module\'s default export value; harness mode runs its exported __whiskor_tests__.',
+      description: 'Run a self-contained ES module (dependencies already bundled) on the REAL page runtime — real DOM, real framework state, real network. This is not a unit-test sandbox (jsdom/vitest simulate); it observes what actually happens in the running app. Only available while an operator has enabled dev mode. Supply the artifact ONE of three ways: inline `code`, a built file `path` (confined to dev.exec.fileRoots), or an `artifactId` from a prior push to /api/dev/artifact. Bare/relative imports are rejected — bundle first (esbuild --bundle). probe mode returns the module\'s default export; harness mode runs its exported __whiskor_tests__.',
       inputSchema: {
         type: 'object',
         properties: {
-          tabId:     { type: 'number', description: 'Target tab ID.' },
-          code:      { type: 'string', description: 'The artifact: a self-contained ES module as text. Must not contain bare ("react") or relative ("./x.js") imports.' },
-          mode:      { type: 'string', enum: ['probe', 'harness'], description: "'probe' (default): evaluate the module, return its default export. 'harness': run exported __whiskor_tests__ and report pass/fail." },
-          timeoutMs: { type: 'number', description: 'Max ms for module evaluation + settled export (default 10000).' },
+          tabId:      { type: 'number', description: 'Target tab ID.' },
+          code:       { type: 'string', description: 'Inline artifact: a self-contained ES module as text. Must not contain bare ("react") or relative ("./x.js") imports.' },
+          path:       { type: 'string', description: 'Path to a built artifact file. Must resolve inside dev.exec.fileRoots (else blocked).' },
+          artifactId: { type: 'string', description: 'Id of an artifact previously pushed to /api/dev/artifact.' },
+          mode:       { type: 'string', enum: ['probe', 'harness'], description: "'probe' (default): evaluate the module, return its default export. 'harness': run exported __whiskor_tests__ and report pass/fail." },
+          timeoutMs:  { type: 'number', description: 'Max ms for module evaluation + settled export (default 10000).' },
         },
-        required: ['tabId', 'code'],
+        required: ['tabId'],
       },
     },
     handler: async (args, cb) => {
@@ -33,10 +35,12 @@ module.exports = function registerDevTools(registry) {
         return { ok: false, error: 'dev-exec is not wired on this server.' };
       }
       return cb._devExec({
-        tabId:     args.tabId,
-        code:      args.code,
-        mode:      args.mode,
-        timeoutMs: args.timeoutMs,
+        tabId:      args.tabId,
+        code:       args.code,
+        path:       args.path,
+        artifactId: args.artifactId,
+        mode:       args.mode,
+        timeoutMs:  args.timeoutMs,
       }, 'agent');
     },
   });

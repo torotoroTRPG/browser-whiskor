@@ -20,9 +20,10 @@ const require = createRequire(import.meta.url);
 const TMP_CACHE = fs.mkdtempSync(path.join(os.tmpdir(), 'whiskor-dev-audit-'));
 process.env.WHISKOR_CACHE_DIR = TMP_CACHE;
 
-const devGate   = require('../../server/dev-gate');
-const devIntake = require('../../server/dev-intake');
-const devAudit  = require('../../server/dev-audit');
+const devGate     = require('../../server/dev-gate');
+const devIntake   = require('../../server/dev-intake');
+const devAudit    = require('../../server/dev-audit');
+const devArtifacts = require('../../server/dev-artifacts');
 const toolManager = require('../../server/tool-manager');
 
 // ── dev-gate ──────────────────────────────────────────────────────────────────
@@ -164,6 +165,63 @@ describe('dev-audit: audit-before-ack (I-3, I-4)', () => {
     // I-4: no code/body field is ever written.
     assert.strictEqual(recs[0].code, undefined);
     assert.strictEqual(recs[0].value, undefined);
+  });
+});
+
+// ── dev-intake: file confinement (E2, T-2/T-5) ────────────────────────────────
+describe('dev-intake: file intake confinement', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'whiskor-dev-root-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'whiskor-dev-out-'));
+  const inFile = path.join(root, 'built.js');
+  const outFile = path.join(outside, 'secret.js');
+  fs.writeFileSync(inFile, 'export default 42;');
+  fs.writeFileSync(outFile, 'export default 1;');
+
+  test('empty fileRoots means file intake does not exist', () => {
+    const r = devIntake.resolveFilePath(inFile, []);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'path_outside_roots');
+  });
+
+  test('a file inside a root resolves and is read', () => {
+    const r = devIntake.resolveFilePath(inFile, [root]);
+    assert.strictEqual(r.ok, true);
+    assert.match(r.code, /export default 42/);
+  });
+
+  test('a file outside every root is blocked', () => {
+    const r = devIntake.resolveFilePath(outFile, [root]);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'path_outside_roots');
+  });
+
+  test('a missing file is reported, not silently allowed', () => {
+    const r = devIntake.resolveFilePath(path.join(root, 'nope.js'), [root]);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'file_not_found');
+  });
+});
+
+// ── dev-artifacts: push LRU (E2, I-4) ─────────────────────────────────────────
+describe('dev-artifacts: push-intake LRU store', () => {
+  beforeEach(() => { devArtifacts.clear(); devArtifacts.setMax(32); });
+
+  test('add returns a stable id for identical content and get round-trips', () => {
+    const a = devArtifacts.add('probe.js', 'export default 1;');
+    const b = devArtifacts.add('probe.js', 'export default 1;');
+    assert.strictEqual(a.artifactId, b.artifactId, 'same bytes → same id');
+    const got = devArtifacts.get(a.artifactId);
+    assert.strictEqual(got.code, 'export default 1;');
+    assert.strictEqual(got.name, 'probe.js');
+  });
+
+  test('LRU evicts the oldest past the cap', () => {
+    devArtifacts.setMax(2);
+    const a = devArtifacts.add('a', 'export default "a";');
+    devArtifacts.add('b', 'export default "b";');
+    devArtifacts.add('c', 'export default "c";'); // evicts a
+    assert.strictEqual(devArtifacts.get(a.artifactId), null, 'oldest must be evicted');
+    assert.strictEqual(devArtifacts.count(), 2);
   });
 });
 

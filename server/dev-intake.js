@@ -18,6 +18,8 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs   = require('fs');
+const path = require('path');
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2 MiB (dev.exec.maxArtifactBytes)
 
@@ -102,10 +104,53 @@ function sha256(str) {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
 }
 
+// ── file intake (E2) ──────────────────────────────────────────────────────────
+// Resolve a requested file path and confine it to the declared project roots.
+// (dev-exec.md SECTION 4.1 file-path confinement, threat T-2/T-5)
+//
+// The path must land INSIDE one of fileRoots after realpath resolution — realpath
+// on both sides defeats symlink escape ("root/link → /etc/passwd"). An empty
+// fileRoots means the file path does not exist as a feature: without this, "run
+// arbitrary JS" silently widens into "read any file, then run it".
+//
+// @returns { ok:true, absPath, code } | { ok:false, blocked, error }
+function resolveFilePath(p, fileRoots) {
+  if (typeof p !== 'string' || !p) {
+    return { ok: false, blocked: 'path_outside_roots', error: 'No file path given.' };
+  }
+  const roots = Array.isArray(fileRoots) ? fileRoots.filter(r => typeof r === 'string' && r) : [];
+  if (roots.length === 0) {
+    return { ok: false, blocked: 'path_outside_roots',
+      error: 'file intake is disabled: dev.exec.fileRoots is empty. Declare a project root in config.local.json to run files.' };
+  }
+
+  let real;
+  try { real = fs.realpathSync(path.resolve(p)); }
+  catch { return { ok: false, blocked: 'file_not_found', error: `File not found (or unreadable): ${p}` }; }
+
+  const inside = roots.some(root => {
+    let rr;
+    try { rr = fs.realpathSync(path.resolve(root)); }
+    catch { return false; } // a non-existent root can confine nothing
+    const withSep = rr.endsWith(path.sep) ? rr : rr + path.sep;
+    return real === rr || real.startsWith(withSep);
+  });
+  if (!inside) {
+    return { ok: false, blocked: 'path_outside_roots',
+      error: `Path is outside the allowed dev roots: ${p}` };
+  }
+
+  let code;
+  try { code = fs.readFileSync(real, 'utf8'); }
+  catch (e) { return { ok: false, blocked: 'file_not_found', error: `Cannot read file: ${e.message}` }; }
+  return { ok: true, absPath: real, code };
+}
+
 module.exports = {
   validateArtifact,
   classifySpecifier,
   collectSpecifiers,
+  resolveFilePath,
   sha256,
   DEFAULT_MAX_BYTES,
 };

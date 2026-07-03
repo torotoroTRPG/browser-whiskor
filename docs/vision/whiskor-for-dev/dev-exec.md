@@ -10,8 +10,8 @@
 ```
 
 **日付:** 2026-07-03
-**状態:** 設計仕様。**E1（リリース境界α＝実行プリミティブ＋ゲート＋監査）実装済み**（2026-07-03）。
-E2（intake拡張：file/push/cdp）・E3（判定ループ verdict engine）・E4（watchループ）・E5（慣習/レシピ）は未着手。
+**状態:** 設計仕様。**E1（リリース境界α）＋ E2 の intake 拡張（file/push 経路）実装済み**（2026-07-03）。
+E2 残り（cdp backend＋auto フォールバック）・E3（判定ループ verdict engine）・E4（watchループ）・E5（慣習/レシピ）は未着手。
 [`README.md`](README.md)（傘）配下のサブ仕様。[`2026-07-03_dev-loop-additions.md`](2026-07-03_dev-loop-additions.md)
 の項目2（編集→判定ループ）を中核に、実行プリミティブと項目5（開発者アダプタ）のツールチェーン境界を1本の仕様に束ねたもの。
 **先行実装:** 全構成部品の substrate は実在する（SECTION 11）。
@@ -23,8 +23,12 @@ E2（intake拡張：file/push/cdp）・E3（判定ループ verdict engine）・
 MCP `dev` プロファイル（`server/mcp/tools/dev.js` の `exec_module`/`dev_status`、`tool-manager.js` の不在原則／7.3）・
 HTTP `GET /api/dev/status`・`POST /api/dev/on|off|exec`（exec は非活性時404）・`whk dev on|off|status|exec`（operator専権）・
 config `dev` セクション（安全既定）＋`_check-config-defaults.js` ガード＋拡張バッジ（両background の `DEV_MODE`）。
-テスト: `tests/unit/dev-exec.test.js`（21件）。**E1 の範囲では inline intake・blob backend・verdict 無しの exec 結果のみ**
-（判定ループ＝E3、file/push/cdp＝E2、watch＝E4）。
+テスト: `tests/unit/dev-exec.test.js`（27件）。
+
+**E2 intake 拡張（2026-07-03）:** `server/dev-intake.js` の `resolveFilePath`（fileRoots realpath 閉じ込め＋symlink脱出遮断／T-2,T-5）・
+`server/dev-artifacts.js`（push intake の成果物メモリLRU＝`artifactCacheMax`、ディスク非永続／I-4）・
+`devExec` の `code|path|artifactId` 3経路解決・HTTP `POST /api/dev/artifact`（非活性時404）・`exec_module` に path/artifactId。
+**現状の範囲: blob backend・verdict 無しの exec 結果のみ**（cdp backend＋auto＝E2残り／判定ループ＝E3／watch＝E4）。
 
 ---
 

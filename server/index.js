@@ -33,9 +33,10 @@ const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
 const { checkAndRepair, cleanupTempFiles, enforceDiskLimit } = require('./cache-integrity');
 const patternRegistry = require('./pattern-registry');
-const devGate    = require('./dev-gate');
-const devIntake  = require('./dev-intake');
-const devAudit   = require('./dev-audit');
+const devGate     = require('./dev-gate');
+const devIntake   = require('./dev-intake');
+const devAudit    = require('./dev-audit');
+const devArtifacts = require('./dev-artifacts');
 const { randomUUID } = require('crypto');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
@@ -97,6 +98,7 @@ const secretGuard = secretGuardFactory.createGuard(_cfg.privacy?.secretGuard);
 // dev-exec static policy (dev.* config). dev mode itself stays OFF — activation is
 // an explicit, operator-only runtime action (whk dev on). See dev-exec.md 7.2/D-3.
 devGate.setPolicy(_cfg.dev);
+devArtifacts.setMax(_cfg.dev?.exec?.artifactCacheMax);
 
 /**
  * Worker-side dev-exec orchestrator: gate → intake → audit(before-ack) → dispatch
@@ -111,25 +113,45 @@ async function devExec(b = {}, initiator = 'agent') {
   }
   const tabId = b.tabId;
   if (tabId == null) return { ok: false, error: 'tabId required.' };
-  const code = b.code;
-  if (code == null) {
-    return { ok: false, error: 'exec_module (E1) accepts inline `code` only — file/push intake is a later slice.' };
-  }
   const execId  = randomUUID();
   const mode    = b.mode === 'harness' ? 'harness' : 'probe';
   const policy  = devGate.getPolicy();
   const devCfg  = (_cfg.dev && _cfg.dev.exec) || {};
 
+  // Resolve the artifact from exactly one of the three intake paths (4.1):
+  //   inline   code
+  //   push     artifactId  (previously POSTed to /api/dev/artifact)
+  //   file     path        (confined to dev.exec.fileRoots)
+  let code = b.code;
+  let artifactName = b.name || null;
+  if (code == null && b.artifactId) {
+    const a = devArtifacts.get(b.artifactId);
+    if (!a) return { ok: false, execId, error: `No artifact for id "${b.artifactId}" (evicted from the LRU or never pushed).` };
+    code = a.code; artifactName = artifactName || a.name;
+  }
+  if (code == null && b.path) {
+    const r = devIntake.resolveFilePath(b.path, policy.fileRoots);
+    if (!r.ok) {
+      devAudit.appendAudit(tabId, { execId, artifactHash: null, artifactName: b.path, initiator,
+        backend: 'blob', mode, bytes: 0, verdict: 'blocked', blocked: r.blocked });
+      return { ok: false, execId, blocked: r.blocked, error: r.error };
+    }
+    code = r.code; artifactName = artifactName || require('path').basename(r.absPath);
+  }
+  if (code == null) {
+    return { ok: false, error: 'exec_module needs one of: code (inline), path (in fileRoots), or artifactId (pushed).' };
+  }
+
   const v = devIntake.validateArtifact(code, { maxBytes: devCfg.maxArtifactBytes });
   if (!v.ok) {
     // Audit the blocked attempt too — before returning (I-3).
-    devAudit.appendAudit(tabId, { execId, artifactHash: v.hash || null, initiator,
+    devAudit.appendAudit(tabId, { execId, artifactHash: v.hash || null, artifactName, initiator,
       backend: 'blob', mode, bytes: v.bytes || 0, verdict: 'blocked', blocked: v.blocked });
     return { ok: false, execId, blocked: v.blocked, error: v.error, hint: v.hint };
   }
 
   // I-3: the audit line lands BEFORE dispatch (hence before the ack).
-  devAudit.appendAudit(tabId, { execId, artifactHash: v.hash, initiator,
+  devAudit.appendAudit(tabId, { execId, artifactHash: v.hash, artifactName, initiator,
     backend: 'blob', mode, bytes: v.bytes, verdict: 'pending' });
 
   const timeoutMs = Number.isFinite(b.timeoutMs) ? b.timeoutMs : (devCfg.timeoutMs ?? 10000);
@@ -151,7 +173,7 @@ async function devExec(b = {}, initiator = 'agent') {
                 : (res && res.ok === false ? 'error' : 'ok');
   const out = {
     ok: outcome === 'ok',
-    execId, artifactHash: v.hash, initiator,
+    execId, artifactHash: v.hash, artifactName, initiator,
     backend: (payload && payload.backend) || 'blob', mode, outcome,
     value:       payload && payload.value,
     consoleLogs: (payload && payload.consoleLogs) || [],
@@ -767,6 +789,28 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       return readBody().then(async b => {
         try { sendJson(await devExec(b, (b && b.initiator === 'operator') ? 'operator' : 'agent')); }
         catch (e) { sendJson({ ok: false, error: e.message }, 500); }
+      });
+    }
+    // push intake: a toolchain build hook drops a freshly built artifact here and
+    // gets an artifactId to exec later. Capability endpoint → 404 when off (I-1).
+    if (method === 'POST' && p === '/api/dev/artifact') {
+      if (!devGate.isActive()) return sendJson({ error: 'Not found' }, 404);
+      return readBody().then(b => {
+        try {
+          let code = b && b.code;
+          // Optional zip: accept a build output archive that contains exactly one
+          // .js module (the artifact). More than one → ambiguous, reject.
+          if (code == null && b && b.zipBase64) {
+            const files = require('./zip-reader').readZip(Buffer.from(b.zipBase64, 'base64'));
+            const js = Object.keys(files).filter(n => n.endsWith('.js'));
+            if (js.length !== 1) return sendJson({ ok: false, error: `zip must contain exactly one .js module (found ${js.length}).` }, 400);
+            code = files[js[0]];
+            if (!b.name) b.name = js[0];
+          }
+          if (typeof code !== 'string' || !code) return sendJson({ ok: false, error: 'artifact `code` (or a single-.js `zipBase64`) required.' }, 400);
+          const r = devArtifacts.add(b && b.name, code);
+          sendJson({ ok: true, ...r });
+        } catch (e) { sendJson({ ok: false, error: e.message }, 500); }
       });
     }
 
