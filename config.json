@@ -66,6 +66,26 @@
     "_comment_mcpOrigins_ja": "allowedMcpOriginsはMCPサーバー接続を制限します。デフォルト: localhostのみ。['*']で全オリジンを許可（本番環境非推奨）"
   },
 
+  "dev": {
+    "_comment_en": "dev-exec: live execution of built artifacts on the real page runtime, plus a verdict loop. This is the most dangerous primitive (arbitrary code execution), so every capability key here is a SAFE public default (off/empty). Personal enablement (exec.enabled, fileRoots) belongs in config.local.json — the CI guard (_check-config-defaults.js) fails if a personal value is committed here. dev MODE (the active runtime state) is never stored in config: it is activated only by an operator (whk dev on), always visible (toolbar badge), and expires on a TTL / server restart. See docs/vision/whiskor-for-dev/dev-exec.md.",
+    "_comment_ja": "dev-exec: ビルド済み成果物を本物のページランタイムでライブ実行し判定ループを回す。最も危険なプリミティブ（任意コード実行）ゆえ、ここの能力キーは全て安全な公開既定（off/空）。個人の有効化（exec.enabled / fileRoots）は config.local.json に置く（CIガードがconfig.jsonへの個人値混入で落ちる）。dev モード自体（活性な実行時状態）はconfigに保存しない＝operatorのみが活性化（whk dev on）・常時可視（バッジ）・TTL/再起動で失効。",
+    "exec": {
+      "enabled":           false,
+      "fileRoots":         [],
+      "allowedOrigins":    ["http://localhost", "http://127.0.0.1"],
+      "backend":           "blob",
+      "timeoutMs":         10000,
+      "maxArtifactBytes":  2097152,
+      "maxConsoleEntries": 200,
+      "artifactCacheMax":  32,
+      "maxVerdicts":       500
+    },
+    "mode": {
+      "defaultTtlMs": 14400000,
+      "maxTtlMs":     86400000
+    }
+  },
+
   "collection": {
     "staleThresholdMs":        30000,
     "pollingIntervalMs":       0,
@@ -477,7 +497,8 @@
       "appIsolation",
       "permissions",
       "extensionUpdate",
-      "updateCheck"
+      "updateCheck",
+      "dev"
     ],
     "warnOnUnauthorized": true,
     "_comment_writable_en":  "agentWritablePaths: paths the agent is allowed to modify. [] means all elements in the array",

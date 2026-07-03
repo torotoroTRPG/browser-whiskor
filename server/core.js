@@ -786,6 +786,9 @@ class WhiskorCore extends EventEmitter {
         // Startup update check (update-checker.js). null until it has run or if
         // disabled. { current, latest, updateAvailable, tag, url } when it ran.
         update: this._updateStatus,
+        // dev-exec mode (dev-gate.js). Runtime state, always OFF after a restart.
+        // Paths are never disclosed — roots is a count. See dev-exec.md 7.2.
+        dev: require('./dev-gate').status(),
       } };
     }
 

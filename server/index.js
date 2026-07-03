@@ -33,6 +33,10 @@ const { loadConfig, loadMcpToolsConfig } = require('./config-loader');
 const { WhiskorCore } = require('./core');
 const { checkAndRepair, cleanupTempFiles, enforceDiskLimit } = require('./cache-integrity');
 const patternRegistry = require('./pattern-registry');
+const devGate    = require('./dev-gate');
+const devIntake  = require('./dev-intake');
+const devAudit   = require('./dev-audit');
+const { randomUUID } = require('crypto');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
 const sourceStore = require('./source-store');
@@ -89,6 +93,83 @@ const _cfg = loadConfig();
 // Secret guard: redacts the user's secrets from collected data before the agent,
 // cache, or logs can see them. Built once from config; passthrough when disabled.
 const secretGuard = secretGuardFactory.createGuard(_cfg.privacy?.secretGuard);
+
+// dev-exec static policy (dev.* config). dev mode itself stays OFF — activation is
+// an explicit, operator-only runtime action (whk dev on). See dev-exec.md 7.2/D-3.
+devGate.setPolicy(_cfg.dev);
+
+/**
+ * Worker-side dev-exec orchestrator: gate → intake → audit(before-ack) → dispatch
+ * → redact. Shared by the exec_module MCP tool (direct) and POST /api/dev/exec
+ * (and the proxy forward), so all three take one path. Never throws.
+ * (docs/vision/whiskor-for-dev/dev-exec.md SECTION 2.1, invariants I-3/I-5/I-6)
+ */
+async function devExec(b = {}, initiator = 'agent') {
+  if (!devGate.isActive()) {
+    return { ok: false, blocked: 'dev_mode_inactive',
+      error: 'dev mode is not active. An operator must run `whk dev on` first.' };
+  }
+  const tabId = b.tabId;
+  if (tabId == null) return { ok: false, error: 'tabId required.' };
+  const code = b.code;
+  if (code == null) {
+    return { ok: false, error: 'exec_module (E1) accepts inline `code` only — file/push intake is a later slice.' };
+  }
+  const execId  = randomUUID();
+  const mode    = b.mode === 'harness' ? 'harness' : 'probe';
+  const policy  = devGate.getPolicy();
+  const devCfg  = (_cfg.dev && _cfg.dev.exec) || {};
+
+  const v = devIntake.validateArtifact(code, { maxBytes: devCfg.maxArtifactBytes });
+  if (!v.ok) {
+    // Audit the blocked attempt too — before returning (I-3).
+    devAudit.appendAudit(tabId, { execId, artifactHash: v.hash || null, initiator,
+      backend: 'blob', mode, bytes: v.bytes || 0, verdict: 'blocked', blocked: v.blocked });
+    return { ok: false, execId, blocked: v.blocked, error: v.error, hint: v.hint };
+  }
+
+  // I-3: the audit line lands BEFORE dispatch (hence before the ack).
+  devAudit.appendAudit(tabId, { execId, artifactHash: v.hash, initiator,
+    backend: 'blob', mode, bytes: v.bytes, verdict: 'pending' });
+
+  const timeoutMs = Number.isFinite(b.timeoutMs) ? b.timeoutMs : (devCfg.timeoutMs ?? 10000);
+  const action = {
+    type: 'execute_module', code, mode, timeoutMs,
+    allowedOrigins:    policy.allowedOrigins, // I-5 enforced page-side against these
+    maxConsoleEntries: devCfg.maxConsoleEntries ?? 200,
+  };
+
+  let res;
+  try { res = await actions.execute(tabId, action, timeoutMs + 3000); }
+  catch (e) { res = { ok: false, error: e.message }; }
+
+  // actions.execute → { ok, result } (result = executor's return object, always an
+  // ok:true envelope carrying `outcome`), OR { ok:false, error } on a real action-
+  // layer failure (tab gone / RPC timeout).
+  const payload = (res && res.ok !== false && res.result) ? res.result : res;
+  const outcome = (payload && payload.outcome) ? payload.outcome
+                : (res && res.ok === false ? 'error' : 'ok');
+  const out = {
+    ok: outcome === 'ok',
+    execId, artifactHash: v.hash, initiator,
+    backend: (payload && payload.backend) || 'blob', mode, outcome,
+    value:       payload && payload.value,
+    consoleLogs: (payload && payload.consoleLogs) || [],
+    error:       (payload && payload.error) || (res && res.ok === false ? res.error : undefined),
+    blocked:     payload && payload.blocked,
+    stack:       payload && payload.stack,
+    timings:     payload && payload.timings,
+    hint:        payload && payload.hint,
+    ...(res && res.tabGone ? { tabGone: true, liveTabs: res.liveTabs } : {}),
+  };
+  // I-6: redaction before the exec output leaves the server boundary.
+  if (secretGuard && secretGuard.active && typeof secretGuard.redactDeep === 'function') {
+    try { secretGuard.redactDeep(out); } catch (_) {}
+  }
+  return out;
+}
+
+function devStatus() { return { ok: true, ...devGate.status() }; }
 
 const WS_PORT   = _cfg.server?.wsPort   || 7891;
 const HTTP_PORT = _cfg.server?.httpPort || 7892;
@@ -324,6 +405,12 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     // Inject broadcast functions into action/screenshot modules
     actions.setBroadcast((msg) => core.sendToTab(msg));
     screenshots.setBroadcast((msg) => core.sendToTab(msg));
+
+    // dev mode visibility (可視): broadcast activation/expiry to connected
+    // extensions so they can badge the toolbar icon (録画インジケータ発想).
+    devGate.onChange((snap) => {
+      try { core.broadcast({ type: 'DEV_MODE', active: snap.active, expiresAt: snap.expiresAt }); } catch (_) {}
+    });
 
     // Forward core events for logging
     core.on('sw:connect', () => log('info', `[ws] Extension connected (${core.swSockets.size} total)`));
@@ -650,6 +737,36 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         } catch (e) {
           sendJson({ ok: false, error: e.message }, 500);
         }
+      });
+    }
+
+    // ── dev-exec endpoints ──────────────────────────────────────────────────
+    // Control (status/on/off) is the OPERATOR surface (whk dev). It is not an MCP
+    // tool, so the agent's tool channel cannot activate dev mode (I-2). Capability
+    // endpoints (exec) return 404 when dev mode is off — absence, not refusal (I-1).
+    if (method === 'GET' && p === '/api/dev/status') {
+      return sendJson({ ok: true, ...devGate.status() });
+    }
+    if (method === 'POST' && p === '/api/dev/on') {
+      return readBody().then(b => {
+        const r = devGate.activate({ ttlMs: b && b.ttlMs, project: b && b.project });
+        log('info', r.ok ? `[dev] mode ON (${Math.round((r.remainingMs || 0) / 60000)}m TTL)` : `[dev] activate refused: ${r.error}`);
+        // Always 200 so the ok:false reason (e.g. policy disabled) reaches the CLI
+        // instead of being flattened to "HTTP 400". This is an operator control
+        // endpoint, not a capability endpoint.
+        sendJson(r, 200);
+      });
+    }
+    if (method === 'POST' && p === '/api/dev/off') {
+      const r = devGate.deactivate('operator');
+      log('info', '[dev] mode OFF (operator)');
+      return sendJson(r);
+    }
+    if (method === 'POST' && p === '/api/dev/exec') {
+      if (!devGate.isActive()) return sendJson({ error: 'Not found' }, 404); // I-1: absent when off
+      return readBody().then(async b => {
+        try { sendJson(await devExec(b, (b && b.initiator === 'operator') ? 'operator' : 'agent')); }
+        catch (e) { sendJson({ ok: false, error: e.message }, 500); }
       });
     }
 
@@ -1020,6 +1137,12 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setUninstrumentedTabs(async () => { try { return (await requestServer('GET', '/api/uninstrumented-tabs'))?.tabs || []; } catch { return []; } });
     mcp.setSourceContext((q) => requestServer('POST', '/api/source/context', q));
     mcp.setSourceCapture((args) => requestServer('POST', '/api/source/capture', args || {}));
+    // dev-exec lives on the worker (gate/audit/dispatch); forward. The proxy's own
+    // dev-gate is never activated — worker /health.dev is the source of truth.
+    mcp.setDevExec(
+      (args) => requestServer('POST', '/api/dev/exec', args || {}),
+      () => requestServer('GET', '/api/dev/status'),
+    );
 
     mcp.setSecurity(SECURITY);
 
@@ -1096,6 +1219,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setSecretGuard(secretGuard);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
     mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
+    mcp.setDevExec(devExec, devStatus); // in-process gate/intake/audit/dispatch
     configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);
   }
 
@@ -1105,6 +1229,25 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
 
   {
     const toolManager = require('./tool-manager');
+
+    // Absence principle (I-1): the dev profile is visible only while dev mode is
+    // active. Standalone reads the in-process gate directly. The proxy MCP is a
+    // separate process whose own gate is never activated, so it polls the worker's
+    // /health.dev (unref'd) and reflects that — activation shows up within a poll,
+    // and the next tools/call emits tools/list_changed.
+    if (PROXY_MODE) {
+      let _proxyDevActive = false;
+      const pollDev = async () => {
+        try { const h = await requestServer('GET', '/health'); _proxyDevActive = !!(h && h.dev && h.dev.active); }
+        catch { /* keep last known */ }
+      };
+      const iv = setInterval(pollDev, 3000); if (iv.unref) iv.unref();
+      pollDev();
+      toolManager.setDevModeChecker(() => _proxyDevActive);
+    } else {
+      toolManager.setDevModeChecker(() => devGate.isActive());
+    }
+
     const rawEnvSid = process.env.WHISKOR_MCP_SESSION_ID;
     const envSid = rawEnvSid ? toolManager.sanitizeSessionId(rawEnvSid) : null;
     if (rawEnvSid && !envSid) {

@@ -609,6 +609,24 @@ async function annotateDownloads(action, result, startedAt) {
   return result;
 }
 
+// dev-exec badge: a red "DEV" tag on the toolbar icon while dev mode is active,
+// so it is always obvious this browser can run operator artifacts. Best-effort —
+// a browser without action badges simply shows nothing. (dev-exec.md 7.2 可視)
+function applyDevBadge(active) {
+  try {
+    const a = chrome.action || chrome.browserAction;
+    if (!a) return;
+    if (active) {
+      a.setBadgeText && a.setBadgeText({ text: 'DEV' });
+      a.setBadgeBackgroundColor && a.setBadgeBackgroundColor({ color: '#c0392b' });
+      a.setTitle && a.setTitle({ title: 'browser-whiskor — DEV MODE ACTIVE (can run operator artifacts)' });
+    } else {
+      a.setBadgeText && a.setBadgeText({ text: '' });
+      a.setTitle && a.setTitle({ title: 'browser-whiskor' });
+    }
+  } catch (_) { /* badge is best-effort */ }
+}
+
 async function handleServerMessage(msg) {
   switch (msg.type) {
 
@@ -1038,6 +1056,13 @@ async function handleServerMessage(msg) {
     case 'RELOAD_EXTENSION':
       console.log('[SI] Reload requested by server (' + (msg.reason || 'manual') + ') — reloading extension');
       chrome.runtime.reload();
+      break;
+
+    // dev-exec mode visibility: badge the toolbar icon while dev mode is active,
+    // so it is always obvious the browser can run operator artifacts (録画
+    // インジケータ発想). Cleared when dev mode turns off / expires.
+    case 'DEV_MODE':
+      applyDevBadge(!!msg.active);
       break;
 
     case 'REQUEST_STATE_HASH': {

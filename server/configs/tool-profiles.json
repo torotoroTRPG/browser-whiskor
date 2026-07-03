@@ -94,5 +94,13 @@
     "idleTurns": 2,
     "triggers": ["execute", "eval", "script", "wait", "element"],
     "requiresConfig": "allowExecuteJs"
+  },
+
+  "dev": {
+    "_comment": "dev-exec profile. devMode:true means these tools exist ONLY while dev mode is active (whk dev on). Absence principle — invisible + endpoints 404 when off. Never auto-triggered, never load_profile'd, exempt from static-tools mode. See docs/vision/whiskor-for-dev/dev-exec.md 7.3.",
+    "description": "Live artifact execution on the real page runtime (operator dev mode).",
+    "tools": ["exec_module", "dev_status"],
+    "devMode": true,
+    "autoUnload": false
   }
 }

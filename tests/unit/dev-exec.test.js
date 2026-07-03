@@ -1,0 +1,217 @@
+/**
+ * tests/unit/dev-exec.test.js
+ *
+ * Exercises the REAL dev-exec E1 modules — dev-gate (mode state machine + TTL +
+ * origin check), dev-intake (artifact static gate + hash), dev-audit (audit
+ * before ack), and the tool-manager absence principle for dev profiles. No inline
+ * re-implementation. See docs/vision/whiskor-for-dev/dev-exec.md invariants.
+ */
+
+import { describe, test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+
+const require = createRequire(import.meta.url);
+
+// dev-audit reads WHISKOR_CACHE_DIR at load — point it at a throwaway dir first.
+const TMP_CACHE = fs.mkdtempSync(path.join(os.tmpdir(), 'whiskor-dev-audit-'));
+process.env.WHISKOR_CACHE_DIR = TMP_CACHE;
+
+const devGate   = require('../../server/dev-gate');
+const devIntake = require('../../server/dev-intake');
+const devAudit  = require('../../server/dev-audit');
+const toolManager = require('../../server/tool-manager');
+
+// ── dev-gate ──────────────────────────────────────────────────────────────────
+describe('dev-gate: activation policy (I-2 operator-gated, D-3 not-config)', () => {
+  beforeEach(() => devGate._resetForTest());
+
+  test('activate is refused while policy is disabled (dev.exec.enabled=false)', () => {
+    devGate.setPolicy({ exec: { enabled: false } });
+    const r = devGate.activate({});
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(devGate.isActive(), false);
+  });
+
+  test('activate works once policy is enabled, and status reflects it', () => {
+    devGate.setPolicy({ exec: { enabled: true } });
+    const r = devGate.activate({});
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(devGate.isActive(), true);
+    const s = devGate.status();
+    assert.strictEqual(s.active, true);
+    assert.ok(s.expiresAt > Date.now());
+  });
+
+  test('deactivate turns it off (idempotent)', () => {
+    devGate.setPolicy({ exec: { enabled: true } });
+    devGate.activate({});
+    assert.strictEqual(devGate.deactivate('operator').wasActive, true);
+    assert.strictEqual(devGate.isActive(), false);
+    assert.strictEqual(devGate.deactivate('operator').wasActive, false);
+  });
+});
+
+describe('dev-gate: TTL (一時 — auto-expire, I-7)', () => {
+  beforeEach(() => devGate._resetForTest());
+
+  test('requested TTL is clamped to maxTtlMs', () => {
+    devGate.setPolicy({ exec: { enabled: true }, mode: { maxTtlMs: 1000 } });
+    const r = devGate.activate({ ttlMs: 999999 });
+    assert.ok(r.remainingMs <= 1000);
+  });
+
+  test('mode auto-expires after the TTL elapses', async () => {
+    devGate.setPolicy({ exec: { enabled: true } });
+    devGate.activate({ ttlMs: 25 });
+    assert.strictEqual(devGate.isActive(), true);
+    await new Promise(r => setTimeout(r, 60));
+    assert.strictEqual(devGate.isActive(), false, 'must be inactive after TTL');
+  });
+});
+
+describe('dev-gate: origin allow-list (I-5 helper)', () => {
+  beforeEach(() => {
+    devGate._resetForTest();
+    devGate.setPolicy({ exec: { enabled: true, allowedOrigins: ['http://localhost', 'http://127.0.0.1'] } });
+  });
+
+  test('localhost on any port is allowed', () => {
+    assert.strictEqual(devGate.originAllowed('http://localhost:3000'), true);
+    assert.strictEqual(devGate.originAllowed('http://127.0.0.1:8080'), true);
+  });
+
+  test('a foreign host is rejected', () => {
+    assert.strictEqual(devGate.originAllowed('http://evil.example.com'), false);
+  });
+
+  test('protocol mismatch is rejected (http allow-list vs https origin)', () => {
+    assert.strictEqual(devGate.originAllowed('https://localhost:3000'), false);
+  });
+});
+
+describe('dev-gate: change listeners (可視 — badge broadcast)', () => {
+  beforeEach(() => devGate._resetForTest());
+
+  test('onChange fires on activate and deactivate', () => {
+    devGate.setPolicy({ exec: { enabled: true } });
+    const seen = [];
+    const off = devGate.onChange((snap) => seen.push(snap.active));
+    devGate.activate({});
+    devGate.deactivate('operator');
+    off();
+    assert.deepStrictEqual(seen, [true, false]);
+  });
+});
+
+// ── dev-intake ────────────────────────────────────────────────────────────────
+describe('dev-intake: artifact static gate (D-1, SECTION 3.1)', () => {
+  test('rejects a bare import specifier', () => {
+    const r = devIntake.validateArtifact("import x from 'react';\nexport default 1;");
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'unresolved_import');
+  });
+
+  test('rejects a relative import specifier', () => {
+    const r = devIntake.validateArtifact("import { a } from './util.js';\nexport default a;");
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'unresolved_import');
+  });
+
+  test('accepts a self-contained module and hashes it deterministically', () => {
+    const code = 'const total = 1 + 2;\nexport default total;';
+    const r = devIntake.validateArtifact(code);
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.hash, devIntake.sha256(code));
+    assert.strictEqual(r.bytes, Buffer.byteLength(code, 'utf8'));
+  });
+
+  test('rejects an oversize artifact', () => {
+    const big = 'x'.repeat(50);
+    const r = devIntake.validateArtifact(big, { maxBytes: 10 });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.blocked, 'artifact_too_large');
+  });
+
+  test('rejects empty code', () => {
+    assert.strictEqual(devIntake.validateArtifact('   ').blocked, 'empty_artifact');
+  });
+
+  test('a full-URL import is allowed (self-resolving), bare/relative are not', () => {
+    assert.strictEqual(devIntake.classifySpecifier('https://cdn/x.js'), 'url');
+    assert.strictEqual(devIntake.classifySpecifier('react'), 'bare');
+    assert.strictEqual(devIntake.classifySpecifier('./x.js'), 'relative');
+  });
+});
+
+// ── dev-audit ─────────────────────────────────────────────────────────────────
+describe('dev-audit: audit-before-ack (I-3, I-4)', () => {
+  test('appended record carries identity fields but never the artifact body', () => {
+    const tabId = 4242;
+    const ok = devAudit.appendAudit(tabId, {
+      execId: 'e1', artifactHash: 'abc123', initiator: 'agent',
+      backend: 'blob', mode: 'probe', bytes: 42, verdict: 'pending',
+    });
+    assert.strictEqual(ok, true);
+    const recs = devAudit.readAudit(tabId);
+    assert.strictEqual(recs.length, 1);
+    assert.strictEqual(recs[0].artifactHash, 'abc123');
+    assert.strictEqual(recs[0].initiator, 'agent');
+    assert.ok(recs[0].ts > 0);
+    // I-4: no code/body field is ever written.
+    assert.strictEqual(recs[0].code, undefined);
+    assert.strictEqual(recs[0].value, undefined);
+  });
+});
+
+// ── tool-manager: dev profile absence principle (I-1, 7.3) ─────────────────────
+describe('tool-manager: dev profile is absent unless dev mode is active (I-1)', () => {
+  // Minimal allTools covering the names the profiles reference.
+  const names = ['exec_module', 'dev_status', 'get_sessions', 'click', 'search_tools'];
+  const allTools = names.map(n => ({ definition: { name: n } }));
+  const cfg = {};
+
+  beforeEach(() => {
+    toolManager.resetAll();
+    toolManager.initSession('s');
+  });
+
+  test('dev tools are hidden while dev mode is off', () => {
+    toolManager.setDevModeChecker(() => false);
+    const visible = toolManager.getVisibleTools('s', allTools, cfg).map(t => t.definition.name);
+    assert.ok(!visible.includes('exec_module'), 'exec_module must be absent when dev mode off');
+  });
+
+  test('dev tools appear the moment dev mode is on', () => {
+    toolManager.setDevModeChecker(() => true);
+    const visible = toolManager.getVisibleTools('s', allTools, cfg).map(t => t.definition.name);
+    assert.ok(visible.includes('exec_module'), 'exec_module must be visible when dev mode on');
+    assert.ok(visible.includes('dev_status'));
+  });
+
+  test('the dev profile cannot be loaded via load_profile', () => {
+    toolManager.setDevModeChecker(() => false);
+    const r = toolManager.loadProfile('s', 'dev', allTools, cfg);
+    assert.strictEqual(r.success, false);
+  });
+
+  test('ensureToolVisible reports dev_mode_inactive when off, visible when on', () => {
+    toolManager.setDevModeChecker(() => false);
+    const off = toolManager.ensureToolVisible('s', 'exec_module', allTools, cfg);
+    assert.strictEqual(off.visible, false);
+    assert.strictEqual(off.reason, 'dev_mode_inactive');
+
+    toolManager.setDevModeChecker(() => true);
+    const on = toolManager.ensureToolVisible('s', 'exec_module', allTools, cfg);
+    assert.strictEqual(on.visible, true);
+  });
+
+  test('profile_status does not advertise the dev profile while inactive', () => {
+    toolManager.setDevModeChecker(() => false);
+    const st = toolManager.getProfileStatus('s');
+    assert.ok(!st.available.some(p => p.name === 'dev'), 'dev must not appear in available when off');
+  });
+});

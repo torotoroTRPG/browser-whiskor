@@ -1290,6 +1290,130 @@
         return { ok: false, error: e.message, consoleLogs };
       }
     },
+
+    // ── dev-exec: execute_module (blob backend) ────────────────────────────────
+    // Run a self-contained ES module (dependencies already bundled) in the MAIN
+    // world, on the real page runtime. Distinct from execute_js (a single
+    // expression). Gated server-side by dev mode; injected here as a blob URL +
+    // dynamic import so it touches real framework state — the reason dev-exec
+    // exists. See docs/vision/whiskor-for-dev/dev-exec.md SECTION 3 (D-6, I-5, I-8).
+    async execute_module(action) {
+      const code = action.code;
+      if (typeof code !== 'string' || !code) {
+        return { ok: false, error: 'execute_module requires string `code`.' };
+      }
+
+      // I-5: the authoritative origin check is HERE — measured in the very context
+      // that will run the code, so there is no request→inject TOCTOU window. An
+      // allowed entry is a "proto://host" prefix and matches any port (dev servers
+      // pick arbitrary ports).
+      const allowed = Array.isArray(action.allowedOrigins) ? action.allowedOrigins : null;
+      const originParts = (s) => { try { const u = new URL(s); return u.protocol.replace(/:$/, '') + '//' + u.hostname; } catch { return null; } };
+      if (allowed) {
+        const here = location.origin;
+        const hp = originParts(here);
+        const ok = allowed.some(a => { const w = originParts(a); return w && hp && w === hp; });
+        if (!ok) {
+          // ok:true envelope so the structured `blocked`/`origin` survive transport
+          // (ACTION_COMPLETE drops all but `error` when the envelope is ok:false).
+          return { ok: true, outcome: 'blocked', blocked: 'origin_not_allowed', origin: here,
+            error: `execute_module refused: origin ${here} is not in the dev allow-list.` };
+        }
+      }
+
+      const mode = action.mode === 'harness' ? 'harness' : 'probe';
+      const timeoutMs = Number.isFinite(action.timeoutMs) ? action.timeoutMs : 10000;
+      const maxConsole = Number.isFinite(action.maxConsoleEntries) ? action.maxConsoleEntries : 200;
+
+      // Console capture (bounded — the artifact could log in a loop).
+      const consoleLogs = [];
+      const originals = {};
+      for (const lvl of ['log', 'warn', 'error', 'info', 'debug']) {
+        originals[lvl] = console[lvl];
+        console[lvl] = (...cargs) => {
+          originals[lvl](...cargs);
+          if (consoleLogs.length < maxConsole) {
+            consoleLogs.push({ level: lvl, ts: Date.now(), args: cargs.map(a => {
+              try { return typeof a === 'object' ? JSON.parse(JSON.stringify(a)) : String(a); }
+              catch { return String(a); }
+            }) });
+          }
+        };
+      }
+      const restore = () => { for (const lvl of Object.keys(originals)) console[lvl] = originals[lvl]; };
+
+      // Serialize a return value for transport. Not-JSON-able values (functions,
+      // DOM nodes, cyclic objects) return a non-leaky marker instead of throwing.
+      const serializeValue = (v) => {
+        if (v === undefined) return undefined;
+        try { return JSON.parse(JSON.stringify(v)); }
+        catch {
+          let preview;
+          try { preview = String(v).slice(0, 200); } catch { preview = '(unprintable)'; }
+          return { unserializable: true, type: typeof v, preview };
+        }
+      };
+
+      const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+        const t = setTimeout(() => { const e = new Error('timeout'); e.__whiskorTimeout = true; reject(e); }, ms);
+        Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+      });
+
+      const injectedAt = Date.now();
+      let url = null;
+      try {
+        const blob = new Blob([code], { type: 'text/javascript' });
+        url = URL.createObjectURL(blob);
+        const mod = await withTimeout(import(url), timeoutMs);
+        const evaluatedMs = Date.now() - injectedAt;
+
+        let value;
+        if (mode === 'harness') {
+          // harness = convention, not a framework (D-4). Run each named fn in
+          // `export const __whiskor_tests__ = { name: fn }`; throw = fail.
+          const tests = mod && mod.__whiskor_tests__;
+          const cases = [];
+          let passed = 0, failed = 0;
+          if (tests && typeof tests === 'object') {
+            for (const name of Object.keys(tests)) {
+              const fn = tests[name];
+              if (typeof fn !== 'function') continue;
+              const t0 = Date.now();
+              try { await withTimeout(fn(), timeoutMs); cases.push({ name, ok: true, ms: Date.now() - t0 }); passed++; }
+              catch (err) { cases.push({ name, ok: false, error: String(err && err.message || err), ms: Date.now() - t0 }); failed++; }
+            }
+          }
+          value = { total: cases.length, passed, failed, cases };
+        } else {
+          let out = mod ? mod.default : undefined;
+          if (out instanceof Promise) out = await withTimeout(out, timeoutMs);
+          value = serializeValue(out);
+        }
+        const settledMs = Date.now() - injectedAt;
+        return { ok: true, outcome: 'ok', backend: 'blob', mode, value, consoleLogs, timings: { evaluatedMs, settledMs } };
+      } catch (e) {
+        // All post-injection outcomes ride an ok:true envelope with a structured
+        // `outcome`, so blocked/error/timeout detail survives transport (see above).
+        const msg = String(e && e.message || e);
+        if (e && e.__whiskorTimeout) {
+          return { ok: true, outcome: 'timeout', backend: 'blob', mode,
+            error: `execute_module timed out after ${timeoutMs}ms.`, consoleLogs };
+        }
+        // blob: import blocked by the page's CSP script-src (the honest blob-backend
+        // limit; Chrome can fall back to the CDP backend in a later slice).
+        if (/content security policy|refused to (load|execute|import)|violat/i.test(msg)) {
+          return { ok: true, outcome: 'blocked', blocked: 'csp_blocked', backend: 'blob',
+            error: `blob injection blocked by page CSP: ${msg}`,
+            hint: 'Allow blob: in the dev server CSP script-src, or use Chrome (CDP backend).', consoleLogs };
+        }
+        // Uncaught exception during evaluation → executed-but-threw.
+        return { ok: true, outcome: 'error', backend: 'blob', mode, error: msg,
+          stack: e && e.stack ? String(e.stack).slice(0, 2000) : undefined, consoleLogs };
+      } finally {
+        restore();
+        if (url) { try { URL.revokeObjectURL(url); } catch (_) {} }
+      }
+    },
   };
 
   // ── Action-type namespace bridge ─────────────────────────────────────────────

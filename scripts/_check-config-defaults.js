@@ -24,6 +24,15 @@ const REQUIRED = [
     why: 'arbitrary JS execution must be opt-in for shipped users' },
   { path: 'agentControl.screenshot.httpInlineImage', expected: true,
     why: 'HTTP screenshot inline-image default is the documented baseline' },
+  { path: 'dev.exec.enabled', expected: false,
+    why: 'dev-exec (live arbitrary code execution) must be opt-in — enable it in config.local.json' },
+];
+
+// Paths that must be an EMPTY array in the shipped config (a personal value here
+// silently widens the shipped attack surface). Checked separately from scalars.
+const REQUIRED_EMPTY_ARRAY = [
+  { path: 'dev.exec.fileRoots',
+    why: 'dev-exec file/watch roots are personal — a committed root exposes local files; put them in config.local.json' },
 ];
 
 function get(obj, dotted) {
@@ -45,6 +54,12 @@ for (const { path: p, expected, why } of REQUIRED) {
     drift.push(`  ${p}: expected ${JSON.stringify(expected)}, found ${JSON.stringify(actual)} — ${why}`);
   }
 }
+for (const { path: p, why } of REQUIRED_EMPTY_ARRAY) {
+  const actual = get(config, p);
+  if (!Array.isArray(actual) || actual.length !== 0) {
+    drift.push(`  ${p}: expected [] (empty), found ${JSON.stringify(actual)} — ${why}`);
+  }
+}
 
 if (drift.length) {
   console.error('FAIL: config.json has drifted from its public defaults:');
@@ -53,4 +68,4 @@ if (drift.length) {
   process.exit(1);
 }
 
-console.log(`OK: config.json public defaults intact (${REQUIRED.length} key(s) checked)`);
+console.log(`OK: config.json public defaults intact (${REQUIRED.length + REQUIRED_EMPTY_ARRAY.length} key(s) checked)`);
