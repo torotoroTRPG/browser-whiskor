@@ -1348,10 +1348,14 @@ function executeInPage(tabId, action) {
     }, PAGE_ACTION_TIMEOUT);
 
     function listener(message) {
-      if (message.type === 'ACTION_COMPLETE' && message.listenerId === listenerId) {
-        if (message.ok) finish(true, message.result);
-        else finish(false, new Error(message.error || 'Action failed'));
-      }
+      if (message.type !== 'ACTION_COMPLETE') return;
+      // The executor nests the reply fields under `payload` (bridge.js relays
+      // event.data.payload, not the flat message). Read from payload, but tolerate
+      // a flat shape too so the two ends can't silently drift out of sync again.
+      const r = message.payload || message;
+      if (r.listenerId !== listenerId) return;
+      if (r.ok) finish(true, r.result);
+      else finish(false, new Error(r.error || 'Action failed'));
     }
 
     // A full-page navigation tears down the MAIN-world context before it can post

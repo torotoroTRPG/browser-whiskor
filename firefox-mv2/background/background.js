@@ -757,11 +757,14 @@ function executeInPage(tabId, action) {
       reject(new Error(`Action timeout: ${action.type}`));
     }, PAGE_ACTION_TIMEOUT);
     function listener(msg) {
-      if (msg.type === 'ACTION_COMPLETE' && msg.listenerId === lid) {
-        clearTimeout(timer);
-        cleanupPageAction(tabId, lid);
-        msg.ok ? resolve(msg.result) : reject(new Error(msg.error));
-      }
+      if (msg.type !== 'ACTION_COMPLETE') return;
+      // The executor nests reply fields under `payload` (bridge relays event.data.payload);
+      // read from payload but tolerate a flat shape so the two ends can't drift again.
+      const r = msg.payload || msg;
+      if (r.listenerId !== lid) return;
+      clearTimeout(timer);
+      cleanupPageAction(tabId, lid);
+      r.ok ? resolve(r.result) : reject(new Error(r.error));
     }
     if (!pendingPageActions.has(tabId)) pendingPageActions.set(tabId, []);
     pendingPageActions.get(tabId).push({ listenerId: lid, timeout: timer, reject });
