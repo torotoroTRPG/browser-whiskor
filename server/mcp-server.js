@@ -33,6 +33,7 @@ require('./mcp/tools/control')(registry);
 require('./mcp/tools/intelligence')(registry);
 require('./mcp/tools/ocr')(registry);
 require('./mcp/tools/source')(registry);
+require('./mcp/tools/dev')(registry);
 
 // replay_session ツール — array-push pattern (see replay.js)
 const _replayTools = [];
@@ -74,6 +75,13 @@ function setSourceContext(fn) {
 
 function setSourceCapture(fn) {
   registry.setCallbacks({ _sourceCapture: fn });
+}
+
+// dev-exec: worker-side orchestrator (gate → intake → audit → dispatch → redact)
+// and status reader. Thin MCP tools (mcp/tools/dev.js) call these. Under the
+// proxy they are HTTP forwards to /api/dev/*; standalone they run in-process.
+function setDevExec(execFn, statusFn) {
+  registry.setCallbacks({ _devExec: execFn || null, _devStatus: statusFn || null });
 }
 
 function setNavigateBroadcast(fn) {
@@ -167,6 +175,7 @@ module.exports = {
   setUninstrumentedTabs,
   setSourceContext,
   setSourceCapture,
+  setDevExec,
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,

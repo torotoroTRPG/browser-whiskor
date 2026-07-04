@@ -403,6 +403,18 @@ if (command === 'WHERE') {
   return;
 }
 
+// ── whk dev ───────────────────────────────────────────────────────────────────
+// Operator control of dev-exec mode (docs/vision/whiskor-for-dev/dev-exec.md).
+// Activation is intentionally operator-only — there is no MCP tool and no
+// set_config path (I-2). Subcommands: on / off / status / exec.
+if (command === 'DEV') {
+  runDev(clientArgs[1]).catch((err) => {
+    process.stderr.write('\x1b[31m[whk] dev failed: ' + err.message + '\x1b[0m\n');
+    process.exit(1);
+  });
+  return;
+}
+
 // ── whk shell ─────────────────────────────────────────────────────────────────
 // Interactive HTTP API shell for humans. Default on a TTY: the full-screen TUI
 // (server/tui/app.js — scrollback pane, real line editor, status bar, Ctrl+R).
@@ -485,6 +497,90 @@ async function runSetup() {
 
   // 3. No server yet → start one (supervised when available, like start.ps1).
   _startServerForeground(packageRoot, serverFlags);
+}
+
+// Read a flag value from argv: --tab 123 / --tab=123. Returns undefined if absent.
+function _flagValue(name) {
+  const eq = args.find(a => a.startsWith(`--${name}=`));
+  if (eq) return eq.slice(name.length + 3);
+  const i = args.indexOf(`--${name}`);
+  if (i >= 0 && args[i + 1] && !args[i + 1].startsWith('--')) return args[i + 1];
+  return undefined;
+}
+
+// Parse a duration like "4h" / "30m" / "90s" / "1500ms" / bare ms into milliseconds.
+function _parseDuration(s) {
+  if (s == null) return undefined;
+  const m = String(s).trim().match(/^(\d+)\s*(ms|s|m|h)?$/i);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  switch ((m[2] || 'ms').toLowerCase()) {
+    case 'h': return n * 3600000;
+    case 'm': return n * 60000;
+    case 's': return n * 1000;
+    default:  return n;
+  }
+}
+
+async function runDev(sub) {
+  const { host, port } = _serverAddr();
+  if (!(await _isRunning(host, port))) {
+    console.log(`No whiskor server responding on ${host}:${port}. Start one first (whk server / whk).`);
+    process.exit(1);
+  }
+  const action = (sub || 'status').toLowerCase();
+
+  if (action === 'status') {
+    const s = await _httpJson('GET', host, port, '/api/dev/status');
+    if (s.active) {
+      const mins = Math.round((s.remainingMs || 0) / 60000);
+      console.log(`dev mode: \x1b[32mACTIVE\x1b[0m — expires in ~${mins}m (roots: ${s.roots}${s.project ? `, project: ${s.project}` : ''})`);
+    } else {
+      console.log(`dev mode: \x1b[2mOFF\x1b[0m${s.policyEnabled === false ? ' (policy disabled — set dev.exec.enabled=true in config.local.json)' : ''}`);
+    }
+    return;
+  }
+
+  if (action === 'on') {
+    const ttlMs = _parseDuration(_flagValue('ttl'));
+    const project = _flagValue('project');
+    const r = await _httpJson('POST', host, port, '/api/dev/on', { ttlMs, project });
+    if (r.ok) {
+      const mins = Math.round((r.remainingMs || 0) / 60000);
+      console.log(`dev mode ON — expires in ~${mins}m. dev tools now visible to agents on this server.`);
+      console.log('Turn it off with: whk dev off  (also auto-expires; a server restart always clears it).');
+    } else {
+      process.stderr.write('\x1b[31m[whk] ' + (r.error || 'activation refused') + '\x1b[0m\n');
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (action === 'off') {
+    const r = await _httpJson('POST', host, port, '/api/dev/off');
+    console.log(r.wasActive ? 'dev mode OFF.' : 'dev mode was already off.');
+    return;
+  }
+
+  if (action === 'exec') {
+    const file = clientArgs[2];
+    if (!file) { process.stderr.write('\x1b[31m[whk] usage: whk dev exec <file.js> --tab <id> [--harness]\x1b[0m\n'); process.exit(1); }
+    const abs = path.resolve(file);
+    if (!fs.existsSync(abs)) { process.stderr.write('\x1b[31m[whk] file not found: ' + abs + '\x1b[0m\n'); process.exit(1); }
+    const tabId = parseInt(_flagValue('tab'), 10);
+    if (!Number.isFinite(tabId)) { process.stderr.write('\x1b[31m[whk] --tab <id> is required\x1b[0m\n'); process.exit(1); }
+    const code = fs.readFileSync(abs, 'utf8');
+    const mode = args.includes('--harness') ? 'harness' : 'probe';
+    // Generous client timeout — the server-side exec can run up to its own
+    // timeout (default 10s) plus settle/dispatch overhead.
+    const r = await _httpJson('POST', host, port, '/api/dev/exec', { tabId, code, mode, initiator: 'operator' }, 30000);
+    process.stdout.write(JSON.stringify(r, null, 2) + '\n');
+    process.exit(r && r.ok ? 0 : 1);
+  }
+
+  process.stderr.write(`\x1b[31m[whk] unknown dev subcommand: ${action}\x1b[0m\n`);
+  process.stderr.write('      usage: whk dev on [--ttl 4h] [--project <path>] | off | status | exec <file> --tab <id> [--harness]\n');
+  process.exit(1);
 }
 
 async function runStop() {
@@ -658,10 +754,10 @@ function _startServerForeground(packageRoot, serverFlags) {
   }
 }
 
-function _httpJson(method, hostname, port, pathname, body = null) {
+function _httpJson(method, hostname, port, pathname, body = null, timeoutMs = 1500) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { hostname, port, path: pathname, method, timeout: 1500,
+      { hostname, port, path: pathname, method, timeout: timeoutMs,
         headers: { 'Content-Type': 'application/json; charset=utf-8' } },
       (res) => {
         let data = '';

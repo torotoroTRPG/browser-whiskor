@@ -1290,6 +1290,234 @@
         return { ok: false, error: e.message, consoleLogs };
       }
     },
+
+    // ── dev-exec: execute_module (blob backend) ────────────────────────────────
+    // Run a self-contained ES module (dependencies already bundled) in the MAIN
+    // world, on the real page runtime. Distinct from execute_js (a single
+    // expression). Gated server-side by dev mode; injected here as a blob URL +
+    // dynamic import so it touches real framework state — the reason dev-exec
+    // exists. See docs/vision/whiskor-for-dev/dev-exec.md SECTION 3 (D-6, I-5, I-8).
+    async execute_module(action) {
+      const code = action.code;
+      if (typeof code !== 'string' || !code) {
+        return { ok: false, error: 'execute_module requires string `code`.' };
+      }
+
+      // I-5: the authoritative origin check is HERE — measured in the very context
+      // that will run the code, so there is no request→inject TOCTOU window. An
+      // allowed entry is a "proto://host" prefix and matches any port (dev servers
+      // pick arbitrary ports).
+      const allowed = Array.isArray(action.allowedOrigins) ? action.allowedOrigins : null;
+      const originParts = (s) => { try { const u = new URL(s); return u.protocol.replace(/:$/, '') + '//' + u.hostname; } catch { return null; } };
+      if (allowed) {
+        const here = location.origin;
+        const hp = originParts(here);
+        const ok = allowed.some(a => { const w = originParts(a); return w && hp && w === hp; });
+        if (!ok) {
+          // ok:true envelope so the structured `blocked`/`origin` survive transport
+          // (ACTION_COMPLETE drops all but `error` when the envelope is ok:false).
+          return { ok: true, outcome: 'blocked', blocked: 'origin_not_allowed', origin: here,
+            error: `execute_module refused: origin ${here} is not in the dev allow-list.` };
+        }
+      }
+
+      const mode = action.mode === 'harness' ? 'harness' : 'probe';
+      const timeoutMs = Number.isFinite(action.timeoutMs) ? action.timeoutMs : 10000;
+      const maxConsole = Number.isFinite(action.maxConsoleEntries) ? action.maxConsoleEntries : 200;
+
+      // Console capture (bounded — the artifact could log in a loop).
+      const consoleLogs = [];
+      const originals = {};
+      for (const lvl of ['log', 'warn', 'error', 'info', 'debug']) {
+        originals[lvl] = console[lvl];
+        console[lvl] = (...cargs) => {
+          originals[lvl](...cargs);
+          if (consoleLogs.length < maxConsole) {
+            consoleLogs.push({ level: lvl, ts: Date.now(), args: cargs.map(a => {
+              try { return typeof a === 'object' ? JSON.parse(JSON.stringify(a)) : String(a); }
+              catch { return String(a); }
+            }) });
+          }
+        };
+      }
+      const restore = () => { for (const lvl of Object.keys(originals)) console[lvl] = originals[lvl]; };
+
+      // Serialize a return value for transport. Not-JSON-able values (functions,
+      // DOM nodes, cyclic objects) return a non-leaky marker instead of throwing.
+      const serializeValue = (v) => {
+        if (v === undefined) return undefined;
+        try { return JSON.parse(JSON.stringify(v)); }
+        catch {
+          let preview;
+          try { preview = String(v).slice(0, 200); } catch { preview = '(unprintable)'; }
+          return { unserializable: true, type: typeof v, preview };
+        }
+      };
+
+      const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+        const t = setTimeout(() => { const e = new Error('timeout'); e.__whiskorTimeout = true; reject(e); }, ms);
+        Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+      });
+
+      // ── baseline (verdict engine 5.1) ─────────────────────────────────────────
+      // Captured in the very context that runs the code, right before injection.
+      // compositeHash comes from the collector's live global (state-reporter reads
+      // the same one); null when React/DOM hashing hasn't populated it yet.
+      const readHash = () => {
+        try { return (window.__SI_CURRENT_HASH__ && window.__SI_CURRENT_HASH__.compositeHash) || null; }
+        catch { return null; }
+      };
+      const baseline = { stateHash: readHash(), url: location.href, title: document.title };
+
+      // Uncaught error/rejection watermark: fresh listeners for THIS window, so
+      // anything they catch is by definition new since baseline (5.1).
+      const uncaughtErrors = [];
+      const onErr = (ev) => { if (uncaughtErrors.length < 50) uncaughtErrors.push({ kind: 'error',
+        message: String((ev && (ev.message || (ev.error && ev.error.message))) || 'error').slice(0, 300) }); };
+      const onRej = (ev) => { if (uncaughtErrors.length < 50) uncaughtErrors.push({ kind: 'unhandledrejection',
+        message: String((ev && ev.reason && (ev.reason.message || ev.reason)) || 'rejection').slice(0, 300) }); };
+      window.addEventListener('error', onErr, true);
+      window.addEventListener('unhandledrejection', onRej);
+
+      // ── settle (verdict engine 5.2) ───────────────────────────────────────────
+      // Event-driven, not a fixed sleep: resolve once the page is quiet for
+      // settleQuietMs (no DOM mutation ∧ no in-flight fetch/XHR), capped at
+      // settleMaxMs. Reuses the same MutationObserver idea as post-click settle.
+      const settleQuietMs = Number.isFinite(action.settleQuietMs) ? action.settleQuietMs : 500;
+      const settleMaxMs   = Number.isFinite(action.settleMaxMs)   ? action.settleMaxMs   : 8000;
+
+      // Start watching DOM mutations + in-flight fetch/XHR RIGHT NOW — before the
+      // module evaluates — so a module's OWN (often synchronous) mutations count as
+      // an effect, not just async after-effects a post-eval observer would catch.
+      // Wrapping over any existing wrapper (network analyzer) is safe: each calls
+      // the prior. (verdict engine 5.2/5.3)
+      const monitor = (() => {
+        let mutations = 0, inFlight = 0, mo = null, onActivity = () => {};
+        const origFetch = window.fetch;
+        const OrigSend = XMLHttpRequest && XMLHttpRequest.prototype && XMLHttpRequest.prototype.send;
+        try {
+          mo = new MutationObserver((recs) => { mutations += recs.length; onActivity(); });
+          mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+        } catch (_) {}
+        try {
+          if (typeof origFetch === 'function') {
+            window.fetch = function (...a) { inFlight++;
+              return origFetch.apply(this, a).finally(() => { inFlight = Math.max(0, inFlight - 1); onActivity(); }); };
+          }
+        } catch (_) {}
+        try {
+          if (OrigSend) {
+            XMLHttpRequest.prototype.send = function (...a) { inFlight++;
+              try { this.addEventListener('loadend', () => { inFlight = Math.max(0, inFlight - 1); onActivity(); }); } catch (_) {}
+              return OrigSend.apply(this, a); };
+          }
+        } catch (_) {}
+        return {
+          get mutations() { return mutations; },
+          get inFlight()  { return inFlight; },
+          onActivity(fn)  { onActivity = fn; },
+          stop() {
+            try { mo && mo.disconnect(); } catch (_) {}
+            try { if (typeof origFetch === 'function') window.fetch = origFetch; } catch (_) {}
+            try { if (OrigSend) XMLHttpRequest.prototype.send = OrigSend; } catch (_) {}
+          },
+        };
+      })();
+
+      // Wait (event-driven) for the page to go quiet — no mutation ∧ no in-flight
+      // fetch/XHR for settleQuietMs — capped at settleMaxMs. Uses the monitor that
+      // has been running since baseline, so mutations during eval are already counted.
+      const settle = () => new Promise((resolve) => {
+        let done = false, quietT = null, capT = null;
+        const finish = (atCap) => {
+          if (done) return; done = true;
+          if (quietT) clearTimeout(quietT);
+          if (capT) clearTimeout(capT);
+          resolve({ settledAtCap: !!atCap });
+        };
+        const arm = () => { if (quietT) clearTimeout(quietT);
+          quietT = setTimeout(() => { if (monitor.inFlight <= 0) finish(false); }, settleQuietMs); };
+        monitor.onActivity(arm);
+        capT = setTimeout(() => finish(true), settleMaxMs);
+        arm(); // start the quiet clock even if nothing ever happens (no-op → ~quietMs)
+      });
+
+      // Observed snapshot after settle (5.3). Safe to call from any exit path.
+      const observe = (settleRes) => {
+        monitor.stop();
+        window.removeEventListener('error', onErr, true);
+        window.removeEventListener('unhandledrejection', onRej);
+        return {
+          stateHash: readHash(),
+          url: location.href,
+          title: document.title,
+          mutations: monitor.mutations,
+          settledAtCap: settleRes ? settleRes.settledAtCap : false,
+          navigated: location.href !== baseline.url,
+          uncaughtErrors,
+        };
+      };
+
+      const injectedAt = Date.now();
+      let url = null;
+      try {
+        const blob = new Blob([code], { type: 'text/javascript' });
+        url = URL.createObjectURL(blob);
+        const mod = await withTimeout(import(url), timeoutMs);
+        const evaluatedMs = Date.now() - injectedAt;
+
+        let value;
+        if (mode === 'harness') {
+          // harness = convention, not a framework (D-4). Run each named fn in
+          // `export const __whiskor_tests__ = { name: fn }`; throw = fail.
+          const tests = mod && mod.__whiskor_tests__;
+          const cases = [];
+          let passed = 0, failed = 0;
+          if (tests && typeof tests === 'object') {
+            for (const name of Object.keys(tests)) {
+              const fn = tests[name];
+              if (typeof fn !== 'function') continue;
+              const t0 = Date.now();
+              try { await withTimeout(fn(), timeoutMs); cases.push({ name, ok: true, ms: Date.now() - t0 }); passed++; }
+              catch (err) { cases.push({ name, ok: false, error: String(err && err.message || err), ms: Date.now() - t0 }); failed++; }
+            }
+          }
+          value = { total: cases.length, passed, failed, cases };
+        } else {
+          let out = mod ? mod.default : undefined;
+          if (out instanceof Promise) out = await withTimeout(out, timeoutMs);
+          value = serializeValue(out);
+        }
+        // Let async side effects (fetch → DOM swap) play out, then snapshot.
+        const settleRes = await settle();
+        const observed = observe(settleRes);
+        const settledMs = Date.now() - injectedAt;
+        return { ok: true, outcome: 'ok', backend: 'blob', mode, value, consoleLogs,
+          baseline, observed, timings: { evaluatedMs, settledMs } };
+      } catch (e) {
+        // All post-injection outcomes ride an ok:true envelope with a structured
+        // `outcome`, so blocked/error/timeout detail survives transport (see above).
+        const observed = observe(null); // no settle window on the failure paths
+        const msg = String(e && e.message || e);
+        if (e && e.__whiskorTimeout) {
+          return { ok: true, outcome: 'timeout', backend: 'blob', mode,
+            error: `execute_module timed out after ${timeoutMs}ms.`, consoleLogs, baseline, observed };
+        }
+        // blob: import blocked by the page's CSP script-src (the honest blob-backend
+        // limit; Chrome can fall back to the CDP backend in a later slice).
+        if (/content security policy|refused to (load|execute|import)|violat/i.test(msg)) {
+          return { ok: true, outcome: 'blocked', blocked: 'csp_blocked', backend: 'blob',
+            error: `blob injection blocked by page CSP: ${msg}`,
+            hint: 'Allow blob: in the dev server CSP script-src, or use Chrome (CDP backend).', consoleLogs, baseline, observed };
+        }
+        // Uncaught exception during evaluation → executed-but-threw.
+        return { ok: true, outcome: 'error', backend: 'blob', mode, error: msg,
+          stack: e && e.stack ? String(e.stack).slice(0, 2000) : undefined, consoleLogs, baseline, observed };
+      } finally {
+        restore();
+        if (url) { try { URL.revokeObjectURL(url); } catch (_) {} }
+      }
+    },
   };
 
   // ── Action-type namespace bridge ─────────────────────────────────────────────

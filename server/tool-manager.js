@@ -65,6 +65,18 @@ function isStaticMode() {
   return _staticMode;
 }
 
+// ── dev mode absence principle (dev-exec.md 7.3 / I-1) ────────────────────────
+// A profile flagged `"devMode": true` in tool-profiles.json is invisible unless
+// dev mode is ACTIVE. Its visibility is NOT driven by the load/unload machinery
+// (it can't be load_profile'd or auto-triggered) — it is driven purely by this
+// checker, so activation/expiry flips the whole profile in and out of tools/list.
+// The tool's mere presence announces the capability, so dev profiles are the one
+// documented exception to static-tools mode too. Default: inactive.
+let _devModeChecker = () => false;
+function setDevModeChecker(fn) { _devModeChecker = typeof fn === 'function' ? fn : (() => false); }
+function devModeActive() { try { return _devModeChecker() === true; } catch { return false; } }
+function isDevProfile(profile) { return !!(profile && profile.devMode === true); }
+
 // ── Duplicate Detection Settings ─────────────────────────────────────────────
 const DUPLICATE_THRESHOLD = 3; // Same tool+args repeated this many times
 const DUPLICATE_WINDOW = 10;   // Look back this many turns
@@ -219,8 +231,12 @@ function getVisibleTools(sessionId, allTools, config) {
   if (_staticMode) {
     // Every profile, permanently — but getAllToolsForProfile still applies the
     // requiresConfig security gates, so e.g. execute_js stays hidden while
-    // allowExecuteJs is false.
+    // allowExecuteJs is false. dev profiles are the exception: static widens
+    // visibility, but a dev tool's existence IS the capability announcement, so
+    // it stays absent unless dev mode is active (7.3).
+    const devOn = devModeActive();
     for (const profileName of Object.keys(profiles)) {
+      if (isDevProfile(profiles[profileName]) && !devOn) continue;
       for (const t of getAllToolsForProfile(profileName, profiles, config)) visible.add(t);
     }
     for (const t of ALWAYS_VISIBLE_TOOLS) visible.add(t);
@@ -228,8 +244,20 @@ function getVisibleTools(sessionId, allTools, config) {
   }
 
   for (const profileName of session.activeProfiles) {
+    // dev profiles are never driven by activeProfiles — see the dev-mode block below.
+    if (isDevProfile(profiles[profileName])) continue;
     const tools = getAllToolsForProfile(profileName, profiles, config);
     for (const t of tools) visible.add(t);
+  }
+
+  // dev mode absence principle: when (and only when) dev mode is active, every
+  // devMode profile's tools appear — no explicit load needed. Flipping dev mode
+  // changes this set, which the transport reports via tools/list_changed.
+  if (devModeActive()) {
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (!isDevProfile(profile)) continue;
+      for (const t of getAllToolsForProfile(name, profiles, config)) visible.add(t);
+    }
   }
 
   // Meta tools are always visible (profile discovery / lifecycle management).
@@ -249,6 +277,12 @@ function loadProfile(sessionId, profileName, allTools, config, isAuto = false) {
 
   if (!profiles[profileName]) {
     return { success: false, error: `Unknown profile: ${profileName}` };
+  }
+
+  // dev profiles are not loadable — their visibility is owned by dev mode
+  // (whk dev on), never by load_profile / auto-trigger (7.3, I-2).
+  if (isDevProfile(profiles[profileName])) {
+    return { success: false, error: `Profile '${profileName}' is a dev profile — activate it with 'whk dev on' (operator only), not load_profile.` };
   }
 
   if (_staticMode) {
@@ -345,6 +379,16 @@ function ensureToolVisible(sessionId, toolName, allTools, config) {
 
   const owners = findProfilesForTool(toolName);
   if (owners.length === 0) return { visible: false, reason: 'no_profile' };
+
+  // A tool owned only by dev profiles cannot be auto-loaded — dev mode governs
+  // it. If dev mode is inactive, say so precisely (not "requires_config").
+  const profiles = loadProfiles();
+  const allDev = owners.every(o => isDevProfile(profiles[o.profile]));
+  if (allDev) {
+    return devModeActive()
+      ? { visible: true } // dev mode on ⇒ getVisibleTools already exposes it; re-affirm
+      : { visible: false, reason: 'dev_mode_inactive', profile: owners[0].profile };
+  }
 
   // Prefer an owner without a config gate so genuinely-open tools auto-load.
   owners.sort((a, b) => (a.requiresConfig ? 1 : 0) - (b.requiresConfig ? 1 : 0));
@@ -514,9 +558,18 @@ function getProfileStatus(sessionId) {
     };
   }
 
+  // dev profiles surface as active only while dev mode is on; when off they are
+  // absent from status entirely (absence principle — don't announce existence).
+  if (devModeActive()) {
+    for (const [name, profile] of Object.entries(profiles)) {
+      if (isDevProfile(profile)) status[name] = { active: true, idleTurns: 0, description: profile.description || '', devMode: true };
+    }
+  }
+
   // List inactive profiles so the agent can discover them without an extra call.
   for (const [name, profile] of Object.entries(profiles)) {
     if (session.activeProfiles.has(name)) continue;
+    if (isDevProfile(profile)) continue; // never advertised while inactive
     available.push({
       name,
       description: profile.description || '',
@@ -553,6 +606,7 @@ module.exports = {
    initSession,
    setStaticMode,
    isStaticMode,
+   setDevModeChecker,
    getVisibleTools,
    loadProfile,
    unloadProfile,
