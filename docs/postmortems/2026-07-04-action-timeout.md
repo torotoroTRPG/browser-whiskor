@@ -90,10 +90,20 @@ Applied identically to the Firefox background listener.
 
 ## Follow-ups
 
-- [ ] Add a background↔page round-trip test (or an e2e action assertion) so a
-      reply-shape mismatch fails CI. This is the real preventative — the bug was a
-      contract drift between two files that no test spans.
-- [ ] Consider a single shared constant/helper for the `ACTION_COMPLETE` envelope
-      shape so the executor (producer) and background (consumer) can't disagree.
-      Same class of "producer/consumer drift" the contract tests already guard for
-      collector emits.
+- [x] Add a background↔page round-trip test (or an e2e action assertion) so a
+      reply-shape mismatch fails CI. Done as `tests/unit/action-complete-envelope.test.js`
+      — a source-driven contract test (same style as
+      `tests/unit/injected-server-contract.test.js`) that asserts the executor keeps the
+      reply fields nested under `payload`, that `bridge.js` forwards only `payload`, and
+      that each background listener reads them from `<msg>.payload` and reads only fields
+      the producer emits. Negative-verified: reverting the producer to the v0.4.0 flat
+      shape fails the checks. A live Playwright e2e that drives a real click/type and
+      asserts success-not-timeout remains a nice-to-have on top of this.
+- [x] Consider a single shared constant/helper for the `ACTION_COMPLETE` envelope shape
+      so the executor (producer) and background (consumer) can't disagree. Considered —
+      a *runtime* shared constant isn't feasible without a build step: the MAIN-world
+      injected executor and the two extension backgrounds (service-worker / background
+      page) can't `require()` a common module, and each browser keeps its own copy. The
+      static contract test above is the enforcement point instead: the envelope shape is
+      declared once (its `CONTRACT`) and every copy is checked against it. Same class of
+      "producer/consumer drift" the contract tests already guard for collector emits.
