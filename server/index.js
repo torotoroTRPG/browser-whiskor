@@ -448,6 +448,15 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       initialConfig: {
         mode: 'always_on',
         plugins: _cfg.plugins || {},
+        // agentControl subset the SERVICE WORKER reads from SET_CONFIG / SI_CONFIG
+        // (ensureTabActive's autoSwitchTab check, cdpConsoleTap.configure). The
+        // full agentControl stays server-side; only SW-consumed keys travel —
+        // omitting this whole block silently disabled those checks (the config
+        // shape the SW received never contained agentControl at all).
+        agentControl: {
+          autoSwitchTab: _cfg.agentControl?.autoSwitchTab !== false,
+          console: { captureAllWorlds: _cfg.agentControl?.console?.captureAllWorlds === true },
+        },
         options: {
           textCoords:  { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000, includeFormValues: false, ...(_cfg.textCoords || {}) },
           network:     { captureBody: true, bodyMaxLength: _cfg.collection?.networkBodyMaxBytes ?? 4096, captureTokens: true },

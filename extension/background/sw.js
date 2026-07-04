@@ -633,6 +633,7 @@ async function handleServerMessage(msg) {
     case 'SET_CONFIG': {
       await chrome.storage.local.set({ SI_CONFIG: msg.config });
       collectionScheduler.configure(msg.config?.adaptiveCollection);
+      cdpConsoleTap.configure(msg.config);
       // Push config into every open tab
       const tabs = await chrome.tabs.query({});
       for (const tab of tabs) {
@@ -1121,6 +1122,9 @@ function cdpAttach(tabId) {
 }
 function cdpDetach(tabId) {
   if (!cdpAttached.has(tabId)) return;
+  // The console tap holds a persistent attachment: an input burst's idle-detach
+  // must not tear it down. The tap releases its claim before detaching itself.
+  if (cdpConsoleTap.holds(tabId)) return;
   try { chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; }); } catch (_) {}
   cdpAttached.delete(tabId);
 }
@@ -1140,6 +1144,167 @@ if (CDP_AVAILABLE) {
       cdpAttached.delete(source.tabId);
       const t = cdpDetachTimers.get(source.tabId);
       if (t) { clearTimeout(t); cdpDetachTimers.delete(source.tabId); }
+      cdpConsoleTap.onDetached(source.tabId);
+    }
+  });
+}
+
+// ── CDP console tap — all-worlds console capture ──────────────────────────────
+// The MAIN-world console-logger analyzer cannot see other extensions' content
+// scripts: each extension logs in its own ISOLATED world, invisible from the
+// page. CDP Runtime events cover every execution context on the tab, so this tap
+// forwards console/exception events from NON-default contexts (isolated worlds)
+// into the same CONSOLE_LOG pipeline, entries tagged { world, via: 'cdp' }.
+// MAIN-world events are skipped here — the analyzer already reports them, so
+// nothing is double-counted. Opt-in via config agentControl.console
+// .captureAllWorlds (a held attachment keeps Chrome's debugging banner visible).
+// Chrome-only: Firefox has no debugger API, background.js has no counterpart.
+const cdpConsoleTap = {
+  enabled: false,
+  tabs: new Set(),       // tabIds whose attachment we hold
+  contexts: new Map(),   // tabId → Map(executionContextId → world label | null for MAIN)
+  buffers: new Map(),    // tabId → entries pending flush
+  timers: new Map(),     // tabId → flush timer
+
+  holds(tabId) { return this.tabs.has(tabId); },
+
+  configure(cfg) {
+    const want = !!(cfg && cfg.agentControl && cfg.agentControl.console &&
+                    cfg.agentControl.console.captureAllWorlds);
+    if (want === this.enabled) return;
+    this.enabled = want;
+    if (!want) for (const tabId of [...this.tabs]) this.stop(tabId);
+    // Turning on attaches lazily: each instrumented tab joins on its next
+    // collector emission (see the collector onMessage hook).
+  },
+
+  async maybeStart(tabId) {
+    if (!this.enabled || !CDP_AVAILABLE || tabId == null || this.tabs.has(tabId)) return;
+    this.tabs.add(tabId); // claim first so an input-burst idle-detach can't race us
+    try {
+      await cdpAttach(tabId);
+      this.contexts.set(tabId, new Map());
+      // Runtime.enable replays executionContextCreated for already-live contexts
+      // (and buffered console messages on recent Chrome), so a mid-session attach
+      // still labels every world correctly.
+      await cdpSend(tabId, 'Runtime.enable');
+    } catch (e) {
+      // Restricted page, or another debugger (DevTools) owns the tab — stay honest
+      // in the log, stay silent otherwise; we retry on the tab's next emission.
+      this.tabs.delete(tabId);
+      console.warn('[SI] console tap: could not attach to tab', tabId, '-', e.message);
+    }
+  },
+
+  stop(tabId) {
+    if (!this.tabs.has(tabId)) return;
+    this.flush(tabId);
+    this.tabs.delete(tabId); // release the claim BEFORE detaching (cdpDetach guard)
+    this.contexts.delete(tabId);
+    const t = this.timers.get(tabId);
+    if (t) { clearTimeout(t); this.timers.delete(tabId); }
+    cdpDetach(tabId);
+  },
+
+  // Chrome detached us (DevTools opened / tab gone): drop state, do not re-attach.
+  onDetached(tabId) {
+    this.tabs.delete(tabId);
+    this.contexts.delete(tabId);
+    const t = this.timers.get(tabId);
+    if (t) { clearTimeout(t); this.timers.delete(tabId); }
+  },
+
+  onEvent(tabId, method, params) {
+    if (!this.tabs.has(tabId)) return;
+    const ctxs = this.contexts.get(tabId);
+    if (!ctxs) return;
+    if (method === 'Runtime.executionContextCreated') {
+      const d = params.context || {};
+      const aux = d.auxData || {};
+      // Default (MAIN world) contexts map to null → their events are skipped below.
+      // Our OWN isolated world is skipped too: the tap exists for the blind spot
+      // (OTHER extensions' contexts), and the bridge's per-relay chatter would
+      // drown the 2000-entry buffer that page errors share (live-measured: 147
+      // relay logs in one ccfolia room load).
+      let label = null;
+      if (!aux.isDefault) {
+        const ours = (d.name && d.name === chrome.runtime.getManifest().name) ||
+                     (d.origin && d.origin.startsWith('chrome-extension://' + chrome.runtime.id));
+        if (!ours) label = `${aux.type || 'context'}:${d.name || d.origin || d.id}`;
+      }
+      ctxs.set(d.id, label);
+    } else if (method === 'Runtime.executionContextDestroyed') {
+      ctxs.delete(params.executionContextId);
+    } else if (method === 'Runtime.executionContextsCleared') {
+      ctxs.clear();
+    } else if (method === 'Runtime.consoleAPICalled') {
+      const world = ctxs.get(params.executionContextId);
+      if (!world) return; // MAIN world — the console-logger analyzer owns it
+      this.push(tabId, {
+        level: params.type === 'warning' ? 'warn'
+          : ['log', 'info', 'error', 'debug'].includes(params.type) ? params.type : 'log',
+        message: (params.args || []).map(cdpRemoteObjText).join(' ').slice(0, 2000),
+        timestamp: Math.round(params.timestamp || Date.now()),
+        stack: cdpTopFrame(params.stackTrace),
+        world,
+        via: 'cdp',
+      });
+    } else if (method === 'Runtime.exceptionThrown') {
+      const d = params.exceptionDetails || {};
+      const world = ctxs.get(d.executionContextId);
+      if (!world) return;
+      const desc = (d.exception && (d.exception.description ?? d.exception.value)) || d.text || 'Exception';
+      this.push(tabId, {
+        level: 'error',
+        message: String(desc).slice(0, 2000),
+        timestamp: Math.round(params.timestamp || Date.now()),
+        stack: cdpTopFrame(d.stackTrace),
+        world,
+        via: 'cdp',
+      });
+    }
+  },
+
+  push(tabId, entry) {
+    let buf = this.buffers.get(tabId);
+    if (!buf) { buf = []; this.buffers.set(tabId, buf); }
+    if (buf.length >= 200) return; // cap a runaway logger between flushes
+    buf.push(entry);
+    if (!this.timers.has(tabId)) {
+      this.timers.set(tabId, setTimeout(() => {
+        this.timers.delete(tabId);
+        this.flush(tabId);
+      }, 800));
+    }
+  },
+
+  flush(tabId) {
+    const buf = this.buffers.get(tabId);
+    if (!buf || !buf.length) return;
+    this.buffers.delete(tabId);
+    // Same envelope the console-logger analyzer produces — the server appends
+    // these into raw/console/logs.json with no new message type or consumer.
+    sendToServer({ type: 'CONSOLE_LOG', tabId,
+      payload: { capturedAt: Date.now(), totalEntries: buf.length, entries: buf } });
+  },
+};
+
+function cdpRemoteObjText(o) {
+  if (!o) return '';
+  if (o.value !== undefined) {
+    try { return (typeof o.value === 'string' ? o.value : JSON.stringify(o.value)).slice(0, 500); }
+    catch (_) { return String(o.value).slice(0, 500); }
+  }
+  return String(o.description || o.unserializableValue || o.type || '').slice(0, 500);
+}
+function cdpTopFrame(st) {
+  const f = st && st.callFrames && st.callFrames[0];
+  return f ? `${f.url || '?'}:${f.lineNumber != null ? f.lineNumber + 1 : '?'}` : null;
+}
+if (CDP_AVAILABLE) {
+  chrome.debugger.onEvent.addListener((source, method, params) => {
+    if (source && typeof source.tabId === 'number' && method && method.startsWith('Runtime.')) {
+      cdpConsoleTap.onEvent(source.tabId, method, params || {});
     }
   });
 }
@@ -1481,6 +1646,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     if (senderTabId != null) {
       collectionScheduler.watchTab(senderTabId);
       collectionScheduler.markActive(senderTabId);
+      // All-worlds console tap: instrumented tabs join lazily, on their first
+      // emission after the tap is enabled (no-op when disabled or attached).
+      cdpConsoleTap.maybeStart(senderTabId);
     }
     sendToServer(enriched);
     panelPorts.get(senderTabId)?.postMessage(enriched);
@@ -1543,6 +1711,7 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === 'SET_CONFIG') {
       chrome.storage.local.set({ SI_CONFIG: msg.config });
       collectionScheduler.configure(msg.config?.adaptiveCollection);
+      cdpConsoleTap.configure(msg.config);
       sendToServer({ type: 'CONFIG_FROM_PANEL', config: msg.config });
     }
   });
@@ -1565,6 +1734,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     const t = cdpDetachTimers.get(tabId);
     if (t) { clearTimeout(t); cdpDetachTimers.delete(tabId); }
     cdpAttached.delete(tabId); // debugger auto-detaches with the tab; just drop our state
+    cdpConsoleTap.onDetached(tabId);
   }
   sendToServer({ type: 'TAB_CLOSED', tabId });
   scheduleTabInventory();

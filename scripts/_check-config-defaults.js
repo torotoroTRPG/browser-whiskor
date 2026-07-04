@@ -26,6 +26,8 @@ const REQUIRED = [
     why: 'HTTP screenshot inline-image default is the documented baseline' },
   { path: 'dev.exec.enabled', expected: false,
     why: 'dev-exec (live arbitrary code execution) must be opt-in — enable it in config.local.json' },
+  { path: 'agentControl.console.captureAllWorlds', expected: false,
+    why: 'all-worlds console capture reads OTHER extensions\' logs and holds a debugger attachment — must be opt-in' },
 ];
 
 // Paths that must be an EMPTY array in the shipped config (a personal value here

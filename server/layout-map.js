@@ -41,6 +41,28 @@ function token(kind, n) {
   return b[0] + n + b[1];
 }
 
+// Canvas regions the ui-catalog reported — pixel-land the DOM senses cannot see
+// inside. Rendered as a shaded block: unlike DOM elements (whose ref token already
+// carries existence/kind/position, making a drawn box redundant chrome), a canvas
+// has no DOM to fall back on — its EXTENT is the information, so it gets drawn.
+const CANVAS_FILL = '░';
+
+function collectCanvases(catalog) {
+  const out = [];
+  for (const c of (catalog && catalog.canvases) || []) {
+    const r = c && c.rect;
+    if (!r || !Number.isFinite(r.x) || !Number.isFinite(r.y) || !(r.w > 0) || !(r.h > 0)) continue;
+    out.push({
+      rect: r,
+      center: { x: Math.round(r.x + r.w / 2), y: Math.round(r.y + r.h / 2) },
+      ident: c.id ? `#${c.id}`
+        : (c.classes ? 'canvas.' + String(c.classes).trim().split(/\s+/).slice(0, 2).join('.') : null),
+      clickThrough: c.clickThrough === true,
+    });
+  }
+  return out;
+}
+
 // Pull interactive elements out of a ui-catalog payload into a flat list with a
 // normalized kind, a display label and a center point (page coords).
 function collectInteractive(catalog) {
@@ -83,6 +105,8 @@ function renderLayoutMap(data, opts = {}) {
 
   let items = collectInteractive(data && data.catalog);
   const interactiveTotal = items.length;
+  let canvases = collectCanvases(data && data.catalog);
+  const canvasTotal = canvases.length;
 
   // Establish the mapped region (page coords). Prefer the live viewport so the
   // map is viewport-relative; fall back to the bounding box of the elements.
@@ -100,15 +124,26 @@ function renderLayoutMap(data, opts = {}) {
       it.center.y >= originY && it.center.y <= originY + spanY);
     offscreen = before - items.length;
   } else {
-    if (!items.length) {
+    if (!items.length && !canvases.length) {
       return emptyResult(cols, wantBorder, ['No interactive elements and no viewport — nothing to map.']);
     }
     const xs = items.map(i => i.center.x), ys = items.map(i => i.center.y);
+    for (const c of canvases) { xs.push(c.rect.x, c.rect.x + c.rect.w); ys.push(c.rect.y, c.rect.y + c.rect.h); }
     originX = Math.min(...xs); originY = Math.min(...ys);
     spanX = Math.max(1, Math.max(...xs) - originX);
     spanY = Math.max(1, Math.max(...ys) - originY);
     notes.push('No viewport data — mapped the bounding box of elements instead.');
   }
+
+  // Canvases are kept when their RECT intersects the region (a large canvas can
+  // cover the view while its center sits offscreen — center-filtering would drop
+  // exactly the case that matters most).
+  const canvasBefore = canvases.length;
+  canvases = canvases.filter(c =>
+    c.rect.x < originX + spanX && c.rect.x + c.rect.w > originX &&
+    c.rect.y < originY + spanY && c.rect.y + c.rect.h > originY);
+  const canvasOffscreen = canvasBefore - canvases.length;
+  if (canvasOffscreen) notes.push(`${canvasOffscreen} canvas region(s) are outside the current viewport.`);
 
   const rows = clamp(Math.round(cols * (spanY / spanX) * CHAR_ASPECT), 4, 60);
 
@@ -124,6 +159,24 @@ function renderLayoutMap(data, opts = {}) {
   // other: if the start cell run is taken, shift right a few cells; if still
   // blocked, the element is recorded in the legend but flagged as overflow.
   const grid = Array.from({ length: rows }, () => new Array(cols).fill(' '));
+
+  // Canvas regions go in FIRST as a shaded background with a #n tag at the
+  // region's top-left; interactive tokens draw over the fill afterwards —
+  // matching reality, where HTML controls float above the canvas.
+  canvases.sort((a, b) => (a.rect.y - b.rect.y) || (a.rect.x - b.rect.x));
+  canvases.forEach((c, i) => { c.ref = i + 1; });
+  for (const c of canvases) {
+    const c0 = clamp(Math.floor((c.rect.x - originX) / spanX * cols), 0, cols - 1);
+    const c1 = clamp(Math.ceil((c.rect.x + c.rect.w - originX) / spanX * cols) - 1, c0, cols - 1);
+    const r0 = clamp(Math.floor((c.rect.y - originY) / spanY * rows), 0, rows - 1);
+    const r1 = clamp(Math.ceil((c.rect.y + c.rect.h - originY) / spanY * rows) - 1, r0, rows - 1);
+    for (let r = r0; r <= r1; r++) {
+      for (let k = c0; k <= c1; k++) if (grid[r][k] === ' ') grid[r][k] = CANVAS_FILL;
+    }
+    const tag = '#' + c.ref;
+    for (let k = 0; k < tag.length && c0 + k < cols; k++) grid[r0][c0 + k] = tag[k];
+  }
+
   let placed = 0, overflow = 0;
   for (const it of items) {
     const tok = token(it.kind, it.ref);
@@ -135,7 +188,7 @@ function renderLayoutMap(data, opts = {}) {
   if (offscreen) notes.push(`${offscreen} interactive element(s) are outside the current viewport (scroll to see).`);
 
   const gridStr = renderGrid(grid, wantBorder);
-  const legendStr = wantLegend ? renderLegend(items) : null;
+  const legendStr = wantLegend ? renderLegend(items, canvases) : null;
   const text = legendStr ? `${gridStr}\n\nLEGEND\n${legendStr}` : gridStr;
 
   return {
@@ -144,7 +197,7 @@ function renderLayoutMap(data, opts = {}) {
     legend: legendStr,
     width: cols,
     height: rows,
-    counts: { interactive: interactiveTotal, placed, overflow, offscreen },
+    counts: { interactive: interactiveTotal, placed, overflow, offscreen, canvases: canvasTotal },
     notes,
   };
 }
@@ -156,7 +209,12 @@ function tryPlace(grid, r, c, tok, cols) {
   const len = tok.length;
   const fits = (col) => {
     if (col < 0 || col + len > cols) return false;
-    for (let k = 0; k < len; k++) if (grid[r][col + k] !== ' ') return false;
+    // Canvas fill is background — interactive tokens draw over it (HTML controls
+    // float above the canvas on the real page).
+    for (let k = 0; k < len; k++) {
+      const cell = grid[r][col + k];
+      if (cell !== ' ' && cell !== CANVAS_FILL) return false;
+    }
     return true;
   };
   let col = -1;
@@ -180,10 +238,10 @@ function renderGrid(grid, border) {
   return [bar, ...grid.map(row => '|' + row.join('') + '|'), bar].join('\n');
 }
 
-function renderLegend(items) {
+function renderLegend(items, canvases) {
   // One line per ref: marker + kind + quoted label + center coords (page px) so
   // the agent can act via click(text:label) or the coordinates.
-  return items
+  const lines = items
     .slice()
     .sort((a, b) => a.ref - b.ref)
     .map(it => {
@@ -191,14 +249,25 @@ function renderLegend(items) {
       const flag = it.overflow ? ' ⚠offgrid' : '';
       const label = it.label ? ` "${shortLabel(it.label, 48)}"` : '';
       return `${tok} ${it.kind}${label} @${it.center.x},${it.center.y}${flag}`;
-    })
-    .join('\n');
+    });
+  // Canvas regions after the interactive refs: size + center + identifier, with
+  // a single redirect line (DOM senses cannot see inside — where to look instead).
+  const cs = (canvases || []).slice().sort((a, b) => a.ref - b.ref);
+  for (const c of cs) {
+    const ident = c.ident ? ` "${shortLabel(c.ident, 48)}"` : '';
+    // click-through: pointer-events:none — clicks at these coordinates land on
+    // the DOM layer above the canvas, never on the canvas itself.
+    const ct = c.clickThrough ? ' (click-through)' : '';
+    lines.push(`#${c.ref} canvas ${c.rect.w}×${c.rect.h}${ident} @${c.center.x},${c.center.y}${ct}`);
+  }
+  if (cs.length) lines.push('░ = canvas pixels (not DOM-visible): use get_framework_state / ocr_region / screenshot');
+  return lines.join('\n');
 }
 
 function emptyResult(cols, border, notes) {
   const grid = renderGrid([new Array(cols).fill(' ')], border);
   return { text: grid, grid, legend: null, width: cols, height: 1,
-    counts: { interactive: 0, placed: 0, overflow: 0, offscreen: 0 }, notes };
+    counts: { interactive: 0, placed: 0, overflow: 0, offscreen: 0, canvases: 0 }, notes };
 }
 
-module.exports = { renderLayoutMap, collectInteractive, _token: token };
+module.exports = { renderLayoutMap, collectInteractive, collectCanvases, _token: token };
