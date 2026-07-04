@@ -1385,53 +1385,73 @@
       // settleMaxMs. Reuses the same MutationObserver idea as post-click settle.
       const settleQuietMs = Number.isFinite(action.settleQuietMs) ? action.settleQuietMs : 500;
       const settleMaxMs   = Number.isFinite(action.settleMaxMs)   ? action.settleMaxMs   : 8000;
-      const settle = () => new Promise((resolve) => {
-        let mutations = 0, inFlight = 0, done = false, mo = null, quietT = null, capT = null;
+
+      // Start watching DOM mutations + in-flight fetch/XHR RIGHT NOW — before the
+      // module evaluates — so a module's OWN (often synchronous) mutations count as
+      // an effect, not just async after-effects a post-eval observer would catch.
+      // Wrapping over any existing wrapper (network analyzer) is safe: each calls
+      // the prior. (verdict engine 5.2/5.3)
+      const monitor = (() => {
+        let mutations = 0, inFlight = 0, mo = null, onActivity = () => {};
         const origFetch = window.fetch;
         const OrigSend = XMLHttpRequest && XMLHttpRequest.prototype && XMLHttpRequest.prototype.send;
-        const finish = (atCap) => {
-          if (done) return; done = true;
-          try { mo && mo.disconnect(); } catch (_) {}
-          try { if (typeof origFetch === 'function') window.fetch = origFetch; } catch (_) {}
-          try { if (OrigSend) XMLHttpRequest.prototype.send = OrigSend; } catch (_) {}
-          if (quietT) clearTimeout(quietT);
-          if (capT) clearTimeout(capT);
-          resolve({ mutations, settledAtCap: !!atCap });
-        };
-        const arm = () => { if (quietT) clearTimeout(quietT);
-          quietT = setTimeout(() => { if (inFlight <= 0) finish(false); }, settleQuietMs); };
         try {
-          mo = new MutationObserver((recs) => { mutations += recs.length; arm(); });
+          mo = new MutationObserver((recs) => { mutations += recs.length; onActivity(); });
           mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
         } catch (_) {}
-        // Count in-flight fetch/XHR for the settle window; restored on finish. Wrapping
-        // over any existing wrapper (network analyzer) is safe — each calls the prior.
         try {
           if (typeof origFetch === 'function') {
             window.fetch = function (...a) { inFlight++;
-              return origFetch.apply(this, a).finally(() => { inFlight = Math.max(0, inFlight - 1); arm(); }); };
+              return origFetch.apply(this, a).finally(() => { inFlight = Math.max(0, inFlight - 1); onActivity(); }); };
           }
         } catch (_) {}
         try {
           if (OrigSend) {
             XMLHttpRequest.prototype.send = function (...a) { inFlight++;
-              try { this.addEventListener('loadend', () => { inFlight = Math.max(0, inFlight - 1); arm(); }); } catch (_) {}
+              try { this.addEventListener('loadend', () => { inFlight = Math.max(0, inFlight - 1); onActivity(); }); } catch (_) {}
               return OrigSend.apply(this, a); };
           }
         } catch (_) {}
+        return {
+          get mutations() { return mutations; },
+          get inFlight()  { return inFlight; },
+          onActivity(fn)  { onActivity = fn; },
+          stop() {
+            try { mo && mo.disconnect(); } catch (_) {}
+            try { if (typeof origFetch === 'function') window.fetch = origFetch; } catch (_) {}
+            try { if (OrigSend) XMLHttpRequest.prototype.send = OrigSend; } catch (_) {}
+          },
+        };
+      })();
+
+      // Wait (event-driven) for the page to go quiet — no mutation ∧ no in-flight
+      // fetch/XHR for settleQuietMs — capped at settleMaxMs. Uses the monitor that
+      // has been running since baseline, so mutations during eval are already counted.
+      const settle = () => new Promise((resolve) => {
+        let done = false, quietT = null, capT = null;
+        const finish = (atCap) => {
+          if (done) return; done = true;
+          if (quietT) clearTimeout(quietT);
+          if (capT) clearTimeout(capT);
+          resolve({ settledAtCap: !!atCap });
+        };
+        const arm = () => { if (quietT) clearTimeout(quietT);
+          quietT = setTimeout(() => { if (monitor.inFlight <= 0) finish(false); }, settleQuietMs); };
+        monitor.onActivity(arm);
         capT = setTimeout(() => finish(true), settleMaxMs);
         arm(); // start the quiet clock even if nothing ever happens (no-op → ~quietMs)
       });
 
       // Observed snapshot after settle (5.3). Safe to call from any exit path.
       const observe = (settleRes) => {
+        monitor.stop();
         window.removeEventListener('error', onErr, true);
         window.removeEventListener('unhandledrejection', onRej);
         return {
           stateHash: readHash(),
           url: location.href,
           title: document.title,
-          mutations: settleRes ? settleRes.mutations : 0,
+          mutations: monitor.mutations,
           settledAtCap: settleRes ? settleRes.settledAtCap : false,
           navigated: location.href !== baseline.url,
           uncaughtErrors,
