@@ -1,0 +1,45 @@
+name: Deploy GitHub Pages
+
+# docs/ が変更された push のときだけデプロイする。
+# Pages のデプロイは毎回 docs/ 全体のスナップショットなので、
+# docs/ を触らない push をスキップしても失われるものはない
+# （次に docs/ を触った push がその時点の全内容を配信する）。
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# デプロイは直列化する。進行中のものはキャンセルしない
+# （本番配信の中断を避ける公式 starter workflow と同じ方針）。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pages の build_type を workflow (GitHub Actions ソース) に設定する。
+      # legacy (Deploy from a branch) からの切替もこのステップが行う。
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
