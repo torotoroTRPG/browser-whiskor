@@ -1222,8 +1222,17 @@ const cdpConsoleTap = {
       const d = params.context || {};
       const aux = d.auxData || {};
       // Default (MAIN world) contexts map to null → their events are skipped below.
-      ctxs.set(d.id, aux.isDefault ? null
-        : `${aux.type || 'context'}:${d.name || d.origin || d.id}`);
+      // Our OWN isolated world is skipped too: the tap exists for the blind spot
+      // (OTHER extensions' contexts), and the bridge's per-relay chatter would
+      // drown the 2000-entry buffer that page errors share (live-measured: 147
+      // relay logs in one ccfolia room load).
+      let label = null;
+      if (!aux.isDefault) {
+        const ours = (d.name && d.name === chrome.runtime.getManifest().name) ||
+                     (d.origin && d.origin.startsWith('chrome-extension://' + chrome.runtime.id));
+        if (!ours) label = `${aux.type || 'context'}:${d.name || d.origin || d.id}`;
+      }
+      ctxs.set(d.id, label);
     } else if (method === 'Runtime.executionContextDestroyed') {
       ctxs.delete(params.executionContextId);
     } else if (method === 'Runtime.executionContextsCleared') {

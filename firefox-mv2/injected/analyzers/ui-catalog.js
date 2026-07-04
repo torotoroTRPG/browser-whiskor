@@ -169,14 +169,21 @@
       // document order (stable id when a page has several canvases); rect is CSS
       // page px like every other rect here; bitmap is the drawing-buffer size
       // (el.width/height), which can differ from rect on high-DPI/zoomable surfaces.
+      // clickThrough = pointer-events:none (PixiJS-style: the canvas paints, a DOM
+      // layer above receives input) — clicks at its coordinates never hit the canvas.
       const canvases = [...document.querySelectorAll('canvas')]
-        .slice(0, 30).map((el, i) => ({
-          index: i,
-          id: el.id || null,
-          classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 80) || null,
-          rect: getRect(el),
-          bitmap: { w: el.width || 0, h: el.height || 0 },
-        }));
+        .slice(0, 30).map((el, i) => {
+          let pe = '';
+          try { pe = getComputedStyle(el).pointerEvents; } catch (_) {}
+          return {
+            index: i,
+            id: el.id || null,
+            classes: (typeof el.className === 'string' ? el.className : el.className?.baseVal || '')?.slice(0, 80) || null,
+            rect: getRect(el),
+            bitmap: { w: el.width || 0, h: el.height || 0 },
+            ...(pe === 'none' ? { clickThrough: true } : {}),
+          };
+        });
 
       return {
         capturedAt: Date.now(),

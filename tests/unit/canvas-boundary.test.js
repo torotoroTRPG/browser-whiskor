@@ -22,9 +22,9 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dir, '../..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
-// The canvases collection block: from its lead comment to the closing `}));`.
+// The canvases collection block: from its lead comment to the map's closing `});`.
 function canvasBlock(src) {
-  const m = src.match(/\/\/ Canvas regions[\s\S]*?\}\)\);/);
+  const m = src.match(/\/\/ Canvas regions[\s\S]*?\}\);/);
   return m ? m[0] : null;
 }
 
@@ -57,8 +57,16 @@ describe('canvas boundary — executor note', () => {
     assert.match(shared, /function canvasNote\(/);
     assert.match(shared, /hit:\s*'direct'/);
     assert.match(shared, /hit:\s*'overlay'/);
-    assert.match(shared, /elementsFromPoint/, 'overlay uses true z-order, not rect intersection');
+    assert.match(shared, /elementsFromPoint/, 'tier 1: true z-order via the hit test');
     assert.match(shared, /totalCanvases/, 'multiple canvases are first-class');
+  });
+
+  it('detects pointer-events:none canvases the hit test can never return (tier 2)', () => {
+    // PixiJS-style boards (canvas paints, DOM layer receives input) are the common
+    // canvas-app shape — live-confirmed on ccfolia.com, where tier 1 alone missed
+    // the board entirely.
+    assert.match(shared, /pe !== 'none'\) continue/);
+    assert.match(shared, /clickThrough: true/);
   });
 
   it('attaches the note to click, right_click and hover returns (5 sites)', () => {

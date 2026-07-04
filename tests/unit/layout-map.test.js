@@ -136,6 +136,12 @@ describe('canvas regions (pixel-land boundary)', () => {
     assert.ok(m.notes.some(n => /canvas region\(s\) are outside/.test(n)));
   });
 
+  it('marks pointer-events:none canvases as click-through in the legend', () => {
+    const ct = { ...board, clickThrough: true };
+    const m = renderLayoutMap({ catalog: { canvases: [ct] }, viewport }, { width: 40, legend: true });
+    assert.match(m.legend, /#1 canvas 400×400 "#board" @700,300 \(click-through\)/);
+  });
+
   it('renders catalogs without canvases exactly as before (back-compat)', () => {
     const m = renderLayoutMap({ catalog, viewport }, { width: 40, legend: true });
     assert.ok(!/░/.test(m.text), 'no shading');

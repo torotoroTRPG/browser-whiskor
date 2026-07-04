@@ -57,6 +57,7 @@ function collectCanvases(catalog) {
       center: { x: Math.round(r.x + r.w / 2), y: Math.round(r.y + r.h / 2) },
       ident: c.id ? `#${c.id}`
         : (c.classes ? 'canvas.' + String(c.classes).trim().split(/\s+/).slice(0, 2).join('.') : null),
+      clickThrough: c.clickThrough === true,
     });
   }
   return out;
@@ -254,7 +255,10 @@ function renderLegend(items, canvases) {
   const cs = (canvases || []).slice().sort((a, b) => a.ref - b.ref);
   for (const c of cs) {
     const ident = c.ident ? ` "${shortLabel(c.ident, 48)}"` : '';
-    lines.push(`#${c.ref} canvas ${c.rect.w}×${c.rect.h}${ident} @${c.center.x},${c.center.y}`);
+    // click-through: pointer-events:none — clicks at these coordinates land on
+    // the DOM layer above the canvas, never on the canvas itself.
+    const ct = c.clickThrough ? ' (click-through)' : '';
+    lines.push(`#${c.ref} canvas ${c.rect.w}×${c.rect.h}${ident} @${c.center.x},${c.center.y}${ct}`);
   }
   if (cs.length) lines.push('░ = canvas pixels (not DOM-visible): use get_framework_state / ocr_region / screenshot');
   return lines.join('\n');

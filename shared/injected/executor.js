@@ -480,12 +480,17 @@
   // Declares when an action lands in pixel-land where DOM senses cannot see:
   // hit:'direct'  = the target IS a <canvas> (the click was a coordinate shot
   //                 into pixels; no DOM change is the EXPECTED outcome),
-  // hit:'overlay' = the target is stacked on top of one or more canvases
-  //                 (checked via elementsFromPoint = true z-order, so an element
-  //                 merely near a canvas does not fire).
+  // hit:'overlay' = the target overlaps one or more canvases. Two-tier check:
+  //                 elementsFromPoint (true z-order) first; then center-point
+  //                 containment for pointer-events:none canvases, which the hit
+  //                 test can never return — PixiJS-style boards (the canvas
+  //                 paints, a DOM layer above receives input) are the COMMON
+  //                 canvas-app shape, not the corner case. Those carry
+  //                 clickThrough:true (clicks at their coordinates land on the
+  //                 DOM above, never on the canvas).
   // Spreadable like selectorAmbiguity/textMatchNote: {} when there is no signal,
   // so normal pages carry zero noise. Pages can hold several canvases — every
-  // canvas in the stack is identified (document-order index + selector + size).
+  // overlapping one is identified (document-order index + selector + size).
   function canvasIdent(c) {
     const cls = (typeof c.className === 'string' ? c.className : (c.className && c.className.baseVal) || '');
     let index = -1;
@@ -517,14 +522,31 @@
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       let stack = [];
       try { stack = document.elementsFromPoint(cx, cy) || []; } catch (_) {}
+      const seen = new Set();
       const under = [];
       for (const c of stack) {
         if (c !== el && c.tagName && c.tagName.toLowerCase() === 'canvas' &&
-            !el.contains(c) && !c.contains(el)) under.push(canvasIdent(c));
+            !el.contains(c) && !c.contains(el)) { seen.add(c); under.push(canvasIdent(c)); }
       }
+      // Tier 2: pointer-events:none canvases never appear in elementsFromPoint.
+      // Center-point containment finds them; the pe check keeps this honest — a
+      // hit-testable canvas absent from the stack is hidden some other way
+      // (visibility etc.), and we do not guess about those.
+      try {
+        for (const c of document.querySelectorAll('canvas')) {
+          if (c === el || seen.has(c) || el.contains(c) || c.contains(el)) continue;
+          const cr = c.getBoundingClientRect();
+          if (!(cr.width > 0 && cr.height > 0)) continue;
+          if (cx < cr.left || cx > cr.right || cy < cr.top || cy > cr.bottom) continue;
+          let pe = '';
+          try { pe = getComputedStyle(c).pointerEvents; } catch (_) {}
+          if (pe !== 'none') continue;
+          under.push({ ...canvasIdent(c), clickThrough: true });
+        }
+      } catch (_) {}
       if (!under.length) return {};
       return { canvas: { hit: 'overlay', under, ...many,
-        note: 'Target sits on top of a canvas: the element itself is DOM, but the pixels around/behind it are not DOM-visible.' } };
+        note: 'Target overlaps a canvas region: the element itself is DOM, but the surrounding pixels are not DOM-visible. clickThrough canvases receive no pointer input — clicks at their coordinates land on the DOM layer above them.' } };
     } catch (_) { return {}; }
   }
 

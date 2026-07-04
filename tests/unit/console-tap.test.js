@@ -45,7 +45,13 @@ describe('all-worlds console tap — sw.js wiring', () => {
   });
 
   it('skips MAIN-world events (the console-logger analyzer owns them — no double reporting)', () => {
-    assert.match(sw, /aux\.isDefault \? null/);
+    assert.match(sw, /aux\.isDefault/);
+    assert.match(sw, /let label = null;/);
+  });
+
+  it('skips whiskor\'s OWN isolated world (bridge relay chatter would drown the buffer)', () => {
+    assert.match(sw, /chrome\.runtime\.getManifest\(\)\.name/);
+    assert.match(sw, /chrome-extension:\/\/' \+ chrome\.runtime\.id/);
   });
 
   it('reuses the CONSOLE_LOG envelope (no new message type / server consumer)', () => {
@@ -61,6 +67,21 @@ describe('all-worlds console tap — sw.js wiring', () => {
   it('is configured from both SET_CONFIG paths (server push + panel)', () => {
     const n = (sw.match(/cdpConsoleTap\.configure\(msg\.config\)/g) || []).length;
     assert.strictEqual(n, 2, 'server SET_CONFIG handler and panel SET_CONFIG both configure the tap');
+  });
+
+  it('the server actually SHIPS agentControl.console in SET_CONFIG (shape parity)', () => {
+    // The SW reads cfg.agentControl.console.captureAllWorlds, but SET_CONFIG sends
+    // core.globalConfig — which historically carried only {mode, plugins, options}
+    // and NO agentControl at all, so the tap (and the autoSwitchTab check) read a
+    // key that never arrived. Live-found on ccfolia.com. This pins the producer
+    // side of that contract.
+    const idx = read('server/index.js');
+    const at = idx.indexOf('initialConfig:');
+    assert.ok(at >= 0, 'found the initialConfig block');
+    const block = idx.slice(at, at + 1600); // the whole literal fits well within this window
+    assert.match(block, /agentControl:/, 'initialConfig carries agentControl');
+    assert.match(block, /captureAllWorlds/, 'initialConfig carries console.captureAllWorlds');
+    assert.match(block, /autoSwitchTab/, 'initialConfig carries autoSwitchTab (same silent-drop fix)');
   });
 
   it('attaches lazily from the collector message hook and cleans up on tab close', () => {
