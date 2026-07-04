@@ -37,6 +37,7 @@ const devGate     = require('./dev-gate');
 const devIntake   = require('./dev-intake');
 const devAudit    = require('./dev-audit');
 const devArtifacts = require('./dev-artifacts');
+const devVerdict  = require('./dev-verdict');
 const { randomUUID } = require('crypto');
 const mcpRegistry = require('./mcp/registry');
 const { TimeSeriesCorrelator } = require('./correlator');
@@ -118,6 +119,18 @@ async function devExec(b = {}, initiator = 'agent') {
   const policy  = devGate.getPolicy();
   const devCfg  = (_cfg.dev && _cfg.dev.exec) || {};
 
+  // A gate/intake rejection is a 'blocked' verdict (5.3) — same vocabulary as a
+  // page-side csp/origin block — so it lands in BOTH audit and verdicts.jsonl and
+  // the caller sees a verdict either way. Never reaches the page.
+  const blockedResult = (auditRec, reason, error, extra = {}) => {
+    devAudit.appendAudit(tabId, { execId, initiator, backend: 'blob', mode, verdict: 'blocked', blocked: reason, ...auditRec });
+    const { verdict, evidence } = devVerdict.buildVerdict({ outcome: 'blocked' });
+    devVerdict.appendVerdict(tabId, { execId, initiator, mode, backend: 'blob',
+      artifactHash: auditRec.artifactHash || null, artifactName: auditRec.artifactName || null,
+      verdict, evidence }, devCfg.maxVerdicts);
+    return { ok: false, execId, blocked: reason, verdict, evidence, error, ...extra };
+  };
+
   // Resolve the artifact from exactly one of the three intake paths (4.1):
   //   inline   code
   //   push     artifactId  (previously POSTed to /api/dev/artifact)
@@ -131,11 +144,7 @@ async function devExec(b = {}, initiator = 'agent') {
   }
   if (code == null && b.path) {
     const r = devIntake.resolveFilePath(b.path, policy.fileRoots);
-    if (!r.ok) {
-      devAudit.appendAudit(tabId, { execId, artifactHash: null, artifactName: b.path, initiator,
-        backend: 'blob', mode, bytes: 0, verdict: 'blocked', blocked: r.blocked });
-      return { ok: false, execId, blocked: r.blocked, error: r.error };
-    }
+    if (!r.ok) return blockedResult({ artifactHash: null, artifactName: b.path, bytes: 0 }, r.blocked, r.error);
     code = r.code; artifactName = artifactName || require('path').basename(r.absPath);
   }
   if (code == null) {
@@ -144,10 +153,7 @@ async function devExec(b = {}, initiator = 'agent') {
 
   const v = devIntake.validateArtifact(code, { maxBytes: devCfg.maxArtifactBytes });
   if (!v.ok) {
-    // Audit the blocked attempt too — before returning (I-3).
-    devAudit.appendAudit(tabId, { execId, artifactHash: v.hash || null, artifactName, initiator,
-      backend: 'blob', mode, bytes: v.bytes || 0, verdict: 'blocked', blocked: v.blocked });
-    return { ok: false, execId, blocked: v.blocked, error: v.error, hint: v.hint };
+    return blockedResult({ artifactHash: v.hash || null, artifactName, bytes: v.bytes || 0 }, v.blocked, v.error, { hint: v.hint });
   }
 
   // I-3: the audit line lands BEFORE dispatch (hence before the ack).
@@ -159,10 +165,15 @@ async function devExec(b = {}, initiator = 'agent') {
     type: 'execute_module', code, mode, timeoutMs,
     allowedOrigins:    policy.allowedOrigins, // I-5 enforced page-side against these
     maxConsoleEntries: devCfg.maxConsoleEntries ?? 200,
+    settleQuietMs:     devCfg.settleQuietMs ?? 500,   // verdict engine 5.2
+    settleMaxMs:       devCfg.settleMaxMs   ?? 8000,
   };
 
   let res;
-  try { res = await actions.execute(tabId, action, timeoutMs + 3000); }
+  // The page-side budget is eval (timeoutMs) + settle (settleMaxMs); give the RPC
+  // that plus slack so a legitimately slow settle isn't cut off as a tab timeout.
+  const rpcWaitMs = timeoutMs + (action.settleMaxMs || 0) + 3000;
+  try { res = await actions.execute(tabId, action, rpcWaitMs); }
   catch (e) { res = { ok: false, error: e.message }; }
 
   // actions.execute → { ok, result } (result = executor's return object, always an
@@ -171,10 +182,24 @@ async function devExec(b = {}, initiator = 'agent') {
   const payload = (res && res.ok !== false && res.result) ? res.result : res;
   const outcome = (payload && payload.outcome) ? payload.outcome
                 : (res && res.ok === false ? 'error' : 'ok');
+  // A real action-layer failure (tab gone / RPC timeout) never reached the page,
+  // so there is no baseline/observed — treat it as inconclusive, not a bare error.
+  const actionFailed = !!(res && res.ok === false);
+  const vEngineOutcome = actionFailed ? 'timeout' : outcome;
+  const { verdict, evidence } = devVerdict.buildVerdict({
+    outcome:     vEngineOutcome,
+    baseline:    payload && payload.baseline,
+    observed:    payload && payload.observed,
+    consoleLogs: (payload && payload.consoleLogs) || [],
+    mode,
+    value:       payload && payload.value,
+  });
+
   const out = {
     ok: outcome === 'ok',
     execId, artifactHash: v.hash, artifactName, initiator,
     backend: (payload && payload.backend) || 'blob', mode, outcome,
+    verdict, evidence,
     value:       payload && payload.value,
     consoleLogs: (payload && payload.consoleLogs) || [],
     error:       (payload && payload.error) || (res && res.ok === false ? res.error : undefined),
@@ -188,6 +213,14 @@ async function devExec(b = {}, initiator = 'agent') {
   if (secretGuard && secretGuard.active && typeof secretGuard.redactDeep === 'function') {
     try { secretGuard.redactDeep(out); } catch (_) {}
   }
+
+  // Persist the verdict (5.5) AFTER redaction — the stored evidence carries no
+  // secrets either. Body stays out (I-4): hash + name + verdict + evidence only.
+  devVerdict.appendVerdict(tabId, {
+    execId, artifactHash: v.hash, artifactName, initiator, mode,
+    backend: out.backend, verdict, evidence: out.evidence,
+  }, devCfg.maxVerdicts);
+
   return out;
 }
 

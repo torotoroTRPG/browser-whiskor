@@ -24,6 +24,7 @@ const devGate     = require('../../server/dev-gate');
 const devIntake   = require('../../server/dev-intake');
 const devAudit    = require('../../server/dev-audit');
 const devArtifacts = require('../../server/dev-artifacts');
+const devVerdict  = require('../../server/dev-verdict');
 const toolManager = require('../../server/tool-manager');
 
 // ── dev-gate ──────────────────────────────────────────────────────────────────
@@ -222,6 +223,105 @@ describe('dev-artifacts: push-intake LRU store', () => {
     devArtifacts.add('c', 'export default "c";'); // evicts a
     assert.strictEqual(devArtifacts.get(a.artifactId), null, 'oldest must be evicted');
     assert.strictEqual(devArtifacts.count(), 2);
+  });
+});
+
+// ── dev-verdict: 5-value mapping + evidence (E3, SECTION 5.3) ──────────────────
+describe('dev-verdict: buildVerdict mapping', () => {
+  const H0 = 'aaaa1111', H1 = 'bbbb2222';
+
+  test('clean: ran, no errors, nothing changed', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0, url: 'http://x/' },
+      observed: { stateHash: H0, url: 'http://x/', mutations: 0, uncaughtErrors: [], navigated: false },
+      consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'clean');
+    assert.strictEqual(r.evidence.stateTransition, null);
+    assert.deepStrictEqual(r.evidence.flags, []);
+  });
+
+  test('effect: state hash moved with no errors', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0, url: 'http://x/' },
+      observed: { stateHash: H1, url: 'http://x/', mutations: 12, uncaughtErrors: [], navigated: false },
+      consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'effect');
+    assert.ok(r.evidence.stateTransition, 'transition recorded');
+    assert.strictEqual(r.evidence.stateTransition.to, H1);
+  });
+
+  test('effect: DOM mutated even when hash unavailable', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: null }, observed: { stateHash: null, mutations: 3, uncaughtErrors: [], navigated: false },
+      consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'effect');
+  });
+
+  test('regressed: a new console error', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0 }, observed: { stateHash: H0, mutations: 0, uncaughtErrors: [], navigated: false },
+      consoleLogs: [{ level: 'error', args: ['boom'] }], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'regressed');
+    assert.strictEqual(r.evidence.consoleNew.length, 1);
+  });
+
+  test('regressed: an uncaught exception during the window', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0 },
+      observed: { stateHash: H0, mutations: 0, uncaughtErrors: [{ kind: 'error', message: 'x' }], navigated: false },
+      consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'regressed');
+  });
+
+  test('regressed: the module itself threw (outcome error)', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'error', consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'regressed');
+  });
+
+  test('regressed: a harness case failed', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok', mode: 'harness',
+      baseline: { stateHash: H0 }, observed: { stateHash: H0, mutations: 0, uncaughtErrors: [], navigated: false },
+      consoleLogs: [], value: { total: 2, passed: 1, failed: 1 } });
+    assert.strictEqual(r.verdict, 'regressed');
+  });
+
+  test('blocked: page-side outcome blocked (csp/origin)', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'blocked', consoleLogs: [] });
+    assert.strictEqual(r.verdict, 'blocked');
+  });
+
+  test('inconclusive: timeout', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'timeout', consoleLogs: [] });
+    assert.strictEqual(r.verdict, 'inconclusive');
+  });
+
+  test('inconclusive: tab navigated mid-exec (even with no errors)', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0, url: 'http://x/' },
+      observed: { stateHash: H1, url: 'http://y/', mutations: 5, uncaughtErrors: [], navigated: true },
+      consoleLogs: [], mode: 'probe' });
+    assert.strictEqual(r.verdict, 'inconclusive');
+    assert.ok(r.evidence.flags.includes('tab_navigated'));
+  });
+
+  test('settled_at_cap flag surfaces in evidence', () => {
+    const r = devVerdict.buildVerdict({ outcome: 'ok',
+      baseline: { stateHash: H0 }, observed: { stateHash: H0, mutations: 0, uncaughtErrors: [], navigated: false, settledAtCap: true },
+      consoleLogs: [], mode: 'probe' });
+    assert.ok(r.evidence.flags.includes('settled_at_cap'));
+  });
+});
+
+describe('dev-verdict: persistence (5.5)', () => {
+  test('appendVerdict writes a line and caps the file', () => {
+    const tabId = 'vtest-' + Date.now();
+    for (let i = 0; i < 30; i++) {
+      devVerdict.appendVerdict(tabId, { execId: 'e' + i, verdict: 'clean', evidence: {} }, 10);
+    }
+    const rows = devVerdict.readVerdicts(tabId, 1000);
+    assert.ok(rows.length <= 12, `cap ~10 (×1.2 slack) but got ${rows.length}`);
+    assert.ok(rows.length >= 10, 'keeps at least the cap');
+    assert.strictEqual(rows[rows.length - 1].execId, 'e29', 'newest retained');
   });
 });
 

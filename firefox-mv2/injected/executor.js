@@ -1359,6 +1359,85 @@
         Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
       });
 
+      // ── baseline (verdict engine 5.1) ─────────────────────────────────────────
+      // Captured in the very context that runs the code, right before injection.
+      // compositeHash comes from the collector's live global (state-reporter reads
+      // the same one); null when React/DOM hashing hasn't populated it yet.
+      const readHash = () => {
+        try { return (window.__SI_CURRENT_HASH__ && window.__SI_CURRENT_HASH__.compositeHash) || null; }
+        catch { return null; }
+      };
+      const baseline = { stateHash: readHash(), url: location.href, title: document.title };
+
+      // Uncaught error/rejection watermark: fresh listeners for THIS window, so
+      // anything they catch is by definition new since baseline (5.1).
+      const uncaughtErrors = [];
+      const onErr = (ev) => { if (uncaughtErrors.length < 50) uncaughtErrors.push({ kind: 'error',
+        message: String((ev && (ev.message || (ev.error && ev.error.message))) || 'error').slice(0, 300) }); };
+      const onRej = (ev) => { if (uncaughtErrors.length < 50) uncaughtErrors.push({ kind: 'unhandledrejection',
+        message: String((ev && ev.reason && (ev.reason.message || ev.reason)) || 'rejection').slice(0, 300) }); };
+      window.addEventListener('error', onErr, true);
+      window.addEventListener('unhandledrejection', onRej);
+
+      // ── settle (verdict engine 5.2) ───────────────────────────────────────────
+      // Event-driven, not a fixed sleep: resolve once the page is quiet for
+      // settleQuietMs (no DOM mutation ∧ no in-flight fetch/XHR), capped at
+      // settleMaxMs. Reuses the same MutationObserver idea as post-click settle.
+      const settleQuietMs = Number.isFinite(action.settleQuietMs) ? action.settleQuietMs : 500;
+      const settleMaxMs   = Number.isFinite(action.settleMaxMs)   ? action.settleMaxMs   : 8000;
+      const settle = () => new Promise((resolve) => {
+        let mutations = 0, inFlight = 0, done = false, mo = null, quietT = null, capT = null;
+        const origFetch = window.fetch;
+        const OrigSend = XMLHttpRequest && XMLHttpRequest.prototype && XMLHttpRequest.prototype.send;
+        const finish = (atCap) => {
+          if (done) return; done = true;
+          try { mo && mo.disconnect(); } catch (_) {}
+          try { if (typeof origFetch === 'function') window.fetch = origFetch; } catch (_) {}
+          try { if (OrigSend) XMLHttpRequest.prototype.send = OrigSend; } catch (_) {}
+          if (quietT) clearTimeout(quietT);
+          if (capT) clearTimeout(capT);
+          resolve({ mutations, settledAtCap: !!atCap });
+        };
+        const arm = () => { if (quietT) clearTimeout(quietT);
+          quietT = setTimeout(() => { if (inFlight <= 0) finish(false); }, settleQuietMs); };
+        try {
+          mo = new MutationObserver((recs) => { mutations += recs.length; arm(); });
+          mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+        } catch (_) {}
+        // Count in-flight fetch/XHR for the settle window; restored on finish. Wrapping
+        // over any existing wrapper (network analyzer) is safe — each calls the prior.
+        try {
+          if (typeof origFetch === 'function') {
+            window.fetch = function (...a) { inFlight++;
+              return origFetch.apply(this, a).finally(() => { inFlight = Math.max(0, inFlight - 1); arm(); }); };
+          }
+        } catch (_) {}
+        try {
+          if (OrigSend) {
+            XMLHttpRequest.prototype.send = function (...a) { inFlight++;
+              try { this.addEventListener('loadend', () => { inFlight = Math.max(0, inFlight - 1); arm(); }); } catch (_) {}
+              return OrigSend.apply(this, a); };
+          }
+        } catch (_) {}
+        capT = setTimeout(() => finish(true), settleMaxMs);
+        arm(); // start the quiet clock even if nothing ever happens (no-op → ~quietMs)
+      });
+
+      // Observed snapshot after settle (5.3). Safe to call from any exit path.
+      const observe = (settleRes) => {
+        window.removeEventListener('error', onErr, true);
+        window.removeEventListener('unhandledrejection', onRej);
+        return {
+          stateHash: readHash(),
+          url: location.href,
+          title: document.title,
+          mutations: settleRes ? settleRes.mutations : 0,
+          settledAtCap: settleRes ? settleRes.settledAtCap : false,
+          navigated: location.href !== baseline.url,
+          uncaughtErrors,
+        };
+      };
+
       const injectedAt = Date.now();
       let url = null;
       try {
@@ -1389,26 +1468,31 @@
           if (out instanceof Promise) out = await withTimeout(out, timeoutMs);
           value = serializeValue(out);
         }
+        // Let async side effects (fetch → DOM swap) play out, then snapshot.
+        const settleRes = await settle();
+        const observed = observe(settleRes);
         const settledMs = Date.now() - injectedAt;
-        return { ok: true, outcome: 'ok', backend: 'blob', mode, value, consoleLogs, timings: { evaluatedMs, settledMs } };
+        return { ok: true, outcome: 'ok', backend: 'blob', mode, value, consoleLogs,
+          baseline, observed, timings: { evaluatedMs, settledMs } };
       } catch (e) {
         // All post-injection outcomes ride an ok:true envelope with a structured
         // `outcome`, so blocked/error/timeout detail survives transport (see above).
+        const observed = observe(null); // no settle window on the failure paths
         const msg = String(e && e.message || e);
         if (e && e.__whiskorTimeout) {
           return { ok: true, outcome: 'timeout', backend: 'blob', mode,
-            error: `execute_module timed out after ${timeoutMs}ms.`, consoleLogs };
+            error: `execute_module timed out after ${timeoutMs}ms.`, consoleLogs, baseline, observed };
         }
         // blob: import blocked by the page's CSP script-src (the honest blob-backend
         // limit; Chrome can fall back to the CDP backend in a later slice).
         if (/content security policy|refused to (load|execute|import)|violat/i.test(msg)) {
           return { ok: true, outcome: 'blocked', blocked: 'csp_blocked', backend: 'blob',
             error: `blob injection blocked by page CSP: ${msg}`,
-            hint: 'Allow blob: in the dev server CSP script-src, or use Chrome (CDP backend).', consoleLogs };
+            hint: 'Allow blob: in the dev server CSP script-src, or use Chrome (CDP backend).', consoleLogs, baseline, observed };
         }
         // Uncaught exception during evaluation → executed-but-threw.
         return { ok: true, outcome: 'error', backend: 'blob', mode, error: msg,
-          stack: e && e.stack ? String(e.stack).slice(0, 2000) : undefined, consoleLogs };
+          stack: e && e.stack ? String(e.stack).slice(0, 2000) : undefined, consoleLogs, baseline, observed };
       } finally {
         restore();
         if (url) { try { URL.revokeObjectURL(url); } catch (_) {} }

@@ -78,6 +78,8 @@
       "maxArtifactBytes":  2097152,
       "maxConsoleEntries": 200,
       "artifactCacheMax":  32,
+      "settleQuietMs":     500,
+      "settleMaxMs":       8000,
       "maxVerdicts":       500
     },
     "mode": {
