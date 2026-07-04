@@ -452,6 +452,11 @@
       "maxAgeHours": 24,
       "httpInlineImage": true
     },
+    "console": {
+      "_comment_en": "captureAllWorlds=true: capture console/exception events from EVERY execution context of instrumented tabs via CDP (chrome.debugger) — including OTHER extensions' content scripts, which log in their own ISOLATED world, invisible to the MAIN-world console-logger. Entries carry {world, via:'cdp'}; MAIN-world logs stay with the analyzer (no double reporting). Chrome only (Firefox has no debugger API). NOTE: holds the debugger attachment, so the 'is debugging this browser' banner stays visible. Attaches on a tab's next data emission after enabling.",
+      "_comment_ja": "captureAllWorlds=true: 計測中タブの全実行コンテキストの console/例外を CDP (chrome.debugger) で捕捉。他拡張の content script は自分専用の ISOLATED world でログを吐き MAIN world の console-logger から見えない——その盲域を埋める。エントリは {world, via:'cdp'} 付き、MAIN world は従来アナライザー担当（二重報告なし）。Chrome 専用（Firefox に debugger API なし）。注意: デバッガを保持し続けるため「デバッグしています」バナーが常時出る。有効化後はタブの次のデータ送信時にアタッチ",
+      "captureAllWorlds": false
+    },
     "input": {
       "_comment_en": "Input fidelity. highFidelity routes click/type_text/press_key through CDP (chrome.debugger) so events are isTrusted:true — reaching widgets gated on trusted input / user activation (popups, clipboard, file pickers, some payment/OAuth). Chrome only; Firefox always uses synthetic. NOTE: CDP attach shows the 'is debugging this browser' banner.",
       "_comment_ja": "入力の忠実度。highFidelity で click/type_text/press_key を CDP(chrome.debugger) 経由にし、isTrusted:true のイベントを出す（trusted/ユーザージェスチャ必須のポップアップ・クリップボード・ファイルピッカー・一部決済OAuthに到達）。Chrome専用、Firefoxは常にsynthetic。注意: CDPアタッチ中はデバッグバナーが出る。'off'=従来synthetic / 'fallback'=syntheticを試し無反応(no_state_change)のclickだけCDP再試行 / 'always'=click/type/press_keyを常にCDP",

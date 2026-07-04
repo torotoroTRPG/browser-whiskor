@@ -476,6 +476,58 @@
     el.value = v;
   }
 
+  // ── Canvas boundary note ─────────────────────────────────────────────────
+  // Declares when an action lands in pixel-land where DOM senses cannot see:
+  // hit:'direct'  = the target IS a <canvas> (the click was a coordinate shot
+  //                 into pixels; no DOM change is the EXPECTED outcome),
+  // hit:'overlay' = the target is stacked on top of one or more canvases
+  //                 (checked via elementsFromPoint = true z-order, so an element
+  //                 merely near a canvas does not fire).
+  // Spreadable like selectorAmbiguity/textMatchNote: {} when there is no signal,
+  // so normal pages carry zero noise. Pages can hold several canvases — every
+  // canvas in the stack is identified (document-order index + selector + size).
+  function canvasIdent(c) {
+    const cls = (typeof c.className === 'string' ? c.className : (c.className && c.className.baseVal) || '');
+    let index = -1;
+    try {
+      const all = document.querySelectorAll('canvas');
+      for (let i = 0; i < all.length; i++) if (all[i] === c) { index = i; break; }
+    } catch (_) {}
+    let size = null;
+    try { const r = c.getBoundingClientRect(); size = { w: Math.round(r.width), h: Math.round(r.height) }; } catch (_) {}
+    return {
+      selector: c.id ? `#${c.id}` : (cls ? 'canvas.' + cls.trim().split(/\s+/).slice(0, 2).join('.') : 'canvas'),
+      index,
+      ...(size ? { size } : {}),
+    };
+  }
+
+  function canvasNote(el) {
+    try {
+      if (!el || !el.tagName) return {};
+      let total = 0;
+      try { total = document.querySelectorAll('canvas').length; } catch (_) {}
+      const many = total > 1 ? { totalCanvases: total } : {};
+      if (el.tagName.toLowerCase() === 'canvas') {
+        return { canvas: { hit: 'direct', ...canvasIdent(el), ...many,
+          note: 'Target is a <canvas>: its contents are pixels, not DOM — get_index/get_text_coords cannot see inside, and no DOM change here is normal. Read the app state (get_framework_state) or use ocr_region / capture_element_screenshot.' } };
+      }
+      if (!total) return {};
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      let stack = [];
+      try { stack = document.elementsFromPoint(cx, cy) || []; } catch (_) {}
+      const under = [];
+      for (const c of stack) {
+        if (c !== el && c.tagName && c.tagName.toLowerCase() === 'canvas' &&
+            !el.contains(c) && !c.contains(el)) under.push(canvasIdent(c));
+      }
+      if (!under.length) return {};
+      return { canvas: { hit: 'overlay', under, ...many,
+        note: 'Target sits on top of a canvas: the element itself is DOM, but the pixels around/behind it are not DOM-visible.' } };
+    } catch (_) { return {}; }
+  }
+
   function describeTarget(el) {
     if (!el) return null;
     const cls = (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '');
@@ -719,6 +771,7 @@
           text: el.textContent?.trim().slice(0, 50),
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
+          ...canvasNote(el),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -740,7 +793,7 @@
         dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
       }
 
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el) };
     },
 
     type(action) {
@@ -914,7 +967,7 @@
       el.dispatchEvent(new MouseEvent('mouseover',  opts));
       el.dispatchEvent(new MouseEvent('mouseenter', opts));
       el.dispatchEvent(new MouseEvent('mousemove',  opts));
-      return { ok: true, tagName: el.tagName, ...textMatchNote(action) };
+      return { ok: true, tagName: el.tagName, ...textMatchNote(action), ...canvasNote(el) };
     },
 
     async mouse_scroll(action) {
@@ -1019,6 +1072,7 @@
           text: el.textContent?.trim().slice(0, 50),
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
+          ...canvasNote(el),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
@@ -1028,7 +1082,7 @@
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el) };
     },
 
     analyze_click(action) {

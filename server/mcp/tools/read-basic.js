@@ -455,7 +455,7 @@ module.exports = function registerBasicTools(registry) {
   tools.push({
     definition: {
       name: 'get_layout_map',
-      description: 'Get a coarse ASCII map of where things are on the page — a cheap, every-turn spatial channel (~80-170 tokens, not a screenshot replacement). Interactive elements appear roughly where they sit on screen as bracketed ref tokens whose shape encodes kind: [n]=button, {n}=input/field, <n>=link. A legend maps each ref to its kind, label and center coordinates, so you can act via click(text:label) or the coordinates. Viewport-relative (only what is currently on screen); borderless by default. Use it for gross layout awareness ("search top-center, results center, paging bottom"); use capture_screenshot when pixels matter and get_ui_catalog for the full element list.',
+      description: 'Get a coarse ASCII map of where things are on the page — a cheap, every-turn spatial channel (~80-170 tokens, not a screenshot replacement). Interactive elements appear roughly where they sit on screen as bracketed ref tokens whose shape encodes kind: [n]=button, {n}=input/field, <n>=link. Canvas regions render as ░-shaded blocks tagged #n — pixel-land the DOM senses cannot see inside (read their contents via get_framework_state / ocr_region / a screenshot). A legend maps each ref to its kind, label and center coordinates, so you can act via click(text:label) or the coordinates. Viewport-relative (only what is currently on screen); borderless by default. Use it for gross layout awareness ("search top-center, results center, paging bottom"); use capture_screenshot when pixels matter and get_ui_catalog for the full element list.',
       inputSchema: {
         type: 'object',
         properties: {

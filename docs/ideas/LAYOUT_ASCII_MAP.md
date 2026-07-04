@@ -125,3 +125,6 @@ small dedicated tool; the renderer is the same either way.
 
 Related: packed SoM ([[project_packed_som_capture]]), click-evidence + SoM scope
 (`CLICK_EVIDENCE_AND_SOM_SCOPE.md`), MiniLM click-text (`MINILM_CLICK_TEXT_MATCHING.md`).
+The space-RLE rejection above is regime-scoped (dense fixed-width DOM grids) — for
+the sparse-canvas regime, and a deeper treatment of representation choice (the FEN
+lesson, priors inventory, synthetic-image channel), see `CANVAS_PERCEPTION.md`.

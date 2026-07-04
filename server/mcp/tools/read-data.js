@@ -319,13 +319,14 @@ module.exports = function registerDataTools(registry) {
   tools.push({
     definition: {
       name: 'get_console_logs',
-      description: 'Get captured console output (log, warn, error, info, debug). Each entry includes level, timestamp, and formatted message. Useful for debugging, finding errors, or understanding app behavior.',
+      description: 'Get captured console output (log, warn, error, info, debug). Each entry includes level, timestamp, and formatted message. Useful for debugging, finding errors, or understanding app behavior. By default this sees the page (MAIN world) only; with config agentControl.console.captureAllWorlds enabled (Chrome, CDP), entries from OTHER extensions\' content scripts / isolated worlds also appear, tagged { world, via:"cdp" } — filter them with the world argument.',
       inputSchema: {
         type: 'object',
         properties: {
           tabId:  { type: 'number', description: 'Tab ID from get_sessions' },
           level:  { type: 'string', enum: ['log', 'warn', 'error', 'info', 'debug', 'all'], description: 'Filter by log level (default: all)' },
           search: { type: 'string', description: 'Filter by message content' },
+          world:  { type: 'string', description: 'Filter by execution-context world (substring, e.g. an extension name or "isolated"). "main" = page-world entries only (those carry no world tag). Requires captureAllWorlds for non-page entries to exist.' },
           limit:  { type: 'number', description: 'Max entries to return (default: 200)' },
         },
         required: ['tabId'],
@@ -347,6 +348,13 @@ module.exports = function registerDataTools(registry) {
       if (args.search) {
         const s = args.search.toLowerCase();
         entries = entries.filter(e => (e.message || '').toLowerCase().includes(s));
+      }
+      if (args.world) {
+        // Page-world entries carry no world tag; "main" selects exactly those.
+        const w = args.world.toLowerCase();
+        entries = w === 'main'
+          ? entries.filter(e => !e.world)
+          : entries.filter(e => (e.world || '').toLowerCase().includes(w));
       }
       const limit = args.limit || 200;
       entries = entries.slice(-limit);
@@ -623,18 +631,33 @@ module.exports = function registerDataTools(registry) {
           : undefined,
       }));
       const ranked = textRank.rankCandidates(relevant, { textMatch: args.textMatch }).ranked.slice(0, limit);
-      const candidates = ranked.map(c => ({
-        kind: c.kind, text: c.text, center: c.center, selector: c.selector,
-        ...(c.enterKey ? { enterKey: c.enterKey } : {}),
-        ...(c.clickable !== undefined ? { clickable: c.clickable } : {}),
-        ...(c.obstructedBy ? { obstructedBy: c.obstructedBy } : {}),
-        ...(c.href ? { href: c.href } : {}),
-        score: Math.round(c.textScore * 100) / 100,   // true fuzzy/text score
-        rankScore: c.finalScore,                       // policy-adjusted ordering score
-        recommend: c.kind === 'input'
-          ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
-          : 'click(center.x, center.y) — or click(text)',
-      }));
+
+      // Canvas boundary: a candidate whose center sits inside a canvas rect is an
+      // overlay on pixel-land — the element itself is DOM, its surroundings are not.
+      // Pages can hold several canvases; every containing one is named. Uses
+      // collection-time rects, like every other hint this tool reports.
+      const canvases = (ui && ui.canvases) || [];
+      const overCanvas = (pt) => !pt ? [] : canvases
+        .filter(cv => cv.rect && pt.x >= cv.rect.x && pt.x <= cv.rect.x + cv.rect.w &&
+                      pt.y >= cv.rect.y && pt.y <= cv.rect.y + cv.rect.h)
+        .map(cv => cv.id ? `#${cv.id}` : `canvas[${cv.index}]`);
+
+      const candidates = ranked.map(c => {
+        const oc = overCanvas(c.center);
+        return {
+          kind: c.kind, text: c.text, center: c.center, selector: c.selector,
+          ...(c.enterKey ? { enterKey: c.enterKey } : {}),
+          ...(c.clickable !== undefined ? { clickable: c.clickable } : {}),
+          ...(c.obstructedBy ? { obstructedBy: c.obstructedBy } : {}),
+          ...(c.href ? { href: c.href } : {}),
+          ...(oc.length ? { overCanvas: oc } : {}),
+          score: Math.round(c.textScore * 100) / 100,   // true fuzzy/text score
+          rankScore: c.finalScore,                       // policy-adjusted ordering score
+          recommend: c.kind === 'input'
+            ? 'type_text(selector, text, submit:"auto") — or click(center) then type'
+            : 'click(center.x, center.y) — or click(text)',
+        };
+      });
 
       // Optional live verification: re-run clickability (analyze_click) on the top
       // candidate(s) so the agent gets call-time obstruction, not the collection-time
@@ -671,7 +694,10 @@ module.exports = function registerDataTools(registry) {
         ...(backend.isMiniLM ? { matchBackend: 'minilm' } : {}),
         total: pool.length,
         candidates,
-        ...(candidates.length === 0 ? { note: 'No candidate above minScore. Lower minScore, widen kind, or call refresh_data.' } : {}),
+        // "no match" and "the answer is drawn inside a canvas where DOM/text search
+        // cannot see" are different situations — when canvases exist, say so.
+        ...(candidates.length === 0 ? { note: 'No candidate above minScore. Lower minScore, widen kind, or call refresh_data.'
+          + (canvases.length ? ` Note: the page has ${canvases.length} canvas region(s) — DOM/text search cannot see inside them; if the target is drawn on canvas, use get_framework_state, ocr_region, or a screenshot.` : '') } : {}),
       };
     },
   });
