@@ -949,7 +949,11 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       return sendJson({ error: httpAuthErr }, 403);
     }
 
-    const coreReq = { method, url: { pathname: p }, body: null, callerAppId: httpAppId };
+    // Pass searchParams through so core's query-param handlers work (change-feed
+    // ?drain=1, state-map ?maxNodes=, logs ?level=&limit=). Previously only
+    // pathname was forwarded, so url.searchParams was undefined in core and every
+    // such handler silently fell back to its no-query default.
+    const coreReq = { method, url: { pathname: p, searchParams: url.searchParams }, body: null, callerAppId: httpAppId };
     let bodyPromise = Promise.resolve(null);
     if (method === 'POST') {
       bodyPromise = readBody();
