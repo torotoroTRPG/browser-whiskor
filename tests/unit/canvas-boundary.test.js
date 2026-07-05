@@ -63,8 +63,8 @@ describe('canvas boundary — executor note', () => {
 
   it('detects pointer-events:none canvases the hit test can never return (tier 2)', () => {
     // PixiJS-style boards (canvas paints, DOM layer receives input) are the common
-    // canvas-app shape — live-confirmed on ccfolia.com, where tier 1 alone missed
-    // the board entirely.
+    // canvas-app shape — live-confirmed on a production PixiJS board app, where
+    // tier 1 alone missed the board entirely.
     assert.match(shared, /pe !== 'none'\) continue/);
     assert.match(shared, /clickThrough: true/);
   });

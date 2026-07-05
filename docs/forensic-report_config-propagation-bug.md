@@ -16,7 +16,7 @@ When the server pushes a config via `POST /api/config` or WebSocket `SET_CONFIG`
 
 **Goal:** Enable `source-fetcher.storeJs: true` so JS source files are persisted in the whiskor cache.
 
-**Context:** CCFOLIA (ccfolia.com), a React+Redux TRPG session tool. The production webpack bundle `main.663d992f.js` (4.4MB) is loaded from CDN. We need the analyzer to fetch and store script contents to `cache/sources/`.
+**Context:** A production React+Redux TRPG session tool (referred to as "the target app" below). Its production webpack bundle `main.<hash>.js` (4.4MB) is loaded from CDN. We need the analyzer to fetch and store script contents to `cache/sources/`.
 
 ---
 
@@ -28,7 +28,7 @@ When the server pushes a config via `POST /api/config` or WebSocket `SET_CONFIG`
 | Dev source | `C:\JavaApp\browser-extension\browser-whiskor\` |
 | Cache dir | `C:\Users\onetr\AppData\Roaming\npm\node_modules\browser-whiskor\cache\` |
 | Extension ID (Chrome) | `hhfkbeloejjheeiihhjndfcogjhejoek` |
-| Target page | `https://ccfolia.com/rooms/kQl_lhXAr` |
+| Target page | `https://<target-app>/rooms/<room-id>` |
 
 ---
 
@@ -41,7 +41,7 @@ When the server pushes a config via `POST /api/config` or WebSocket `SET_CONFIG`
 | 3.1.1 | Write `config.local.json` with `{"plugins":{"intelligence":{"sourceFetcher":{"storeJs":true,"maxJsSizeBytes":5242880}}}}` | Config persisted on disk, loaded at server start | File written, confirmed via `Get-Content` | ✅ |
 | 3.1.2 | `whk restart` | Server restarts, extension reconnects | `whk health` shows `ok: true`, `wsConnections: 1`, `sessions: 5` | ✅ |
 | 3.1.3 | `whk GET /api/config` | Config includes `sourceFetcher.storeJs: true` | Confirmed: `"storeJs": true, "maxJsSizeBytes": 5242880` | ✅ |
-| 3.1.4 | Reload ccfolia: `POST /api/action {"tabId":265874619,"action":{"type":"reload"}}` | Tab reloads, whiskor re-injects, source-fetcher runs with config | Tab reload confirmed (session data refreshed) | ✅ |
+| 3.1.4 | Reload the target tab: `POST /api/action {"tabId":265874619,"action":{"type":"reload"}}` | Tab reloads, whiskor re-injects, source-fetcher runs with config | Tab reload confirmed (session data refreshed) | ✅ |
 | 3.1.5 | Run collect: `whk POST /api/collect 265874619` | source-fetcher emits SOURCE_CONTENT, server stores JS files | Command succeeded (no error output) | apparently ✅ |
 | 3.1.6 | Check `cache/sessions/*/raw/sources/` | `.js` files present alongside `.css` | Only `8dbddfdc.css` (18.9KB), `ea913396.css` (5.9KB), `catalog.json` — **no JS files** | ❌ |
 
@@ -233,7 +233,7 @@ This was **not tested**.
 JS source files can be downloaded directly via curl without whiskor involvement:
 
 ```
-curl -o main.js "https://ccfolia.com/static/js/main.663d992f.js"
+curl -o main.js "https://<target-app>/static/js/main.<hash>.js"
 ```
 
 This works and produces identical content to what whiskor's source-fetcher would store. The difference is:

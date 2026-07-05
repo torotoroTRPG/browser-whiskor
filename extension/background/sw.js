@@ -1225,7 +1225,7 @@ const cdpConsoleTap = {
       // Our OWN isolated world is skipped too: the tap exists for the blind spot
       // (OTHER extensions' contexts), and the bridge's per-relay chatter would
       // drown the 2000-entry buffer that page errors share (live-measured: 147
-      // relay logs in one ccfolia room load).
+      // relay logs in one busy canvas-app page load).
       let label = null;
       if (!aux.isDefault) {
         const ours = (d.name && d.name === chrome.runtime.getManifest().name) ||

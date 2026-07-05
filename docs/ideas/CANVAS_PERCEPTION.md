@@ -106,8 +106,8 @@ The boundary flags say *where DOM senses end*. The next slice is a sense that wo
 past the boundary — an ASCII map of what is *inside* the canvas.
 
 **State first, OCR as audit.** Canvas apps draw from structured state that already
-sits in reach: a React/Redux store holding board objects with `x/y/w/h` (CCFOLIA's
-board is exactly this). whiskor already reads it (`get_framework_state`,
+sits in reach: a React/Redux store holding board objects with `x/y/w/h` (the TRPG
+board app used for live verification is exactly this). whiskor already reads it (`get_framework_state`,
 react-state-managers adapter). So the primary pipeline is:
 
 ```

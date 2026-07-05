@@ -22,7 +22,7 @@ describe('tui/term — display width (CJK-aware)', () => {
   it('counts CJK as 2 columns, ASCII as 1, ANSI as 0', () => {
     assert.strictEqual(term.strWidth('abc'), 3);
     assert.strictEqual(term.strWidth('セッション'), 10);
-    assert.strictEqual(term.strWidth('CCFOLIA — ツール'), 7 + 1 + 1 + 1 + 6); // ascii7 + sp + emdash + sp + CJK6
+    assert.strictEqual(term.strWidth('WHISKOR — ツール'), 7 + 1 + 1 + 1 + 6); // ascii7 + sp + emdash + sp + CJK6
     assert.strictEqual(term.strWidth('\x1b[32mok\x1b[0m'), 2);
   });
 

@@ -73,7 +73,7 @@ describe('all-worlds console tap — sw.js wiring', () => {
     // The SW reads cfg.agentControl.console.captureAllWorlds, but SET_CONFIG sends
     // core.globalConfig — which historically carried only {mode, plugins, options}
     // and NO agentControl at all, so the tap (and the autoSwitchTab check) read a
-    // key that never arrived. Live-found on ccfolia.com. This pins the producer
+    // key that never arrived. Live-found on a production React+Redux canvas app. This pins the producer
     // side of that contract.
     const idx = read('server/index.js');
     const at = idx.indexOf('initialConfig:');
