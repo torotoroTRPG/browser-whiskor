@@ -48,6 +48,20 @@
     return parts.join(' > ') || el.tagName.toLowerCase();
   }
 
+  // Find a dialog ([role=dialog]/[role=alertdialog]/<dialog>) in a mutation's
+  // added/removed nodes. Returns a selector-ish identifier or null.
+  const DIALOG_SEL = 'dialog, [role="dialog"], [role="alertdialog"]';
+  function _scanForDialog(nodes) {
+    for (const n of nodes) {
+      if (!n || n.nodeType !== 1) continue;
+      try {
+        const hit = (n.matches && n.matches(DIALOG_SEL)) ? n : (n.querySelector && n.querySelector(DIALOG_SEL));
+        if (hit) return computeSelector(hit);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   // ── Mutation Handler & Batching ───────────────────────────────────────────
   let _observer = null;
   let batchQueue = [];
@@ -103,6 +117,14 @@
         record.addedCount = mut.addedNodes.length;
         record.removedCount = mut.removedNodes.length;
         if (record.addedCount === 0 && record.removedCount === 0) continue;
+        // Modal boundary flags: a dialog appearing/disappearing is the page-level
+        // premise change agents most need to know about (server change-feed reads
+        // these — see docs/ideas/PREMISE_CHANGE_FEED.md). querySelector works on
+        // removed (detached) subtrees, so both directions are detectable here.
+        const dialogIn = _scanForDialog(mut.addedNodes);
+        const dialogOut = _scanForDialog(mut.removedNodes);
+        if (dialogIn)  { record.dialogAppeared = true;  record.dialogSelector = dialogIn; }
+        if (dialogOut) { record.dialogRemoved  = true;  record.dialogSelector = record.dialogSelector || dialogOut; }
       } else if (mut.type === 'attributes') {
         record.attributeName = mut.attributeName;
         record.oldValue = mut.oldValue;

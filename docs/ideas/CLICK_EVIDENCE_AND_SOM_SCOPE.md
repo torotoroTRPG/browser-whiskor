@@ -1,6 +1,6 @@
 # Click evidence buffer + packed-SoM scope — fresh capture vs cached composition
 
-**Status:** design / proposed (2026-06-17)
+**Status:** design / proposed (2026-06-17) — §"Two-layer action reports" implemented (2026-07-05)
 
 ## Two ideas, one decision
 
@@ -73,6 +73,35 @@ Design points:
   image-return discussion in
   `local_issues/2026-06-17_capture-image-cache-and-disk-leak.md`) so text-only
   agents never pay for pixels they can't use.
+
+## Two-layer action reports (plan vs observed) — implemented 2026-07-05
+
+The evidence buffer above answers "what did it *look* like"; a cheaper, structural
+form of the same idea answers "what did the action *attempt* vs what *happened*" —
+and it needs no pixels, so it ships on every action result unconditionally.
+
+The report has two layers, and **the mismatch between them is the most important
+information an action can return** — a completed synthetic event sequence over a
+page that ignored it is the common silent failure, and `ok:true` alone hides it.
+
+- **`drag`** now returns `plan` / `observed` explicitly:
+  - `plan` — resolved *before* any event fires: `grabbed` (element descriptor),
+    `from`/`to`, `dropTargetUnderPoint` (what sat under the destination).
+  - `observed` — measured after an event-driven settle: `moved` (grabbed rect
+    actually changed), `grabbedDetached` (re-render replaced the node — common
+    for successful list reorders), `mutations` (MutationObserver count across
+    the action), `stateChanged` (url/title/dialog fingerprint), and
+    `dropReceivedBy` (what actually received the drop events).
+  - Nothing observed → `_hint` says the page likely needs HTML5 DnD with a real
+    DataTransfer / pointer events / trusted input.
+- **`click`** already had this shape before it had the name: `clickability`
+  (pre-flight analysis + strategy = the plan layer) and `diagnosis`
+  (post-click fingerprint diff = the observed layer). No structural change —
+  the two-layer reading applies as-is.
+
+The click-time **evidence buffer** (idea A) remains the future pixel-layer
+complement: plan/observed tells you *that* the page ignored a drag; the evidence
+thumbnail would show *what the target looked like* at that moment.
 
 ## Idea B in detail — packed-SoM scope
 

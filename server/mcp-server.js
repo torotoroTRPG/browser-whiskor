@@ -88,6 +88,13 @@ function setNavigateBroadcast(fn) {
   registry.setCallbacks({ _navigateBroadcast: fn });
 }
 
+// Premise-change feed drain: (tabId) → array of change lines, read-and-clear.
+// In-process in direct mode, GET /api/changes/:tabId?drain=1 under the proxy.
+// Attached centrally to tool results as _sinceYourLastLook (registry.callTool).
+function setDrainChanges(fn) {
+  registry.setCallbacks({ _drainChanges: fn || null });
+}
+
 function setConfigLog(log) {
   registry.setCallbacks({ _configLog: log });
 }
@@ -179,6 +186,7 @@ module.exports = {
   setSecurity,
   setIntelligenceCallbacks,
   setNavigateBroadcast,
+  setDrainChanges,
   setConfigLog,
   setSecretGuard,
   setRedactionStatus,

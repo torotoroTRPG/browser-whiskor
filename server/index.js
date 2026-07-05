@@ -406,6 +406,18 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     // type_secret resolves the secret value here on the worker (where secrets live),
     // so it works under the proxy — the agent/proxy only ever carry the ref name.
     actions.setSecretGuard(secretGuard);
+    // Premise-change feed: worker-side (the process that sees the WS events and
+    // runs the actions), so attribution windows and the drain endpoint work over
+    // MCP stdio, HTTP, and the proxy alike. See docs/ideas/PREMISE_CHANGE_FEED.md.
+    let changeFeed = null;
+    if (_cfg.agentControl?.changeFeed?.enabled !== false) {
+      const { ChangeFeed } = require('./change-feed');
+      changeFeed = new ChangeFeed({
+        maxEntries:    _cfg.agentControl?.changeFeed?.maxEntries,
+        actionTrailMs: _cfg.agentControl?.changeFeed?.actionTrailMs,
+      });
+    }
+    actions.setChangeFeed(changeFeed);
     // Secret-guard screenshot masking, resolved worker-side so it applies over MCP
     // stdio, HTTP, and the proxy forward alike (it used to be in the MCP tool and
     // was dead under the proxy). Reads the tab's already-redacted text-coords —
@@ -445,6 +457,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       conclusionCache,
       appRegistry,
       identity: IDENTITY,
+      changeFeed,
       initialConfig: {
         mode: 'always_on',
         plugins: _cfg.plugins || {},
@@ -1007,6 +1020,34 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         return sendJson(out);
       }
 
+      // GET /api/sessions/:tabId/layout-map — coarse ASCII layout map of the page
+      // (server/layout-map.js, shared with the get_layout_map MCP tool). Distinct
+      // from /api/sessions/:tabId/map, which renders the STATE GRAPH. Handled here
+      // because the catalog/viewport reads are async and core's non-action GET
+      // path serialises result.body without awaiting.
+      const layoutMapM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/layout-map$/);
+      if (layoutMapM) {
+        const tabId = parseInt(layoutMapM[1], 10);
+        if (appRegistry.enabled && !appRegistry.canAccess(httpAppId, core.getTabApp(tabId))) {
+          return sendJson({ error: 'Access denied: this tab belongs to another app' }, 403);
+        }
+        const catalog = await cache.readSessionFile(tabId, 'raw/ui/elements.json');
+        if (!catalog) {
+          return sendJson({ error: 'UI catalog not available (needed for the layout map). Trigger POST /api/collect for this tab first.' }, 404);
+        }
+        const viewport = await cache.readSessionFile(tabId, 'raw/visual/viewport.json');
+        const { renderLayoutMap } = require('./layout-map');
+        const sp = url.searchParams;
+        const legendQ = sp.get('legend');
+        const borderQ = sp.get('border');
+        const map = renderLayoutMap({ catalog, viewport }, {
+          width:  parseInt(sp.get('width'), 10) || undefined,
+          legend: legendQ == null ? undefined : !(legendQ === '0' || legendQ === 'false'),
+          border: borderQ === '1' || borderQ === 'true',
+        });
+        return sendJson(map);
+      }
+
       // Intercept POST /api/action for server-side action types
       if (method === 'POST' && p === '/api/action') {
         const tabId = body?.tabId;
@@ -1238,6 +1279,12 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     };
     mcp.setConfigLog(proxyConfigLog);
     mcp.setNavigateBroadcast(() => {});
+    // Premise-change feed lives on the worker; drain it over HTTP for the
+    // _sinceYourLastLook piggyback. Best-effort: a down worker yields [].
+    mcp.setDrainChanges(async (tabId) => {
+      try { return (await requestServer('GET', `/api/changes/${tabId}?drain=1`))?.changes || []; }
+      catch { return []; }
+    });
 
     // T11(b): the proxy process holds no secret guard — the secrets live in the
     // worker — so serverInfo's redaction notice was silently absent under the
@@ -1304,6 +1351,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     mcp.setConfigLog(configLog);
     mcp.setSecretGuard(secretGuard);
     mcp.setNavigateBroadcast((msg) => core.broadcast(msg));
+    // Premise-change feed drain, in-process (worker owns the feed).
+    mcp.setDrainChanges((tabId) => (core.changeFeed ? core.changeFeed.drain(tabId) : []));
     mcp.setIntelligenceCallbacks(correlator, sourceStore, cache);
     mcp.setDevExec(devExec, devStatus); // in-process gate/intake/audit/dispatch
     configLog.setAllowAgentConfig(_cfg.agentControl?.allowAgentConfig !== false);

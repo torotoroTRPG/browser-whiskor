@@ -63,6 +63,7 @@
     "type_secret":        { "enabled": true,  "category": "write" },
     "press_key":          { "enabled": true,  "category": "write" },
     "hover":              { "enabled": true,  "category": "write" },
+    "unhover":            { "enabled": true,  "category": "write" },
     "scroll_page":        { "enabled": true,  "category": "write" },
     "select_option":      { "enabled": true,  "category": "write" },
     "check_box":          { "enabled": true,  "category": "write" },

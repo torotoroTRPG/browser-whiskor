@@ -95,6 +95,9 @@ class WhiskorCore extends EventEmitter {
     this._conclusionCache = opts.conclusionCache  || null;
     this.appRegistry      = opts.appRegistry      || null;
     this.identity         = opts.identity         || null;
+    // Premise-change feed: per-tab ring buffer of EXTERNAL changes (outside every
+    // agent action window), piggybacked on the next tool response. Null = disabled.
+    this.changeFeed       = opts.changeFeed       || null;
 
     this.globalConfig = opts.initialConfig || {
       mode: 'always_on',
@@ -357,6 +360,7 @@ class WhiskorCore extends EventEmitter {
           if (typeof this.cache.markSessionClosed === 'function') this.cache.markSessionClosed(msg.tabId);
           this.somCache.evictTab(msg.tabId);
           this.somThumbs.evictTab(msg.tabId);
+          if (this.changeFeed) this.changeFeed.dropTab(msg.tabId); // a closed tab has no premise left
           this.broadcastToDashboard(msg);
         }
         break;
@@ -382,6 +386,11 @@ class WhiskorCore extends EventEmitter {
       case 'PAGE_NAVIGATED':
         // Invalidate conclusion cache — page state has changed, prior conclusions are stale
         if (this._conclusionCache) this._conclusionCache.invalidate(msg.tabId);
+        // External navigation (agent navigations happen inside an action window
+        // and are filtered by the feed's attribution rule).
+        if (this.changeFeed && msg.payload?.url) {
+          this.changeFeed.record(msg.tabId, { kind: 'navigate', note: `navigated: now at ${String(msg.payload.url).slice(0, 200)}` });
+        }
         await this.cache.handleMessage(msg);
         this.broadcastToDashboard(msg);
         break;
@@ -431,6 +440,14 @@ class WhiskorCore extends EventEmitter {
           clearTimeout(this._deferredDeltas.get(_mutTabId).timer);
           this._deferredDeltas.delete(_mutTabId);
         }
+        // Modal boundary → premise-change feed (flags set by the dom-mutations
+        // analyzer; external-only per the feed's attribution rule).
+        if (this.changeFeed && Array.isArray(msg.payload?.records)) {
+          for (const r of msg.payload.records) {
+            if (r && r.dialogAppeared) this.changeFeed.record(_mutTabId, { kind: 'modal', note: `modal opened: ${r.dialogSelector || r.targetSelector || 'dialog'}` });
+            else if (r && r.dialogRemoved) this.changeFeed.record(_mutTabId, { kind: 'modal', note: `modal closed: ${r.dialogSelector || r.targetSelector || 'dialog'}` });
+          }
+        }
         // Feed to correlator for causal-chain building
         if (this.correlator) {
           const newChains = this.correlator.addMessage(msg);
@@ -478,6 +495,14 @@ class WhiskorCore extends EventEmitter {
         const payload = msg.payload || {};
         const s = this.cache.getSessionData(msg.tabId);
         const prevVp = s?.viewport || null;
+        // External scroll → feed, coalesced: a burst stays ONE line whose `to` is
+        // the final position and whose `from` is what the agent last knew.
+        if (this.changeFeed && (Number.isFinite(payload.scrollX) || Number.isFinite(payload.scrollY))) {
+          this.changeFeed.record(msg.tabId, { kind: 'scroll', key: 'scroll', data: {
+            from: prevVp ? { x: prevVp.scrollX, y: prevVp.scrollY } : null,
+            to:   { x: payload.scrollX, y: payload.scrollY },
+          } });
+        }
         this.deltaEngine.addFrame(msg.tabId, {
           timestamp: Date.now(),
           viewport: { from: prevVp, to: payload },
@@ -895,6 +920,19 @@ class WhiskorCore extends EventEmitter {
       if (!Number.isFinite(maxNodes) || maxNodes <= 0) maxNodes = 40;
       maxNodes = Math.min(maxNodes, 200);
       return { status: 200, body: { siteVersion: sv, graph: generateAsciiGraph(sv, maxNodes) } };
+    }
+
+    // GET /api/changes/:tabId — premise-change feed: EXTERNAL changes (outside
+    // agent action windows) since the last drain. ?drain=1 reads AND clears
+    // (what the MCP proxy uses for the _sinceYourLastLook piggyback); without it,
+    // a non-destructive peek. In-memory only — see docs/ideas/PREMISE_CHANGE_FEED.md.
+    const changesM = p.match(/^\/api\/changes\/(\d+)$/);
+    if (method === 'GET' && changesM) {
+      const tabId = parseInt(changesM[1]);
+      if (!this.changeFeed) return { status: 200, body: { enabled: false, changes: [] } };
+      const drain = url.searchParams?.get?.('drain');
+      const changes = (drain === '1' || drain === 'true') ? this.changeFeed.drain(tabId) : this.changeFeed.peek(tabId);
+      return { status: 200, body: { enabled: true, changes } };
     }
 
     // GET /api/sessions/:tabId/raw/delta/smart.json  — smart delta data (in-memory)

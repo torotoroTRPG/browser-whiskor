@@ -643,6 +643,100 @@
   // register the text instead of dropping keystrokes they expect to arrive via IME.
   const CJK_RE = /[　-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ가-힯]/;
 
+  // ── Hover lifecycle ──────────────────────────────────────────────────────────
+  // A real mouse leaves an element when it moves elsewhere; a synthetic hover does
+  // not — nothing ever fires mouseleave, so hover-opened menus/tooltips stay pinned
+  // forever (confirmed live). Track the last element our mouse events "parked" on,
+  // so (a) `unhover` can end it explicitly and (b) the next mouse action on a
+  // DIFFERENT element releases it automatically — the physical truth that one
+  // pointer cannot be in two places at once.
+  let HOVER_STATE = null; // { el, target, at } — set by hover/click, cleared on release
+
+  // Fire the leave sequence a real pointer move produces: mouseout (bubbles,
+  // relatedTarget = where the pointer went) on the left element, then the
+  // non-bubbling mouseleave on it and every ancestor the pointer actually exits.
+  // Ancestors that still contain the destination keep their hover — so a wrapper
+  // holding both a trigger and its menu never sees a spurious leave, matching
+  // how "close on mouseleave" logic experiences a physical mouse.
+  function fireLeaveChain(el, toEl) {
+    const rel = toEl || document.documentElement;
+    try { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, cancelable: true, view: window, relatedTarget: rel })); } catch (_) {}
+    let n = el;
+    while (n && n.nodeType === 1) {
+      if (toEl && n.contains(toEl)) break;
+      try { n.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false, cancelable: false, view: window, relatedTarget: rel })); } catch (_) {}
+      n = n.parentElement;
+    }
+  }
+
+  // Auto-release the tracked hover before a mouse action lands on `newEl`.
+  // Returns the note attached to the action result as `hoverReleased`, or null
+  // when nothing was released — including when `newEl` is INSIDE the hovered
+  // element, where a real mouse would still be over it (clicking an item of a
+  // hover-opened menu must not close the menu first).
+  function releaseHover(newEl) {
+    if (!HOVER_STATE) return null;
+    const prev = HOVER_STATE;
+    const old = prev.el;
+    if (newEl && old && (old === newEl || old.contains(newEl))) return null; // still inside — keep hovering
+    HOVER_STATE = null;
+    if (!old || !document.contains(old)) return { target: prev.target, note: 'previously hovered element had already left the DOM (no leave events fired)' };
+    fireLeaveChain(old, newEl || null);
+    return { target: prev.target };
+  }
+
+  // Park the pointer on `el` after mouseover/mouseenter were dispatched there —
+  // only those sites create the stuck-:hover problem the tracking exists to fix.
+  function parkHover(el) {
+    HOVER_STATE = { el, target: describeTarget(el), at: Date.now() };
+  }
+
+  // ── Declarative key hold (while:{keys:[...]}) ────────────────────────────────
+  // click/drag accept while:{keys:['Shift']}: the keys go down, the mouse
+  // sequence runs with the matching modifier flags on every mouse event, and the
+  // keys come back up — all inside ONE action. There is no separate "hold" and
+  // "release" call to forget, so the page can never be stranded with a modifier
+  // stuck down. Modifier names set the flags; any other key (games) is held as a
+  // plain keydown/keyup pair around the action.
+  const WHILE_MODS = { Control: 'ctrlKey', Ctrl: 'ctrlKey', Meta: 'metaKey', Command: 'metaKey', Cmd: 'metaKey', Shift: 'shiftKey', Alt: 'altKey', Option: 'altKey' };
+  const WHILE_KEY_INFO = {
+    Shift:   { key: 'Shift',   code: 'ShiftLeft',   keyCode: 16, which: 16 },
+    Control: { key: 'Control', code: 'ControlLeft', keyCode: 17, which: 17 },
+    Ctrl:    { key: 'Control', code: 'ControlLeft', keyCode: 17, which: 17 },
+    Alt:     { key: 'Alt',     code: 'AltLeft',     keyCode: 18, which: 18 },
+    Option:  { key: 'Alt',     code: 'AltLeft',     keyCode: 18, which: 18 },
+    Meta:    { key: 'Meta',    code: 'MetaLeft',    keyCode: 91, which: 91 },
+    Cmd:     { key: 'Meta',    code: 'MetaLeft',    keyCode: 91, which: 91 },
+    Command: { key: 'Meta',    code: 'MetaLeft',    keyCode: 91, which: 91 },
+  };
+
+  function parseWhile(action) {
+    const w = action.while;
+    const keys = w && Array.isArray(w.keys) ? w.keys.filter(k => typeof k === 'string' && k) : null;
+    if (!keys || !keys.length) return null;
+    const flags = { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false };
+    for (const k of keys) { const f = WHILE_MODS[k]; if (f) flags[f] = true; }
+    return { keys, flags };
+  }
+
+  // Press the held keys down and return an idempotent release function, so every
+  // exit path of an action can call it without double-firing keyup.
+  function holdWhileKeys(w, target) {
+    const t = target || document.activeElement || document.body;
+    const info = (k) => WHILE_KEY_INFO[k] || keyInfo(k);
+    for (const k of w.keys) {
+      try { t.dispatchEvent(new KeyboardEvent('keydown', { ...info(k), bubbles: true, cancelable: true, ...w.flags })); } catch (_) {}
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const k of [...w.keys].reverse()) {
+        try { t.dispatchEvent(new KeyboardEvent('keyup', { ...info(k), bubbles: true, cancelable: true, ...w.flags })); } catch (_) {}
+      }
+    };
+  }
+
   // ── Action handlers ──────────────────────────────────────────────────────────
 
   const handlers = {
@@ -651,6 +745,7 @@
       const el = resolveTarget(action);
       if (!el) return { ok: false, error: `Element not found: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
 
+      const whileHold = parseWhile(action);
       const analyzer = window.__SI_CLICKABILITY__;
       if (analyzer) {
         let report = analyzer.analyzeClickability(el);
@@ -664,6 +759,11 @@
           return { ok: false, error: 'Element is obstructed', clickability: analyzer.cleanReport(report) };
         }
 
+        // The pointer moves here from wherever it was parked — release any
+        // prior hover BEFORE the pre-click fingerprint, so its side effects
+        // (e.g. a tooltip closing) are not misattributed to the click.
+        const hoverReleased = releaseHover(el);
+
         if (!report.inViewport) {
           scrollIntoView(el);
           const vp = analyzer._internal.checkViewport(el);
@@ -675,6 +775,12 @@
 
         report.recommendedStrategy = analyzer._internal.selectStrategy(report);
         report.strategyUsed = report.recommendedStrategy;
+        // Held modifiers can only ride dispatched mouse events — el.click() and
+        // programmatic handler invocation carry no modifier flags. Force the
+        // event-dispatch strategy so while:{keys} is never silently dropped.
+        if (whileHold && (report.strategyUsed === 'direct' || report.strategyUsed === 'programmatic')) {
+          report.strategyUsed = 'native';
+        }
 
         if (report.strategyUsed === 'none') {
           return { ok: false, error: 'No valid click strategy available', clickability: analyzer.cleanReport(report) };
@@ -769,8 +875,9 @@
           }
         } else {
           const btn = action.button === 'right' ? 2 : action.button === 'middle' ? 1 : 0;
-          const evOpts = { bubbles: true, cancelable: true, view: window, button: btn };
+          const evOpts = { bubbles: true, cancelable: true, view: window, button: btn, ...(whileHold ? whileHold.flags : {}) };
           const dispatch = (type) => el.dispatchEvent(new MouseEvent(type, evOpts));
+          const releaseKeys = whileHold ? holdWhileKeys(whileHold, el) : null;
           if (action.double) {
             dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
             dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
@@ -780,6 +887,8 @@
             dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
             dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
           }
+          if (releaseKeys) releaseKeys();
+          parkHover(el); // mouseover was dispatched: the pointer now rests here
         }
 
         // Framework re-render と SPA/Turbo の非同期遷移の解決をイベント駆動で待つ
@@ -794,16 +903,20 @@
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
           ...canvasNote(el),
+          ...(hoverReleased ? { hoverReleased } : {}),
+          ...(whileHold ? { heldKeys: whileHold.keys } : {}),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
       }
 
       // Fallback: Analyzer is disabled
+      const hoverReleased = releaseHover(el);
       scrollIntoView(el);
       const btn = action.button === 'right' ? 2 : action.button === 'middle' ? 1 : 0;
-      const evOpts = { bubbles: true, cancelable: true, view: window, button: btn };
+      const evOpts = { bubbles: true, cancelable: true, view: window, button: btn, ...(whileHold ? whileHold.flags : {}) };
       const dispatch = (type) => el.dispatchEvent(new MouseEvent(type, evOpts));
+      const releaseKeys = whileHold ? holdWhileKeys(whileHold, el) : null;
 
       if (action.double) {
         dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
@@ -814,8 +927,10 @@
         dispatch('mouseover'); dispatch('mouseenter'); dispatch('mousemove');
         dispatch('mousedown'); dispatch('mouseup'); dispatch('click');
       }
+      if (releaseKeys) releaseKeys();
+      parkHover(el); // mouseover was dispatched: the pointer now rests here
 
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}), ...(whileHold ? { heldKeys: whileHold.keys } : {}) };
     },
 
     type(action) {
@@ -984,12 +1099,35 @@
     hover(action) {
       const el = resolveTarget(action);
       if (!el) return { ok: false, error: 'Element not found for hover' };
+      const hoverReleased = releaseHover(el); // one pointer: leave the previous element first
       scrollIntoView(el);
       const opts = { bubbles: true, cancelable: true, view: window };
       el.dispatchEvent(new MouseEvent('mouseover',  opts));
       el.dispatchEvent(new MouseEvent('mouseenter', opts));
       el.dispatchEvent(new MouseEvent('mousemove',  opts));
-      return { ok: true, tagName: el.tagName, ...textMatchNote(action), ...canvasNote(el) };
+      parkHover(el);
+      return { ok: true, tagName: el.tagName, hovering: true,
+               ...(hoverReleased ? { hoverReleased } : {}),
+               ...textMatchNote(action), ...canvasNote(el) };
+    },
+
+    unhover(action) {
+      // Explicit end of a hover. With selector/text it releases that element
+      // (even one this executor never hovered); with no target it releases
+      // whatever the last hover/click parked the pointer on. The pointer
+      // "moves away" entirely (relatedTarget = <html>).
+      let el;
+      if (action.selector || action.text) {
+        el = resolveTarget(action);
+        if (!el) return { ok: false, error: `Element not found for unhover: ${JSON.stringify({ selector: action.selector, text: action.text })}` };
+      } else {
+        if (!HOVER_STATE) return { ok: true, released: false, note: 'Nothing is hovered — no tracked hover to release.' };
+        el = HOVER_STATE.el;
+      }
+      if (HOVER_STATE && HOVER_STATE.el === el) HOVER_STATE = null;
+      if (!el || !document.contains(el)) return { ok: true, released: false, note: 'Hovered element had already left the DOM.' };
+      fireLeaveChain(el, null);
+      return { ok: true, released: true, target: describeTarget(el), ...textMatchNote(action) };
     },
 
     async mouse_scroll(action) {
@@ -999,6 +1137,7 @@
       const deltaY = action.deltaY != null ? action.deltaY : (action.lines ? action.lines * 100 : 0);
 
       const el = document.elementFromPoint(x, y) || document.body;
+      const hoverReleased = releaseHover(el); // wheeling at (x,y) implies the pointer moved there
       const evOpts = {
         bubbles: true, cancelable: true, view: window,
         clientX: x, clientY: y, deltaX, deltaY, deltaMode: 0,
@@ -1051,6 +1190,7 @@
       return {
         ok: true, at: { x: x + window.scrollX, y: y + window.scrollY }, delta: { deltaX, deltaY },
         scrolled, ...(via ? { via } : {}), ...(consumed ? { handledByPage: true } : {}),
+        ...(hoverReleased ? { hoverReleased } : {}),
         before, after,
         ...(scrolled ? {} : { _hint: consumed
           ? 'A wheel handler consumed the event (preventDefault) but no scroll position changed — the page may track scroll state internally (canvas/virtual view); verify visually or via capture.'
@@ -1075,6 +1215,7 @@
           return { ok: false, error: 'Element is obstructed', clickability: analyzer.cleanReport(report) };
         }
 
+        const hoverReleased = releaseHover(el); // pointer moves here before the context click
         scrollIntoView(el);
         report.strategyUsed = 'native'; // Context menu は常に native
         const fp = analyzer.capturePreClickFingerprint(el);
@@ -1095,16 +1236,18 @@
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
           ...canvasNote(el),
+          ...(hoverReleased ? { hoverReleased } : {}),
           clickability: analyzer.cleanReport(report),
           diagnosis
         };
       }
 
       // Fallback
+      const hoverReleased = releaseHover(el);
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}) };
     },
 
     analyze_click(action) {
@@ -1116,7 +1259,7 @@
       return { ok: true, clickability: analyzer.cleanReport(report) };
     },
 
-    drag(action) {
+    async drag(action) {
       const fromX = action.fromX != null ? action.fromX : (action.fromSelector ? (() => { const el = findBySelector(action.fromSelector); const r = el.getBoundingClientRect(); return r.left + window.scrollX + r.width/2; })() : null);
       const fromY = action.fromY != null ? action.fromY : (action.fromSelector ? (() => { const el = findBySelector(action.fromSelector); const r = el.getBoundingClientRect(); return r.top + window.scrollY + r.height/2; })() : null);
       const toX   = action.toX;
@@ -1134,13 +1277,47 @@
       const el = document.elementFromPoint(clientFromX, clientFromY);
       if (!el) return { ok: false, error: `No element at drag start (${fromX},${fromY})` };
 
+      const hoverReleased = releaseHover(el); // pointer moves to the grab point first
+      const whileHold = parseWhile(action);
+
+      // ── plan: what this drag is ABOUT to attempt, resolved before any event ──
+      // fires. The observed block below reports what actually happened; the
+      // difference between the two is the most important information a drag can
+      // return (a "successful" event sequence over a page that ignored it is the
+      // common silent failure).
+      const dropUnder = document.elementFromPoint(clientToX, clientToY);
+      const plan = {
+        grabbed: describeTarget(el),
+        from: { x: fromX, y: fromY },
+        to:   { x: toX, y: toY },
+        dropTargetUnderPoint: dropUnder ? describeTarget(dropUnder) : null,
+      };
+
+      const readRect = (e) => {
+        try { const r = e.getBoundingClientRect(); return { x: Math.round(r.left + window.scrollX), y: Math.round(r.top + window.scrollY), w: Math.round(r.width), h: Math.round(r.height) }; }
+        catch (_) { return null; }
+      };
+      const rectBefore = readRect(el);
+      const fp = { url: location.href, title: document.title,
+                   dialogCount: document.querySelectorAll('[role="dialog"], [role="alertdialog"]').length };
+      let mutations = 0, mo = null;
+      try {
+        mo = new MutationObserver((recs) => { mutations += recs.length; });
+        mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+      } catch (_) {}
+
       const evOpts = (cx, cy) => ({
         bubbles: true, cancelable: true, view: window,
         clientX: cx, clientY: cy, screenX: cx, screenY: cy,
+        buttons: 1, ...(whileHold ? whileHold.flags : {}),
       });
 
+      const releaseKeys = whileHold ? holdWhileKeys(whileHold, el) : null;
       el.dispatchEvent(new MouseEvent('mousedown', evOpts(clientFromX, clientFromY)));
       document.dispatchEvent(new MouseEvent('mousemove', evOpts(clientFromX, clientFromY)));
+      // Midpoint move: drag libraries commonly ignore a two-point jump (they
+      // need a movement threshold crossed while the button is down).
+      document.dispatchEvent(new MouseEvent('mousemove', evOpts((clientFromX + clientToX) / 2, (clientFromY + clientToY) / 2)));
       document.dispatchEvent(new MouseEvent('mousemove', evOpts(clientToX, clientToY)));
       const targetEl = document.elementFromPoint(clientToX, clientToY);
       if (targetEl && targetEl !== el) {
@@ -1151,8 +1328,35 @@
       if (targetEl && targetEl !== el) {
         targetEl.dispatchEvent(new MouseEvent('drop', evOpts(clientToX, clientToY)));
       }
+      if (releaseKeys) releaseKeys();
 
-      return { ok: true, from: { x: fromX, y: fromY }, to: { x: toX, y: toY }, targetTag: targetEl?.tagName };
+      // ── observed: give async reactions (React DnD reorders on next render,
+      // fetch → re-render) a beat to land, then report what actually happened.
+      await waitForClickSettle(fp, el, 600);
+      try { mo && mo.disconnect(); } catch (_) {}
+      const detached = !document.contains(el);
+      const rectAfter = detached ? null : readRect(el);
+      const moved = !!(rectBefore && rectAfter &&
+        (Math.abs(rectAfter.x - rectBefore.x) > 1 || Math.abs(rectAfter.y - rectBefore.y) > 1));
+      const dialogsNow = document.querySelectorAll('[role="dialog"], [role="alertdialog"]').length;
+      const observed = {
+        moved,
+        ...(detached ? { grabbedDetached: true } : {}), // re-render replaced the node: common for successful list reorders
+        rectBefore, rectAfter,
+        mutations,
+        stateChanged: location.href !== fp.url || document.title !== fp.title || dialogsNow !== fp.dialogCount || detached,
+        dropReceivedBy: targetEl ? describeTarget(targetEl) : null,
+      };
+
+      const result = { ok: true, plan, observed,
+        // Back-compat top-level fields (older consumers/tests read these).
+        from: plan.from, to: plan.to, targetTag: targetEl?.tagName,
+        ...(hoverReleased ? { hoverReleased } : {}),
+        ...(whileHold ? { heldKeys: whileHold.keys } : {}) };
+      if (!moved && !detached && mutations === 0) {
+        result._hint = 'The event sequence completed but NOTHING observable happened (no movement, no mutations). The page likely ignores synthetic drags: it may need HTML5 dragstart with a real DataTransfer, pointer events, or trusted input. Check plan.dropTargetUnderPoint vs observed.dropReceivedBy for where the drop actually landed.';
+      }
+      return result;
     },
 
     async scroll(action) {

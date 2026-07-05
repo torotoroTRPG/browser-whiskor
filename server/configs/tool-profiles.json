@@ -49,13 +49,13 @@
   "advanced-actions": {
     "description": "Complex browser interactions. Auto-loads when AI needs drag, hover, or select.",
     "tools": [
-      "drag", "hover", "select_option", "check_box",
+      "drag", "hover", "unhover", "select_option", "check_box",
       "mouse_scroll", "right_click", "press_key", "type_secret",
       "go_back", "go_forward", "reload_page", "scroll_page"
     ],
     "autoUnload": true,
     "idleTurns": 5,
-    "triggers": ["drag", "hover", "select", "checkbox", "scroll", "right-click", "key", "back", "forward", "reload", "secret", "password", "credential"]
+    "triggers": ["drag", "hover", "unhover", "select", "checkbox", "scroll", "right-click", "key", "back", "forward", "reload", "secret", "password", "credential"]
   },
 
   "tabs": {

@@ -89,6 +89,28 @@ function getToolNames() {
   return _tools.map(t => t.name);
 }
 
+// ── Premise-change feed piggyback ─────────────────────────────────────────────
+// MCP is pull-only: the only channel that reliably reaches the agent is the next
+// tool response. Attach EXTERNAL page changes (recorded by the worker's change
+// feed, outside every action window) as `_sinceYourLastLook` to any tool result
+// whose args carry a tabId. Central here so every current and future tool
+// participates; zero footprint when the tab's feed is empty. Reading drains the
+// feed — "since your last look" is literal. Precedent: `_systemMessage`.
+async function _attachChangeFeed(result, args) {
+  const drain = _callbacks && _callbacks._drainChanges;
+  if (typeof drain !== 'function') return result;
+  const tabId = args && (typeof args.tabId === 'number' ? args.tabId : parseInt(args.tabId, 10));
+  if (!Number.isFinite(tabId)) return result;
+  try {
+    const changes = await drain(tabId);
+    if (Array.isArray(changes) && changes.length &&
+        result && typeof result === 'object' && !Array.isArray(result)) {
+      return { ...result, _sinceYourLastLook: changes };
+    }
+  } catch (_) { /* the feed is ambient context — never fail a tool call over it */ }
+  return result;
+}
+
 // ── Tool Execution ────────────────────────────────────────────────────────────
 async function callTool(name, args) {
   const handler = _handlers[name];
@@ -140,14 +162,14 @@ async function callTool(name, args) {
 
     try {
       const result = await handler(args, { ..._callbacks, _toolManager, _sessionId, _allTools: getAllTools(), _config: _serverConfig });
-      return { ...result, ...responseExtras };
+      return await _attachChangeFeed({ ...result, ...responseExtras }, args);
     } catch (e) {
       return { ok: false, error: e.message, ...responseExtras };
     }
   }
 
   try {
-    return await handler(args, _callbacks);
+    return await _attachChangeFeed(await handler(args, _callbacks), args);
   } catch (e) {
     return { ok: false, error: e.message };
   }

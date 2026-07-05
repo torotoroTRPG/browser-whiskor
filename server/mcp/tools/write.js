@@ -17,6 +17,16 @@ const OBSERVE_SCHEMA = {
   },
 };
 
+// Premise gate for actions whose plan depends on the page still being what the
+// agent last saw. External changes (scroll/modal/navigation outside your own
+// action windows) also arrive on every response as _sinceYourLastLook.
+const PREMISE_SCHEMA = {
+  abortOnPremiseChange: {
+    type: 'boolean',
+    description: 'If the page changed EXTERNALLY since your last look (scroll/modal/navigation you did not cause — the premise-change feed), abort WITHOUT executing and return aborted:"premise_changed" with the changes. Use when your target was chosen from a possibly-stale read. Default false: pending changes still ride back on the response as _sinceYourLastLook, the action just proceeds.',
+  },
+};
+
 /**
  * Observe the page state hash before and after an action so the agent learns
  * whether the action actually transitioned the UI — without a separate read.
@@ -202,8 +212,10 @@ module.exports = function registerWriteTools(registry) {
           double:   { type: 'boolean', description: 'Double-click instead of single click (default: false)' },
           button:   { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button (default: left)' },
           dialog:   { type: 'object', description: 'How to auto-answer native dialogs this action triggers (they never block the page): { confirm: boolean (default true = OK), prompt: string|null (default null = Cancel) }. alert is always auto-dismissed. Any dialog that fires is returned in result.dialogs with its content, response, and causality (direct/indirect/none).' },
+          while:    { type: 'object', description: 'Declarative key hold for THIS click only: { keys: ["Shift"] } presses the keys down, runs the click with matching modifier flags (Ctrl/Shift/Alt/Meta ride every mouse event), then releases — hold and release complete inside the one action, so a key can never be left stuck down. Non-modifier keys (games) are held as plain keydown/keyup around the click. Example: {"keys":["Ctrl"]} for multi-select, {"keys":["Shift"]} for range-select.' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -220,6 +232,8 @@ module.exports = function registerWriteTools(registry) {
         double:   args.double,
         button:   args.button,
         dialog:   args.dialog,
+        while:    args.while,
+        abortOnPremiseChange: args.abortOnPremiseChange,
         inputMode: _inputMode(cb),
       }, args);
     },
@@ -273,6 +287,7 @@ module.exports = function registerWriteTools(registry) {
           dialog:     { type: 'object', description: 'How to auto-answer native dialogs this action triggers (they never block the page): { confirm: boolean (default true), prompt: string|null }. alert is always auto-dismissed. Triggered dialogs are returned in result.dialogs with content and causality.' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -288,6 +303,7 @@ module.exports = function registerWriteTools(registry) {
         submitOnFail: onFail,
         pressEnter:   args.pressEnter,
         dialog:       args.dialog,
+        abortOnPremiseChange: args.abortOnPremiseChange,
         inputMode:    _inputMode(cb),
       }, args);
     },
@@ -360,7 +376,7 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'hover',
-      description: 'Hover over an element (fires mouseover, mouseenter, mousemove). Useful for revealing dropdown menus or tooltips.',
+      description: 'Hover over an element (fires mouseover, mouseenter, mousemove). Useful for revealing dropdown menus or tooltips. The hover STAYS until released: it auto-releases (mouseout/mouseleave fire) when your next mouse action touches a different element — one pointer cannot be in two places — or end it explicitly with unhover. When an auto-release happened, the action result carries `hoverReleased` with the element that was left.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -375,6 +391,28 @@ module.exports = function registerWriteTools(registry) {
     },
     handler: async (args, cb) => {
       return observeAction(cb, args.tabId, { type: 'hover', selector: args.selector, text: args.text }, args);
+    },
+  });
+
+  // 24b. unhover
+  tools.push({
+    definition: {
+      name: 'unhover',
+      description: 'End a hover: fires mouseout and the mouseleave chain, closing hover-opened menus/tooltips. Synthetic hover never ends on its own — a real mouse leaves when it moves away, so use this when you opened something with hover and want it closed WITHOUT touching another element (clicking elsewhere would auto-release but also click). With no selector/text it releases whatever hover/click last parked the pointer on; released:false with a note means nothing was hovered.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:    { type: 'number', description: 'Tab ID' },
+          selector: { type: 'string', description: 'CSS selector of the element to un-hover (default: the currently tracked hover)' },
+          text:     { type: 'string', description: 'Visible text of the element to un-hover (fallback if selector is absent)' },
+          timeoutMs: { type: 'number' },
+          ...OBSERVE_SCHEMA,
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      return observeAction(cb, args.tabId, { type: 'unhover', selector: args.selector, text: args.text }, args);
     },
   });
 
@@ -467,7 +505,7 @@ module.exports = function registerWriteTools(registry) {
   tools.push({
     definition: {
       name: 'drag',
-      description: 'Drag from one position to another on the page. Fires mousedown → mousemove → mouseup with dragenter/dragover/drop events for HTML5 drag-and-drop compatibility. Use absolute page coordinates or CSS selectors.',
+      description: 'Drag from one position to another on the page. Fires mousedown → mousemove(×3) → mouseup with dragenter/dragover/drop events for HTML5 drag-and-drop compatibility. Use absolute page coordinates or CSS selectors. The result is two-layered: `plan` (what was attempted — grabbed element, from/to, what sat under the drop point) vs `observed` (what actually happened — moved, mutations, stateChanged, dropReceivedBy). A completed event sequence with an empty `observed` means the page ignored the synthetic drag — the plan/observed mismatch is the signal to read, not ok:true.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -477,8 +515,10 @@ module.exports = function registerWriteTools(registry) {
           toX:          { type: 'number', description: 'Absolute X coordinate of drag end' },
           toY:          { type: 'number', description: 'Absolute Y coordinate of drag end' },
           fromSelector: { type: 'string', description: 'CSS selector of drag source (alternative to fromX/fromY — uses element center)' },
+          while:        { type: 'object', description: 'Declarative key hold for THIS drag only: { keys: ["Shift"] } presses the keys down, runs the whole drag with matching modifier flags on every mouse event, then releases. Hold and release complete inside the one action — no stuck keys.' },
           timeoutMs:    { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -491,6 +531,8 @@ module.exports = function registerWriteTools(registry) {
         toX:         args.toX,
         toY:         args.toY,
         fromSelector: args.fromSelector,
+        while:       args.while,
+        abortOnPremiseChange: args.abortOnPremiseChange,
       }, args);
     },
   });

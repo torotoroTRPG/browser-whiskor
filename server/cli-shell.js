@@ -46,6 +46,8 @@ function baseCatalog() {
     { cat: 'session', text: 'GET /api/search?q=',           desc: 'Cross-session text search (fill q=term)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/visual/text-coords.json', desc: 'Text + on-page coordinates (get_text_coords data)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/ui/elements.json', desc: 'UI catalog: buttons/inputs/links (get_ui_catalog data)' },
+    { cat: 'session', text: 'GET /api/sessions/:tabId/layout-map',           desc: 'ASCII layout map of the page (get_layout_map data; ?width=&legend=&border=)' },
+    { cat: 'session', text: 'GET /api/changes/:tabId',                       desc: 'Premise-change feed: external changes since last look (?drain=1 = read+clear)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/delta/smart.json', desc: 'Smart delta (aggregated motion)' },
     { cat: 'session', text: 'DELETE /api/sessions/:tabId',  desc: 'Delete a session' },
 
@@ -71,7 +73,8 @@ function baseCatalog() {
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"analyze_click","selector":""}}', desc: 'Dry-run clickability report (no side effects)' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"type","selector":"","text":"","clear":true}}', desc: 'Type into an input' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"press_key","key":"Enter"}}',    desc: 'Press a key (Enter/Tab/Escape/Arrow…)' },
-    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"hover","selector":""}}',        desc: 'Hover an element' },
+    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"hover","selector":""}}',        desc: 'Hover an element (stays until unhover / next mouse action)' },
+    { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"unhover"}}',                    desc: 'Release the current hover (fires mouseout/mouseleave)' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"scroll","deltaY":500}}',        desc: 'Scroll the page' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"navigate","url":"https://"}}',  desc: 'Navigate the tab to a URL' },
     { cat: 'action', text: 'POST /api/action {"tabId":0,"action":{"type":"go_back"}}',                    desc: 'History back' },

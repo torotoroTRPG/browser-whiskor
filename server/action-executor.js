@@ -30,6 +30,13 @@ function setSomStats(s) { _somStats = s; }
 let _secretGuard = null;
 function setSecretGuard(g) { _secretGuard = g; }
 
+// Worker-side premise-change feed, injected (nullable → no-op). Actions mark
+// their execution window here so the feed can attribute page changes: inside a
+// window = the action's own effect (its result reports it), outside = external
+// (delivered as _sinceYourLastLook). See change-feed.js.
+let _changeFeed = null;
+function setChangeFeed(f) { _changeFeed = f; }
+
 // Resolve action.secretRef → action.text. Returns an error result to short-circuit
 // the dispatch, or null to proceed (action mutated in place via the returned copy).
 function _resolveSecretRef(action) {
@@ -71,18 +78,40 @@ function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (_somStats && action.type === 'click' && action.text) {
     try { _somStats.record(action.text); } catch (_) {}
   }
+  // Prospective premise gate: with abortOnPremiseChange, external changes pending
+  // in the feed abort the action BEFORE it executes — the agent decided its plan
+  // depends on the page still being what it last saw. Peek (not drain): the
+  // changes ride back on this same response via the central piggyback.
+  if (_changeFeed && action.abortOnPremiseChange === true) {
+    const changes = _changeFeed.peek(tabId);
+    if (changes.length) {
+      return Promise.resolve({ ok: false, aborted: 'premise_changed', changes,
+        error: 'Aborted before execution: the page changed since your last look (abortOnPremiseChange=true). Review `changes`, re-read if needed, then retry.' });
+    }
+  }
   return new Promise((resolve, reject) => {
     const actionId = randomUUID();
+    // Attribution window: changes observed while this action runs (plus a short
+    // trail after it resolves) are the action's own effects, not external ones.
+    if (_changeFeed) _changeFeed.beginActionWindow(tabId);
+    let windowClosed = false;
+    const closeWindow = () => {
+      if (windowClosed) return;
+      windowClosed = true;
+      if (_changeFeed) _changeFeed.endActionWindow(tabId);
+    };
     const timer = setTimeout(() => {
       pending.delete(actionId);
+      closeWindow();
       reject(new Error(`Action timed out after ${timeoutMs}ms: ${action.type}`));
     }, timeoutMs);
 
-    pending.set(actionId, { resolve, reject, timer, startedAt: Date.now() });
+    pending.set(actionId, { resolve, reject, timer, startedAt: Date.now(), closeWindow });
 
     if (!_broadcast) {
       clearTimeout(timer);
       pending.delete(actionId);
+      closeWindow();
       return reject(new Error('No broadcast function set — server not ready'));
     }
 
@@ -104,6 +133,7 @@ function handleResult(msg) {
   if (!p) return; // timed out or unknown
   clearTimeout(p.timer);
   pending.delete(actionId);
+  if (p.closeWindow) p.closeWindow();
 
   if (ok) {
     p.resolve({ ok: true, result: result || null, durationMs: Date.now() - p.startedAt });
@@ -114,4 +144,4 @@ function handleResult(msg) {
 
 function pendingCount() { return pending.size; }
 
-module.exports = { setBroadcast, setSomStats, setSecretGuard, execute, handleResult, pendingCount };
+module.exports = { setBroadcast, setSomStats, setSecretGuard, setChangeFeed, execute, handleResult, pendingCount };

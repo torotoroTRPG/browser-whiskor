@@ -466,6 +466,13 @@
       "_comment_ja": "type_text(submit:'auto') が送信キーを推論できなかった時の既定動作。type-only=テキストだけ入力し送信は諦めて理由を返す / abort=入力もせず返す。per-call の onFail 引数で上書き可",
       "onFail": "type-only"
     },
+    "changeFeed": {
+      "_comment_en": "Premise-change feed: per-tab buffer of EXTERNAL page changes (scroll/modal/navigation outside agent action windows), piggybacked on the next tool response as _sinceYourLastLook (read = clear; GET /api/changes/:tabId for HTTP agents). actionTrailMs: grace after an action resolves during which changes still count as the action's own. See docs/ideas/PREMISE_CHANGE_FEED.md.",
+      "_comment_ja": "前提変化feed: アクション実行窓の外で起きたページ変化（scroll/modal/遷移）をタブ別リングバッファに貯め、次のツール応答へ _sinceYourLastLook として同乗させる（読んだら既読クリア）。actionTrailMs はアクション解決後も自分の効果とみなす猶予",
+      "enabled": true,
+      "maxEntries": 50,
+      "actionTrailMs": 1500
+    },
     "duplicateDetection": {
       "_comment_ja": "同じ操作の繰り返し検出と警告の設定",
       "enabled": true,
