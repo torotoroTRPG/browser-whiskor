@@ -1,6 +1,6 @@
 # Speculative reverse edges — navigation beyond URL substitution
 
-**Status:** S0–S2 implemented (2026-07-10); S3–S4 design only
+**Status:** S0–S3 implemented (2026-07-10); S4 design only
 
 ## Problem
 
@@ -179,6 +179,16 @@ text; a URL change → replayable `navigate` edge; otherwise an
 3. **S3 — fuzzy target resolution.** Promote `_findSimilarStates` to target
    resolution with a `mode` parameter and honest `matched:'fuzzy'` reporting;
    relax intermediate-step verification to final-state-or-similar.
+
+   As implemented: `mode` = `strict` (exact hash or nothing) / `auto`
+   (default — exact first; when unreachable, resolve once to the best
+   REACHABLE equivalent scoring ≥ `minSimilarity`, default 1.0 on the
+   `_findSimilarStates` scale where same-URL alone is 1.5) / `fuzzy`
+   (additionally accept a final state similar to the target). Results carry
+   `matched:'exact'|'fuzzy'`, `similarity`, `requestedTarget` and the
+   `resolution` details — `exactMatch` never lies. Observed-edge step drift
+   already tolerated (recorded + continue); speculative steps stay
+   exact-verified in every mode, since that is what earns them.
 4. **S4 — dismiss-control heuristics + explorer pre-verification.** Label-based
    close-button candidates; optionally let the explorer verify speculative
    edges proactively so agent-facing navigation rarely pays the trial cost.

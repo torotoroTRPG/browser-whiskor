@@ -26,11 +26,12 @@ const store = require('../../server/state-store');
 const SV_EARN = '__unit_spec_earn__';
 const SV_FAIL = '__unit_spec_fail__';
 const SV_DLG  = '__unit_spec_dialog__';
+const SV_FUZZ = '__unit_spec_fuzzy__';
 const GRAPH_DIR = process.env.WHISKOR_GRAPH_DIR
   || fileURLToPath(new URL('../../cache/graphs/', import.meta.url));
 
 after(() => {
-  for (const sv of [SV_EARN, SV_FAIL, SV_DLG]) {
+  for (const sv of [SV_EARN, SV_FAIL, SV_DLG, SV_FUZZ]) {
     try { fs.rmSync(path.join(GRAPH_DIR, `${sv}.json.gz`), { force: true }); } catch (_) {}
   }
 });
@@ -219,6 +220,58 @@ describe('S1 navigate — failed guess', () => {
     assert.deepStrictEqual(byFrom, {}, 'blacklisted guess must not resurface');
     // And nothing was persisted for it.
     assert.ok(!store.getGraph(SV_FAIL).edges.hashB?.['go_back:?'], 'failed guess must not be persisted');
+  });
+});
+
+// ── S3: fuzzy target resolution ──────────────────────────────────────────────
+
+function seedFuzzyGraph() {
+  if (store.getNodeByHash(SV_FUZZ, 'start')) return;
+  store.addNode(SV_FUZZ, { hash: 'start', url: 'https://x/home' });
+  store.addNode(SV_FUZZ, { hash: 'simS', url: 'https://x/settings' });
+  // Same URL as simS → similarity 1.5, but no inbound edge: unreachable.
+  store.addNode(SV_FUZZ, { hash: 'target', url: 'https://x/settings' });
+  store.addEdge(SV_FUZZ, { from: 'start', to: 'simS', action: 'click', trigger: '設定' });
+}
+
+describe('S3 fuzzy target resolution', () => {
+  it('auto mode resolves an unreachable target to the best reachable equivalent, honestly', async () => {
+    seedFuzzyGraph();
+    const actions = [];
+    const executeAction = async (tabId, action) => { actions.push(action); return { ok: true }; };
+    const broadcast = makeBroadcast(['start', 'simS', 'simS']);
+
+    const res = await nav.navigate(1, 'target', { siteVersion: SV_FUZZ }, executeAction, broadcast);
+
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.exactMatch, false, 'must never dress fuzzy up as exact');
+    assert.strictEqual(res.matched, 'fuzzy');
+    assert.ok(res.similarity >= 1.0);
+    assert.strictEqual(res.requestedTarget, 'target');
+    assert.strictEqual(res.resolution.resolvedTarget, 'simS');
+    assert.strictEqual(res.finalHash, 'simS');
+    assert.ok(actions.some(a => a.type === 'click'), 'resolved path is actually replayed');
+  });
+
+  it('strict mode never resolves — unreachable stays unreachable', async () => {
+    seedFuzzyGraph();
+    const executeAction = async () => ({ ok: true });
+    const broadcast = makeBroadcast(['start']);
+
+    const res = await nav.navigate(1, 'target',
+      { siteVersion: SV_FUZZ, mode: 'strict', allowUrlFallback: false }, executeAction, broadcast);
+
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.error, 'NO_PATH');
+    assert.ok(!res.matched, 'strict must not report a fuzzy match');
+  });
+
+  it('schema pin: navigate_to_state exposes mode and minSimilarity and passes them through', () => {
+    const src = fs.readFileSync(
+      path.join(fileURLToPath(new URL('../../', import.meta.url)), 'server/mcp/tools/control.js'), 'utf8');
+    assert.match(src, /'strict', 'auto', 'fuzzy'/, 'mode enum missing from the tool schema');
+    assert.match(src, /mode: args\.mode/, 'mode not passed to navigator');
+    assert.match(src, /minSimilarity: args\.minSimilarity/, 'minSimilarity not passed to navigator');
   });
 });
 

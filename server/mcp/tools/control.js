@@ -105,16 +105,18 @@ module.exports = function registerControlTools(registry) {
   tools.push({
     definition: {
       name: 'navigate_to_state',
-      description: 'Navigate from the current UI state to a target state by replaying recorded actions. Uses BFS to find the shortest path on the state graph, then executes each action step-by-step with hash verification. If no path exists, falls back to direct URL navigation.',
+      description: 'Navigate from the current UI state to a target state by replaying recorded actions. Uses BFS over the state graph, including speculative reverse edges (go_back / Escape candidates — verified per step, persisted only on success). The result reports matched:"exact"|"fuzzy" honestly; the URL fallback is marked fallback:"url" because it resets SPA state.',
       inputSchema: {
         type: 'object',
         properties: {
           tabId:           { type: 'number', description: 'Tab ID to navigate' },
           hash:            { type: 'string', description: 'Target state hash (compositeHash)' },
           siteVersion:     { type: 'string', description: 'Site version (omit to auto-detect)' },
+          mode:            { type: 'string', enum: ['strict', 'auto', 'fuzzy'], description: 'Target tolerance. strict = the exact hash or nothing; auto (default) = exact first, resolve to the best reachable equivalent when unreachable (reported matched:"fuzzy"); fuzzy = additionally accept a final state similar to the target' },
+          minSimilarity:   { type: 'number', description: 'Similarity floor for fuzzy resolution (default 1.0; scale: same URL alone = 1.5)' },
           timeoutMs:       { type: 'number', description: 'Total timeout in ms (default: 30000)' },
           maxSteps:        { type: 'number', description: 'Max actions to replay (default: 10)' },
-          verifyEachStep:  { type: 'boolean', description: 'Verify hash after each step (default: true)' },
+          verifyEachStep:  { type: 'boolean', description: 'Verify hash after each step (default: true; also gates speculative reverse edges)' },
           allowUrlFallback: { type: 'boolean', description: 'Fall back to URL navigation if no path (default: true)' },
         },
         required: ['tabId', 'hash'],
@@ -130,6 +132,8 @@ module.exports = function registerControlTools(registry) {
           maxSteps: args.maxSteps,
           verifyEachStep: args.verifyEachStep !== false,
           allowUrlFallback: args.allowUrlFallback !== false,
+          mode: args.mode,
+          minSimilarity: args.minSimilarity,
           stepTimeoutMs: 5000,
         }, cb._callAction, cb._navigateBroadcast || (() => {}));
       } catch (e) {

@@ -211,6 +211,15 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
     verifyEachStep = true,
     allowUrlFallback = true,
     stepTimeoutMs = 5000,
+    // Target tolerance (S3). 'strict' = the exact hash or nothing.
+    // 'auto' (default) = exact hash first; if it is unreachable, resolve to
+    // the best reachable equivalent and SAY SO (matched:'fuzzy').
+    // 'fuzzy' = additionally accept a final state merely similar to the
+    // target. Never silently pretends exactness in any mode.
+    mode = 'auto',
+    // _findSimilarStates score floor for fuzzy resolution. Scale: same URL
+    // alone = 1.5, same pathname 0.75, tag overlap up to 2.0, label up to 1.0.
+    minSimilarity = 1.0,
   } = options || {};
 
   try {
@@ -251,11 +260,35 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
     let path = null;
     let completed = false;
     let firstPlan = true;
+    let effectiveTarget = targetHash;
+    let resolution = null; // set when the target was fuzzy-resolved
 
     planning:
     while (!completed) {
-      path = findPath(graph, currentHash, targetHash, 0.3, { speculative: verifyEachStep });
-      if (!path) break;
+      path = findPath(graph, currentHash, effectiveTarget, 0.3, { speculative: verifyEachStep });
+      if (!path) {
+        // Fuzzy target resolution: the exact hash is unreachable (drifted
+        // content, stale graph). Resolve once to the best REACHABLE
+        // equivalent — reported as matched:'fuzzy', never dressed up.
+        if (mode !== 'strict' && !resolution) {
+          const candidates = _findSimilarStates(graph, targetHash, 5)
+            .filter(c => c.score >= minSimilarity && c.hash !== currentHash);
+          for (const cand of candidates) {
+            if (findPath(graph, currentHash, cand.hash, 0.3, { speculative: verifyEachStep })) {
+              effectiveTarget = cand.hash;
+              resolution = {
+                matched: 'fuzzy',
+                similarity: cand.score,
+                resolvedTarget: cand.hash,
+                label: cand.label,
+                reason: cand.reason,
+              };
+              continue planning;
+            }
+          }
+        }
+        break;
+      }
 
       if (executedPath.length + path.length > maxSteps) {
         if (firstPlan) {
@@ -419,13 +452,31 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
       };
     }
 
-    // Step 6: Final verification
+    // Step 6: Final verification. matched reports what actually happened:
+    // 'exact' — arrived at the requested hash; 'fuzzy' — arrived at a
+    // resolved/similar state (similarity attached); null — neither.
     let finalHash = null;
     let exactMatch = false;
+    let matched = null;
+    let similarity = null;
     try {
       const finalState = await requestHash(tabId, broadcast, stepTimeoutMs);
       finalHash = finalState.compositeHash;
       exactMatch = finalHash === targetHash;
+      if (exactMatch) {
+        matched = 'exact';
+      } else if (resolution && finalHash === effectiveTarget) {
+        matched = 'fuzzy';
+        similarity = resolution.similarity;
+      } else if (mode === 'fuzzy' && finalHash && graph.nodes[finalHash]) {
+        // Final-state tolerance: the hash drifted but we may still be at the
+        // "same place" — score where we landed against the requested target.
+        const found = _findSimilarStates(graph, targetHash, 50).find(c => c.hash === finalHash);
+        if (found && found.score >= minSimilarity) {
+          matched = 'fuzzy';
+          similarity = found.score;
+        }
+      }
     } catch (_) {
       // Can't verify, but actions completed
     }
@@ -436,6 +487,9 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
       finalHash,
       targetHash,
       exactMatch,
+      matched,
+      ...(similarity != null ? { similarity } : {}),
+      ...(resolution ? { requestedTarget: targetHash, resolution } : {}),
       usedSpeculative,
       durationMs: Date.now() - start,
       path: executedPath,
