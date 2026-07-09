@@ -11,6 +11,12 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+// Isolate the pattern registry BEFORE loading delta-engine: test processes run
+// in parallel and the shared default dir races clearAll() vs saveIndex().
+process.env.WHISKOR_PATTERN_DIR = join(tmpdir(), `whiskor-patterns-${process.pid}`);
 
 const require = createRequire(import.meta.url);
 const engine = require('../../server/delta-engine');

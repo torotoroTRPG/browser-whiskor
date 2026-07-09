@@ -16,7 +16,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const PATTERN_DIR = path.join(__dirname, 'cache', 'patterns');
+// WHISKOR_PATTERN_DIR: test isolation (mirrors WHISKOR_CACHE_DIR). Parallel test
+// processes sharing the default dir race clearAll() against saveIndex().
+const PATTERN_DIR = process.env.WHISKOR_PATTERN_DIR || path.join(__dirname, 'cache', 'patterns');
 const INDEX_FILE  = path.join(PATTERN_DIR, 'index.json');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,8 +47,18 @@ function loadIndex() {
 }
 
 function saveIndex(index) {
-  ensureDir();
-  fs.writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf8');
+  // The registry is a best-effort persistence cache: losing one save must not
+  // crash delta aggregation. ENOENT here means another process (tests) removed
+  // the directory between ensureDir and the write — recreate and retry once.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      ensureDir();
+      fs.writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf8');
+      return;
+    } catch (e) {
+      if (attempt === 1) console.warn(`[pattern-registry] index save failed: ${e.message}`);
+    }
+  }
 }
 
 // ── Pattern Classification ────────────────────────────────────────────────────

@@ -51,12 +51,15 @@ function vectorsMatch(a, b, tolerance = VECTOR_TOLERANCE) {
  */
 function isDecorativeChange(delta) {
   // 位置・サイズ・テキストの変化がない = 装飾的
-  const hasPositionChange = (delta.dx !== 0 || delta.dy !== 0);
-  const hasSizeChange     = (delta.dw !== 0 || delta.dh !== 0);
+  // `|| 0`: a producer that omits dx/dy (older extension builds) must not read
+  // as "moved" — undefined !== 0 would make every delta a position change.
+  const hasPositionChange = ((delta.dx || 0) !== 0 || (delta.dy || 0) !== 0);
+  const hasSizeChange     = ((delta.dw || 0) !== 0 || (delta.dh || 0) !== 0);
   const hasTextChange     = delta.textChanged === true;
   const hasStateChange    = delta.stateChanged === true;
+  const hasLifecycle      = delta.appeared === true || delta.disappeared === true;
 
-  return !hasPositionChange && !hasSizeChange && !hasTextChange && !hasStateChange;
+  return !hasPositionChange && !hasSizeChange && !hasTextChange && !hasStateChange && !hasLifecycle;
 }
 
 /**
@@ -169,7 +172,7 @@ function buildSmartDelta(frames, tabId) {
       ref: patternResult.ref,
       vector: cluster.vector,
       count: cluster.count,
-      sampleIds: cluster.elements.slice(0, 3).map(e => e.id),
+      sampleIds: cluster.elements.slice(0, 3).map(e => e.id ?? e.beaconId),
     };
 
     if (patternResult.isNew) {
@@ -183,9 +186,9 @@ function buildSmartDelta(frames, tabId) {
 
   // テキスト/状態変化の収集（位置変化がないもの）
   const contentUpdates = allDeltas
-    .filter(d => (d.dx === 0 && d.dy === 0) && (d.textChanged || d.stateChanged))
+    .filter(d => ((d.dx || 0) === 0 && (d.dy || 0) === 0) && (d.textChanged || d.stateChanged))
     .map(d => ({
-      id: d.id,
+      id: d.id ?? d.beaconId,
       text: d.newText || d.text,
       state: d.newState,
     }));
@@ -200,8 +203,8 @@ function buildSmartDelta(frames, tabId) {
 
       const entry = {
         ref: patternResult.ref,
-        id: d.id,
-        pos: { x: d.absoluteX, y: d.absoluteY },
+        id: d.id ?? d.beaconId,
+        pos: { x: d.absoluteX ?? d.x, y: d.absoluteY ?? d.y },
         text: d.text,
       };
 
@@ -214,13 +217,13 @@ function buildSmartDelta(frames, tabId) {
       return entry;
     });
 
-  // 消えた要素
+  // 消えた要素（absoluteX/Y が無い古い producer は tracker entry の x/y を持つ）
   const disappearances = allDeltas
     .filter(d => d.disappeared === true)
     .map(d => ({
-      id: d.id,
+      id: d.id ?? d.beaconId,
       lastText: d.text,
-      lastPos: { x: d.absoluteX, y: d.absoluteY },
+      lastPos: { x: d.absoluteX ?? d.x, y: d.absoluteY ?? d.y },
     }));
 
   // 時間情報

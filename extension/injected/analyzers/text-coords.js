@@ -655,6 +655,13 @@
   let _recheckTimer = null;
   let _isTracking = false;
   let _scrollCollectTimer = null;
+  // Elements newly ADDED to the page (MutationObserver path only — an
+  // IntersectionObserver registration just means "scrolled into view", not
+  // "appeared"). Flushed into the next TEXT_COORD_DELTA so the server's
+  // delta-engine sees real `appeared` events. Capped: a huge SPA render is
+  // better represented by the full TEXT_COORDS collect that follows anyway.
+  const _pendingAppeared = [];
+  const PENDING_APPEARED_CAP = 100;
   
   const RECHECK_INTERVAL_MOVING = 300;  // ms: check moving texts frequently
   const RECHECK_INTERVAL_STABLE = 2000; // ms: check stable texts occasionally
@@ -689,14 +696,16 @@
     // Observe existing elements
     observeAllTextElements();
 
-    // Observe new elements via MutationObserver
+    // Observe new elements via MutationObserver. markAppeared=true: these were
+    // ADDED to the page while tracking, so they are real `appeared` events for
+    // the delta stream (unlike viewport entries).
     const mutationObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.textContent?.trim()) registerSeenElement(node);
+            if (node.textContent?.trim()) registerSeenElement(node, true);
             node.querySelectorAll(':not(script):not(style):not(noscript)').forEach(el => {
-              if (el.textContent?.trim()) registerSeenElement(el);
+              if (el.textContent?.trim()) registerSeenElement(el, true);
             });
           }
         }
@@ -717,7 +726,7 @@
     }
   }
 
-  function registerSeenElement(el) {
+  function registerSeenElement(el, markAppeared = false) {
     const xpath = getSimpleXPath(el);
     const isNew = !_trackedTexts.has(xpath);
     
@@ -768,6 +777,22 @@
 
     if (isNew) {
       _trackedTexts.set(xpath, entry);
+      // Queue an `appeared` delta (server delta-engine contract: id + appeared +
+      // absolute position). Only for elements added while tracking is live.
+      if (markAppeared && _isTracking && _pendingAppeared.length < PENDING_APPEARED_CAP) {
+        _pendingAppeared.push({
+          id: hashBeaconId(entry.text, entry.xpath, entry.element),
+          beaconId: hashBeaconId(entry.text, entry.xpath, entry.element),
+          xpath: entry.xpath,
+          text: entry.text,
+          absoluteX: entry.x,
+          absoluteY: entry.y,
+          width: entry.w,
+          height: entry.h,
+          elementType: entry.element,
+          appeared: true,
+        });
+      }
     }
     return isNew;
   }
@@ -802,10 +827,17 @@
         try {
           const el = document.evaluate(entry.xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
           if (!el) {
-            // Element removed from DOM
+            // Element removed from DOM. id + absoluteX/Y complete the server
+            // delta-engine contract (entry itself only carries x/y).
             if (entry.status !== 'removed') {
               entry.status = 'removed';
-              deltas.push({ ...entry, disappeared: true });
+              deltas.push({
+                ...entry,
+                id: hashBeaconId(entry.text, entry.xpath, entry.element),
+                absoluteX: entry.x,
+                absoluteY: entry.y,
+                disappeared: true,
+              });
             }
             continue;
           }
@@ -828,13 +860,23 @@
             entry.changeCount++;
             entry.lastChange = Date.now();
             entry.status = entry.changeCount > STABLE_THRESHOLD ? 'moving' : 'checking';
-            
+
+            // id/dx/dy complete the server delta-engine contract: motion
+            // clustering needs the movement vector (entry.x/y still hold the
+            // pre-change position here), content updates need dx===0 && dy===0.
+            const beaconId = hashBeaconId(entry.text, entry.xpath, entry.element);
             deltas.push({
-              beaconId: hashBeaconId(entry.text, entry.xpath, entry.element),
+              id: beaconId,
+              beaconId,
               xpath: entry.xpath,
               text: newText,
+              newText: hasTextChanged ? newText : undefined,
               absoluteX: newX,
               absoluteY: newY,
+              dx: newX - entry.x,
+              dy: newY - entry.y,
+              dw: newW - entry.w,
+              dh: newH - entry.h,
               width: newW,
               height: newH,
               inView,
@@ -861,6 +903,12 @@
         }
         
         checked++;
+      }
+
+      // Newly-added elements (MutationObserver path) join this flush as
+      // `appeared` events.
+      if (_pendingAppeared.length > 0) {
+        deltas.push(..._pendingAppeared.splice(0, _pendingAppeared.length));
       }
 
       // Emit deltas if any changes detected
