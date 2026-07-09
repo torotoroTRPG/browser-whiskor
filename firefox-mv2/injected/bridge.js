@@ -34,7 +34,7 @@ const RELAY_DENY = new Set([
 const TYPE_RE = /^[A-Z][A-Z0-9_]*$/;
 
 // ── MAIN world → background SW ────────────────────────────────────────────
-window.addEventListener('message', (event) => {
+window.addEventListener('message', function onCollectorMessage(event) {
   if (event.source !== window) return;
   if (!event.data?.__BROWSER_WHISKOR__) return;
   const type = event.data.type;
@@ -49,16 +49,24 @@ window.addEventListener('message', (event) => {
   const siteVersion = (typeof event.data.siteVersion === 'string' && event.data.siteVersion.length <= 64)
     ? event.data.siteVersion : undefined;
 
-  _b.runtime.sendMessage({
-    from:     'collector',
-    tabUrl:   location.href,
-    type,
-    payload:  event.data.payload,
-    reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
-    siteVersion,
-    realtime: !!event.data.realtime,
-    ts:       Date.now(),
-  }).catch(() => {});
+  try {
+    _b.runtime.sendMessage({
+      from:     'collector',
+      tabUrl:   location.href,
+      type,
+      payload:  event.data.payload,
+      reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
+      siteVersion,
+      realtime: !!event.data.realtime,
+      ts:       Date.now(),
+    }).catch(() => {});
+  } catch {
+    // Extension reloaded — this is an orphaned content script in a tab that
+    // predates the reload, and the dead-context throw is synchronous (the
+    // promise .catch above never sees it). Unhook so page postMessage traffic
+    // stops producing uncaught errors in the page console.
+    window.removeEventListener('message', onCollectorMessage);
+  }
 });
 
 // ── _b.storage → MAIN world (config changes from SW/HTTP API) ─────────

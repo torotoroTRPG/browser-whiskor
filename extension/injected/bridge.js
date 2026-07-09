@@ -34,7 +34,7 @@ const RELAY_DENY = new Set([
 const TYPE_RE = /^[A-Z][A-Z0-9_]*$/;
 
 // ── MAIN world → background SW ────────────────────────────────────────────
-window.addEventListener('message', (event) => {
+window.addEventListener('message', function onCollectorMessage(event) {
   if (event.source !== window) return;
   if (!event.data?.__BROWSER_WHISKOR__) return;
   const type = event.data.type;
@@ -50,16 +50,25 @@ window.addEventListener('message', (event) => {
     ? event.data.siteVersion : undefined;
 
   console.log('[SI Bridge] Relaying to SW:', type);
-  chrome.runtime.sendMessage({
-    from:     'collector',
-    tabUrl:   location.href,
-    type,
-    payload:  event.data.payload,
-    reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
-    siteVersion,
-    realtime: !!event.data.realtime,
-    ts:       Date.now(),
-  }).catch(() => {});
+  try {
+    chrome.runtime.sendMessage({
+      from:     'collector',
+      tabUrl:   location.href,
+      type,
+      payload:  event.data.payload,
+      reqId:    event.data.reqId,   // CSS_ORIGIN_RESOURCE_REQUEST correlation id
+      siteVersion,
+      realtime: !!event.data.realtime,
+      ts:       Date.now(),
+    }).catch(() => {});
+  } catch {
+    // "Extension context invalidated" — the extension was reloaded and this is
+    // an orphaned content script in a tab that predates the reload. The throw
+    // is synchronous, so the promise .catch above never sees it. Nothing this
+    // orphan sends can arrive anywhere; unhook so page postMessage traffic
+    // stops producing uncaught errors in the page console.
+    window.removeEventListener('message', onCollectorMessage);
+  }
 });
 
 // ── chrome.storage → MAIN world (config changes from SW/HTTP API) ─────────
