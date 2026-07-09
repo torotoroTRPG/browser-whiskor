@@ -1,6 +1,6 @@
 # Speculative reverse edges — navigation beyond URL substitution
 
-**Status:** S0 + S1 implemented (2026-07-10); S2–S4 design only
+**Status:** S0–S2 implemented (2026-07-10); S3–S4 design only
 
 ## Problem
 
@@ -168,6 +168,14 @@ text; a URL change → replayable `navigate` edge; otherwise an
 2. **S2 — dialog dismissal.** Store `dialogAppeared` on the transition record
    (producer signal exists already), generate Escape candidates. Reaches the
    states URL fallback can never reach (modals, overlays).
+
+   As implemented: the passive emitter samples dialog presence
+   (`dialog/[role=dialog]/[role=alertdialog]`, same boundary the
+   dom-mutations analyzer flags) at settle time and sets `dialogAppeared`
+   on the transition; the edge keeps the flag sticky once seen. Candidates
+   are `press_key Escape` (prior 0.35, `basis:'speculative-dismiss'`),
+   generated even for submit-shaped openers — Escape dismisses UI, it does
+   not fake an undo. Both bases share the earn/blacklist lifecycle.
 3. **S3 — fuzzy target resolution.** Promote `_findSimilarStates` to target
    resolution with a `mode` parameter and honest `matched:'fuzzy'` reporting;
    relax intermediate-step verification to final-state-or-similar.

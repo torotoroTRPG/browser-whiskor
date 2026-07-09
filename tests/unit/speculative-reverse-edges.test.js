@@ -25,11 +25,12 @@ const store = require('../../server/state-store');
 
 const SV_EARN = '__unit_spec_earn__';
 const SV_FAIL = '__unit_spec_fail__';
+const SV_DLG  = '__unit_spec_dialog__';
 const GRAPH_DIR = process.env.WHISKOR_GRAPH_DIR
   || fileURLToPath(new URL('../../cache/graphs/', import.meta.url));
 
 after(() => {
-  for (const sv of [SV_EARN, SV_FAIL]) {
+  for (const sv of [SV_EARN, SV_FAIL, SV_DLG]) {
     try { fs.rmSync(path.join(GRAPH_DIR, `${sv}.json.gz`), { force: true }); } catch (_) {}
   }
 });
@@ -84,6 +85,55 @@ describe('S1 candidate derivation', () => {
     const g = forwardGraph();
     g.edges.a['click:other'] = { from: 'a', to: 'b', action: 'click', trigger: 'other', confidence: 0.9 };
     assert.strictEqual(nav._speculativeReverseEdges(g, 0.3).b.length, 1);
+  });
+});
+
+// ── S2: dialog dismissal candidates ──────────────────────────────────────────
+
+describe('S2 dismiss candidates (Escape)', () => {
+  it('a dialog-opening forward yields an Escape candidate even on the same URL', () => {
+    const g = forwardGraph({ toUrl: 'https://x/a', edge: { dialogAppeared: true } });
+    const byFrom = nav._speculativeReverseEdges(g, 0.3);
+    assert.strictEqual(byFrom.b.length, 1);
+    const c = byFrom.b[0];
+    assert.strictEqual(c.action, 'press_key');
+    assert.strictEqual(c.trigger, 'Escape');
+    assert.strictEqual(c.basis, 'speculative-dismiss');
+    assert.ok(Math.abs(c.confidence - 0.35) < 1e-9);
+    assert.deepStrictEqual(c.replayAction, { type: 'press_key', key: 'Escape' });
+  });
+
+  it('URL change + dialog produce both candidates, best prior first', () => {
+    const g = forwardGraph({ edge: { dialogAppeared: true } });
+    const list = nav._speculativeReverseEdges(g, 0.3).b;
+    assert.deepStrictEqual(list.map(c => c.action), ['go_back', 'press_key']);
+  });
+
+  it('Escape stays offered for submit-shaped openers (dismissal is not an undo)', () => {
+    const g = forwardGraph({ edge: { trigger: '送信', dialogAppeared: true } });
+    const list = nav._speculativeReverseEdges(g, 0.3).b;
+    assert.deepStrictEqual(list.map(c => c.action), ['press_key'],
+      'go_back suppressed for the submit shape, Escape kept');
+  });
+
+  it('STATE_TRANSITION dialogAppeared lands on the stored edge, sticky', () => {
+    store.addEdge(SV_DLG, { from: 'hashA', to: 'hashD', action: 'click', trigger: 'open', dialogAppeared: true });
+    assert.strictEqual(store.getGraph(SV_DLG).edges.hashA['click:open'].dialogAppeared, true);
+    // Re-observation without the flag must not erase it
+    store.addEdge(SV_DLG, { from: 'hashA', to: 'hashD', action: 'click', trigger: 'open' });
+    assert.strictEqual(store.getGraph(SV_DLG).edges.hashA['click:open'].dialogAppeared, true);
+  });
+
+  it('emitter payload pin: state-reporter samples dialog presence at settle time', () => {
+    for (const rel of [
+      'shared/injected/state-reporter.js',
+      'extension/injected/state-reporter.js',
+      'firefox-mv2/injected/state-reporter.js',
+    ]) {
+      const src = fs.readFileSync(path.join(fileURLToPath(new URL('../../', import.meta.url)), rel), 'utf8');
+      assert.match(src, /dialogAppeared:/, `${rel}: STATE_TRANSITION lost the dialogAppeared field`);
+      assert.match(src, /role="dialog"/, `${rel}: dialog boundary selector missing`);
+    }
   });
 });
 

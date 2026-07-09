@@ -673,6 +673,9 @@ class WhiskorCore extends EventEmitter {
           }
           this.stateMachine.addEdge(sv, {
             from: p.from, to: p.to, action, trigger, replayAction, replayable, origin,
+            // Sampled at settle time by the emitter: this transition opened a
+            // dialog — the navigator's Escape reverse-candidates key off it.
+            dialogAppeared: p.dialogAppeared === true,
           });
         }
         this.broadcastToDashboard(msg);

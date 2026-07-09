@@ -64,6 +64,20 @@
   var SETTLE_MS = 800;
   var INTERACTION_WINDOW_MS = 3000;
 
+  // Same boundary the dom-mutations analyzer flags; here it is sampled at
+  // settle time so the transition itself can carry "this opened a dialog" —
+  // the signal the navigator's Escape reverse-candidates key off.
+  var DIALOG_SEL = 'dialog, [role="dialog"], [role="alertdialog"]';
+
+  function snapshot(info) {
+    return {
+      compositeHash: info.compositeHash,
+      reactHash: info.reactHash,
+      domHash: info.domHash,
+      dialog: !!document.querySelector(DIALOG_SEL),
+    };
+  }
+
   var lastStable = null;
   var candidate = null;
   var candidateSince = 0;
@@ -89,6 +103,7 @@
         url: location.href,
         title: (document.title || '').slice(0, 300) || null,
         interaction: interaction || null,
+        dialogAppeared: !!(to.dialog && !(from && from.dialog)),
         capturedAt: Date.now(),
       },
     }, '*');
@@ -103,14 +118,15 @@
       return;
     }
     if (!candidate || candidate.compositeHash !== info.compositeHash) {
-      candidate = info;
+      candidate = snapshot(info);
       candidateSince = Date.now();
       candidateInteraction = recentInteraction();
       return;
     }
     if (Date.now() - candidateSince >= SETTLE_MS) {
-      emitTransition(lastStable, info, candidateInteraction);
-      lastStable = info;
+      var settled = snapshot(info);
+      emitTransition(lastStable, settled, candidateInteraction);
+      lastStable = settled;
       candidate = null;
       candidateInteraction = null;
     }

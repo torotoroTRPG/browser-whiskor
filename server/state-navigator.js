@@ -55,7 +55,10 @@ function requestHash(tabId, broadcast, timeoutMs = 5000) {
 // check, persisted only on success (earned), and blacklisted in-process on
 // failure. Design: docs/ideas/REVERSE_EDGE_NAVIGATION.md.
 
-const SPECULATIVE_GO_BACK_CONFIDENCE = 0.5;
+const SPECULATIVE_PRIORS = {
+  'speculative-history': 0.5,   // go_back — history inverts URL-changing transitions
+  'speculative-dismiss': 0.35,  // Escape — dismisses the dialog a transition opened
+};
 
 // siteVersion|from|to|action → ts of the failed verification. A wrong guess
 // demotes itself on first use instead of being retried on every call.
@@ -82,41 +85,63 @@ function isSubmitShaped(edge) {
 }
 
 /**
- * Derive go_back candidates for one traversal: for every replayable forward
- * edge a→b whose endpoint URLs differ, offer b→a. Skips submit-shaped
- * forwards, pairs already covered by a real reverse edge, and blacklisted
- * guesses. Returns from-hash → [candidates].
+ * Derive reverse candidates for one traversal, from two bases:
+ *   - history (go_back): forward a→b changed the URL — skipped for
+ *     submit-shaped forwards (a data mutation has no safe inverse);
+ *   - dismiss (Escape): forward a→b opened a dialog (edge.dialogAppeared,
+ *     sampled at settle time by the passive emitter). Escape only dismisses
+ *     UI, so it stays safe even when the opener looked submit-shaped.
+ * Pairs already covered by a real reverse edge and blacklisted guesses are
+ * skipped. Returns from-hash → [candidates], best prior first.
  */
 function speculativeReverseEdges(graph, minConfidence) {
-  if (SPECULATIVE_GO_BACK_CONFIDENCE < minConfidence) return {};
   const nodes = graph.nodes || {};
   const byFrom = {};
+
+  const offer = (cand) => {
+    if (cand.confidence < minConfidence) return;
+    if (speculativeBlacklist.has(blacklistKey(graph.siteVersion, cand))) return;
+    const list = (byFrom[cand.from] = byFrom[cand.from] || []);
+    if (list.some(c => c.to === cand.to && c.action === cand.action)) return;
+    list.push(cand);
+    list.sort((a, b) => b.confidence - a.confidence);
+  };
+
   for (const from of Object.keys(graph.edges || {})) {
     for (const edgeKey of Object.keys(graph.edges[from])) {
       const fwd = graph.edges[from][edgeKey];
       if (!fwd.to || fwd.to === from) continue;
-      const fromUrl = nodes[from]?.url;
-      const toUrl = nodes[fwd.to]?.url;
-      if (!fromUrl || !toUrl || fromUrl === toUrl) continue; // history only inverts URL changes
-      if (isSubmitShaped(fwd)) continue;
       const hasRealReverse = Object.values(graph.edges[fwd.to] || {})
         .some(e => e.to === from && e.replayable !== false);
       if (hasRealReverse) continue;
 
-      const cand = {
-        from: fwd.to,
-        to: from,
-        action: 'go_back',
-        trigger: null,
-        confidence: SPECULATIVE_GO_BACK_CONFIDENCE,
-        speculative: true,
-        basis: 'speculative-history',
-        replayAction: { type: 'go_back' },
-      };
-      if (speculativeBlacklist.has(blacklistKey(graph.siteVersion, cand))) continue;
+      const fromUrl = nodes[from]?.url;
+      const toUrl = nodes[fwd.to]?.url;
+      if (fromUrl && toUrl && fromUrl !== toUrl && !isSubmitShaped(fwd)) {
+        offer({
+          from: fwd.to,
+          to: from,
+          action: 'go_back',
+          trigger: null,
+          confidence: SPECULATIVE_PRIORS['speculative-history'],
+          speculative: true,
+          basis: 'speculative-history',
+          replayAction: { type: 'go_back' },
+        });
+      }
 
-      const list = (byFrom[cand.from] = byFrom[cand.from] || []);
-      if (!list.some(c => c.to === cand.to)) list.push(cand);
+      if (fwd.dialogAppeared === true) {
+        offer({
+          from: fwd.to,
+          to: from,
+          action: 'press_key',
+          trigger: 'Escape',
+          confidence: SPECULATIVE_PRIORS['speculative-dismiss'],
+          speculative: true,
+          basis: 'speculative-dismiss',
+          replayAction: { type: 'press_key', key: 'Escape' },
+        });
+      }
     }
   }
   return byFrom;
@@ -156,7 +181,7 @@ function findPath(graph, fromHash, toHash, minConfidence = 0.3, options = {}) {
     for (const cand of (speculative && speculative[current]) || []) {
       if (visited.has(cand.to)) continue;
 
-      const newPath = [...path, { ...cand, edgeKey: 'go_back:speculative' }];
+      const newPath = [...path, { ...cand, edgeKey: `${cand.action}:speculative` }];
 
       if (cand.to === toHash) return newPath;
 
@@ -319,9 +344,9 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
               stateStore.addEdge(graph.siteVersion, {
                 from: edge.from,
                 to: edge.to,
-                action: 'go_back',
-                trigger: null,
-                replayAction: { type: 'go_back' },
+                action: edge.action,
+                trigger: edge.trigger,
+                replayAction: edge.replayAction,
                 basis: edge.basis,
               });
             } else {

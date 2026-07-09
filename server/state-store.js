@@ -320,7 +320,7 @@ function addEdge(siteVersion, data) {
     console.warn(`[state-store] Rejected edge write to graph "${siteVersion}": origin ${data.origin} does not match graph owner ${g.origin}`);
     return null;
   }
-  const { from, to, action, trigger, selector, replayAction, replayable, basis } = data;
+  const { from, to, action, trigger, selector, replayAction, replayable, basis, dialogAppeared } = data;
 
   if (!g.edges[from]) g.edges[from] = {};
   if (!g.edgeIndex[to]) g.edgeIndex[to] = [];
@@ -367,6 +367,11 @@ function addEdge(siteVersion, data) {
     g.edgeIndex[to]?.push(edgeKey);
     g.stats.totalEdges++;
   }
+
+  // Sticky boundary flag: once a transition is seen opening a dialog, the
+  // edge keeps it (Escape reverse-candidates key off it). Sparse — absent
+  // means "never observed opening one".
+  if (dialogAppeared === true) edge.dialogAppeared = true;
 
   persistGraph(siteVersion, graphs);
   return edge;
