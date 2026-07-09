@@ -16,7 +16,7 @@ When the server pushes a config via `POST /api/config` or WebSocket `SET_CONFIG`
 
 **Goal:** Enable `source-fetcher.storeJs: true` so JS source files are persisted in the whiskor cache.
 
-**Context:** A production React+Redux TRPG session tool (referred to as "the target app" below). Its production webpack bundle `main.<hash>.js` (4.4MB) is loaded from CDN. We need the analyzer to fetch and store script contents to `cache/sources/`.
+**Context:** A production React+Redux web app (referred to as "the target app" below). Its production webpack bundle `main.<hash>.js` (4.4MB) is loaded from CDN. We need the analyzer to fetch and store script contents to `cache/sources/`.
 
 ---
 

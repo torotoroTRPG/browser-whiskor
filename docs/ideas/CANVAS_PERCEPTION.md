@@ -108,7 +108,7 @@ The boundary flags say *where DOM senses end*. The next slice is a sense that wo
 past the boundary — an ASCII map of what is *inside* the canvas.
 
 **State first, OCR as audit.** Canvas apps draw from structured state that already
-sits in reach: a React/Redux store holding board objects with `x/y/w/h` (the TRPG
+sits in reach: a React/Redux store holding board objects with `x/y/w/h` (the
 board app used for live verification is exactly this). whiskor already reads it (`get_framework_state`,
 react-state-managers adapter). So the primary pipeline is:
 
@@ -187,7 +187,7 @@ surfaces, reading the framework snapshot via `server/framework-state.js`.
   remaining pixel senses (`ocr_region` / screenshot); the OCR audit loop
   (baseline/observed comparison) is not built yet.
 
-Live verification (a production React+Redux TRPG board) exposed two extractor
+Live verification (a production React+Redux board app) exposed two extractor
 preconditions that were fixed in the extension adapters, not worked around in
 the map:
 
