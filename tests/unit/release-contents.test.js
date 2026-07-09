@@ -17,6 +17,9 @@
  *    listed, and every listed path actually exists in the repo.
  */
 
+// @allow-no-prod-import: pins packaging surfaces (npm pack manifest, release.yml
+// zip enumeration) — the "production code" under test is the distribution
+// itself, not a server module.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
