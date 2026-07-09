@@ -473,6 +473,14 @@
       "maxEntries": 50,
       "actionTrailMs": 1500
     },
+    "actionDiff": {
+      "_comment_en": "Action-anchored diff: with action option diff:true (auto:true makes it the default for every page action; diff:false opts out per call), the action result carries _diff — element-level changes since the agent's last collected data: interactive elements appeared/disappeared/moved (layout-map vocabulary), text added/removed/changed, scroll. Baseline is the cached snapshot; after the action a scoped collect (text-coords + ui-catalog) refreshes it. settleDelayMs: pause before collecting so the page finishes reacting. collectTimeoutMs: max wait for the fresh data. maxEntries: per-list cap (full counts always reported). See server/action-diff.js.",
+      "_comment_ja": "アクション連動diff: アクションの diff:true 指定（auto:true なら全ページアクションで既定ON、diff:false で個別OFF）で、結果に _diff（前回収集データからの要素単位の変化＝interactive の出現/消失/移動、テキストの追加/削除/変化、スクロール）を添付する。基準はキャッシュ、アクション後に text-coords + ui-catalog の scoped collect で更新。操作後の再読み取り往復の節約用",
+      "auto": false,
+      "settleDelayMs": 300,
+      "collectTimeoutMs": 3000,
+      "maxEntries": 15
+    },
     "duplicateDetection": {
       "_comment_ja": "同じ操作の繰り返し検出と警告の設定",
       "enabled": true,

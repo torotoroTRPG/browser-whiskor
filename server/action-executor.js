@@ -37,6 +37,15 @@ function setSecretGuard(g) { _secretGuard = g; }
 let _changeFeed = null;
 function setChangeFeed(f) { _changeFeed = f; }
 
+// Worker-side action-anchored diff runner, injected (nullable → feature absent).
+// With action.diff=true (or agentControl.actionDiff.auto), the result carries
+// `_diff`: element-level changes between the agent's last collected data and a
+// fresh post-action collect. Lives here — like somStats/secretGuard — so it
+// works identically over MCP stdio, HTTP /api/action, and the proxy forward.
+// See action-diff.js.
+let _diffRunner = null;
+function setDiffRunner(r) { _diffRunner = r; }
+
 // Resolve action.secretRef → action.text. Returns an error result to short-circuit
 // the dispatch, or null to proceed (action mutated in place via the returned copy).
 function _resolveSecretRef(action) {
@@ -89,6 +98,34 @@ function execute(tabId, action, timeoutMs = DEFAULT_TIMEOUT_MS) {
         error: 'Aborted before execution: the page changed since your last look (abortOnPremiseChange=true). Review `changes`, re-read if needed, then retry.' });
     }
   }
+  // Action-anchored diff: baseline BEFORE dispatch (the cached snapshot is still
+  // "what the agent last saw" only until the action's effects start landing),
+  // diff AFTER the result. diff:false wins over the config auto mode. Diff
+  // failure degrades to {available:false} — it never masks the action result.
+  const wantDiff = _diffRunner && action.diff !== false &&
+    (action.diff === true || _diffRunner.autoEnabled());
+  if (wantDiff) {
+    const dispatchAction = { ...action };
+    delete dispatchAction.diff; // server-side option — the page never sees it
+    return (async () => {
+      let base = null;
+      try { base = await _diffRunner.baseline(tabId); } catch (_) { /* degrade below */ }
+      const res = await _dispatch(tabId, dispatchAction, timeoutMs);
+      // A result that never reached the page (tab gone / RPC failure) has no
+      // "after" state worth collecting.
+      if (res && res.ok === false && !res.result) return res;
+      let diff;
+      try { diff = await _diffRunner.diffSince(tabId, base); }
+      catch (e) { diff = { available: false, reason: e.message }; }
+      return { ...res, _diff: diff };
+    })();
+  }
+  return _dispatch(tabId, action, timeoutMs);
+}
+
+// Core dispatch: pending-map bookkeeping + broadcast to the extension. Kept
+// separate so execute() can compose front-gates (secrets, premise, diff) around it.
+function _dispatch(tabId, action, timeoutMs) {
   return new Promise((resolve, reject) => {
     const actionId = randomUUID();
     // Attribution window: changes observed while this action runs (plus a short
@@ -144,4 +181,4 @@ function handleResult(msg) {
 
 function pendingCount() { return pending.size; }
 
-module.exports = { setBroadcast, setSomStats, setSecretGuard, setChangeFeed, execute, handleResult, pendingCount };
+module.exports = { setBroadcast, setSomStats, setSecretGuard, setChangeFeed, setDiffRunner, execute, handleResult, pendingCount };

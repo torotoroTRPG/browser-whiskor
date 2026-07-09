@@ -433,6 +433,20 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       });
     }
     actions.setChangeFeed(changeFeed);
+    // Action-anchored diff runner: worker-side (the process that owns the cache
+    // and the collect trigger), so action.diff=true works over MCP stdio, HTTP,
+    // and the proxy forward alike. See server/action-diff.js.
+    // getConfig reads _cfg — the full server config (config.json + local + env).
+    // core.globalConfig is the SW-bound SUBSET (autoSwitchTab etc.) and never
+    // carries actionDiff; reading it here silently disabled auto mode.
+    {
+      const { createDiffRunner } = require('./action-diff');
+      actions.setDiffRunner(createDiffRunner({
+        cache,
+        triggerCollect: (tabId, plugins) => core.triggerCollect(tabId, plugins),
+        getConfig: () => _cfg,
+      }));
+    }
     // Secret-guard screenshot masking, resolved worker-side so it applies over MCP
     // stdio, HTTP, and the proxy forward alike (it used to be in the MCP tool and
     // was dead under the proxy). Reads the tab's already-redacted text-coords —

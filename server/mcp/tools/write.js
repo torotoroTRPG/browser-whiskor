@@ -17,6 +17,16 @@ const OBSERVE_SCHEMA = {
   },
 };
 
+// Action-anchored diff: the result carries what changed instead of the agent
+// re-reading the whole page. Executed worker-side (action-diff.js via the
+// action executor), so it works over the proxy too; here it is only schema.
+const DIFF_SCHEMA = {
+  diff: {
+    type: 'boolean',
+    description: 'Attach `_diff` to the result: element-level changes between your last collected data and a fresh post-action collect — interactive elements that appeared/disappeared/moved (layout-map vocabulary: kind + label + page coords, directly usable as click targets), text added/removed/changed, and scroll. Skips the follow-up get_layout_map / get_text_coords round-trip. Costs a short wait for the post-action collect (~0.3-3s).',
+  },
+};
+
 // Premise gate for actions whose plan depends on the page still being what the
 // agent last saw. External changes (scroll/modal/navigation outside your own
 // action windows) also arrive on every response as _sinceYourLastLook.
@@ -71,6 +81,11 @@ function _inputMode(cb) {
 }
 
 async function observeAction(cb, tabId, action, args) {
+  // Action-anchored diff rides on the action object; the worker-side executor
+  // owns baseline/collect/join (action-diff.js) — one hook covers every tool
+  // that routes through here, standalone and proxy alike.
+  if (args.diff === true) action = { ...action, diff: true };
+
   if (args.observe !== true) {
     return cb._callAction(tabId, action, args.timeoutMs);
   }
@@ -215,6 +230,7 @@ module.exports = function registerWriteTools(registry) {
           while:    { type: 'object', description: 'Declarative key hold for THIS click only: { keys: ["Shift"] } presses the keys down, runs the click with matching modifier flags (Ctrl/Shift/Alt/Meta ride every mouse event), then releases — hold and release complete inside the one action, so a key can never be left stuck down. Non-modifier keys (games) are held as plain keydown/keyup around the click. Example: {"keys":["Ctrl"]} for multi-select, {"keys":["Shift"]} for range-select.' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
           ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
@@ -254,6 +270,7 @@ module.exports = function registerWriteTools(registry) {
           y:        { type: 'number', description: 'Absolute Y coordinate' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -287,6 +304,7 @@ module.exports = function registerWriteTools(registry) {
           dialog:     { type: 'object', description: 'How to auto-answer native dialogs this action triggers (they never block the page): { confirm: boolean (default true), prompt: string|null }. alert is always auto-dismissed. Triggered dialogs are returned in result.dialogs with content and causality.' },
           timeoutMs:  { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
           ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
@@ -324,6 +342,7 @@ module.exports = function registerWriteTools(registry) {
           submit:   { type: 'string', enum: ['none', 'enter', 'shift-enter', 'ctrl-enter', 'cmd-enter'], description: 'Key to press after typing (default: none)' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId', 'ref'],
       },
@@ -363,6 +382,7 @@ module.exports = function registerWriteTools(registry) {
           text:     { type: 'string', description: 'Visible text of the target element (fallback if selector is absent, same resolution as click)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId', 'key'],
       },
@@ -385,6 +405,7 @@ module.exports = function registerWriteTools(registry) {
           text:     { type: 'string', description: 'Visible text (fallback if selector is absent)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -407,6 +428,7 @@ module.exports = function registerWriteTools(registry) {
           text:     { type: 'string', description: 'Visible text of the element to un-hover (fallback if selector is absent)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -434,6 +456,7 @@ module.exports = function registerWriteTools(registry) {
           behavior:  { type: 'string', enum: ['instant', 'smooth'], description: 'Scroll behavior (default: instant)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId'],
       },
@@ -466,6 +489,7 @@ module.exports = function registerWriteTools(registry) {
           label:    { type: 'string', description: 'Option text label to select (used if value is absent, partial match)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId', 'selector'],
       },
@@ -490,6 +514,7 @@ module.exports = function registerWriteTools(registry) {
           checked:  { type: 'boolean', description: 'true = check, false = uncheck (default: true)' },
           timeoutMs: { type: 'number' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId', 'selector'],
       },
@@ -518,6 +543,7 @@ module.exports = function registerWriteTools(registry) {
           while:        { type: 'object', description: 'Declarative key hold for THIS drag only: { keys: ["Shift"] } presses the keys down, runs the whole drag with matching modifier flags on every mouse event, then releases. Hold and release complete inside the one action — no stuck keys.' },
           timeoutMs:    { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
           ...PREMISE_SCHEMA,
         },
         required: ['tabId'],
@@ -554,6 +580,7 @@ module.exports = function registerWriteTools(registry) {
           selector:  { type: 'string', description: 'CSS selector — fires wheel at element center (alternative to x/y)' },
           timeoutMs: { type: 'number', description: 'Action timeout in milliseconds (default: 15000)' },
           ...OBSERVE_SCHEMA,
+          ...DIFF_SCHEMA,
         },
         required: ['tabId'],
       },
