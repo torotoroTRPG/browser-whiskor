@@ -900,6 +900,10 @@
           ok: true,
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
+          // Full descriptor of what was clicked (id/aria-label/selector) — text
+          // alone is empty for icon-only buttons, leaving the agent unable to
+          // confirm it hit the intended element. Same shape type/press_key return.
+          target: describeTarget(el),
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
           ...canvasNote(el),
@@ -930,7 +934,7 @@
       if (releaseKeys) releaseKeys();
       parkHover(el); // mouseover was dispatched: the pointer now rests here
 
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}), ...(whileHold ? { heldKeys: whileHold.keys } : {}) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), target: describeTarget(el), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}), ...(whileHold ? { heldKeys: whileHold.keys } : {}) };
     },
 
     type(action) {
@@ -1106,7 +1110,7 @@
       el.dispatchEvent(new MouseEvent('mouseenter', opts));
       el.dispatchEvent(new MouseEvent('mousemove',  opts));
       parkHover(el);
-      return { ok: true, tagName: el.tagName, hovering: true,
+      return { ok: true, tagName: el.tagName, hovering: true, target: describeTarget(el),
                ...(hoverReleased ? { hoverReleased } : {}),
                ...textMatchNote(action), ...canvasNote(el) };
     },
@@ -1233,6 +1237,7 @@
           ok: true,
           tagName: el.tagName,
           text: el.textContent?.trim().slice(0, 50),
+          target: describeTarget(el),
           ...selectorAmbiguity(action),
           ...textMatchNote(action),
           ...canvasNote(el),
@@ -1247,7 +1252,7 @@
       scrollIntoView(el);
       const evOpts = { bubbles: true, cancelable: true, view: window, button: 2 };
       el.dispatchEvent(new MouseEvent('contextmenu', evOpts));
-      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}) };
+      return { ok: true, tagName: el.tagName, text: el.textContent?.trim().slice(0, 50), target: describeTarget(el), ...selectorAmbiguity(action), ...textMatchNote(action), ...canvasNote(el), ...(hoverReleased ? { hoverReleased } : {}) };
     },
 
     analyze_click(action) {
