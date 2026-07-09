@@ -6,10 +6,27 @@
  */
 'use strict';
 
-function safeVal(v, depth, seen) {
-  return window.__SI_REACT_SAFE_VAL__(v, depth, seen);
+function safeVal(v, depth, seen, maxDepth) {
+  return window.__SI_REACT_SAFE_VAL__(v, depth, seen, maxDepth);
 }
 const B = window.Bippy;
+
+// Serialize a Redux store's state. The serializer stubs OBJECTS nested past
+// maxDepth with '[deep]' while primitives pass at any depth; Redux Toolkit
+// entity adapters keep spatial state five levels down
+// (entities.<slice>.entities.<id>.x), so start deep (maxDepth 5) and back off
+// stage by stage when the capture explodes (2MB guard), keeping snapshots
+// bounded on pathological stores.
+function captureReduxState(store) {
+  var snap = null;
+  for (var md = 5; md >= 3; md--) {
+    try {
+      snap = safeVal(store.getState(), 0, null, md);
+      if (JSON.stringify(snap).length <= 2000000) return snap;
+    } catch (_) { /* stringify/getState failure → try shallower */ }
+  }
+  return snap;
+}
 
 function detectStateManagers(fiberRoot) {
   var result = {
@@ -28,14 +45,14 @@ function detectStateManagers(fiberRoot) {
     if (devToolsHook && typeof devToolsHook.connect === 'function') {
       var dtStore = window.__REDUX_STORE__ || window.store || null;
       if (dtStore && typeof dtStore.getState === 'function') {
-        try { result.redux = safeVal(dtStore.getState(), 2); } catch (_) {}
+        try { result.redux = captureReduxState(dtStore); } catch (_) {}
       }
     }
     if (!result.redux) {
       for (var gk of ['__REDUX_STORE__', '__store__', 'reduxStore', '__APP_STORE__']) {
         var gs = window[gk];
         if (gs && typeof gs.getState === 'function' && typeof gs.dispatch === 'function') {
-          try { result.redux = safeVal(gs.getState(), 2); break; } catch (_) {}
+          try { result.redux = captureReduxState(gs); break; } catch (_) {}
         }
       }
     }
@@ -284,11 +301,15 @@ function detectStateManagers(fiberRoot) {
       var name  = B.getDisplayName(fiber.type) || '';
       var props = fiber.memoizedProps || {};
 
-      // Redux Provider
-      if (!result.redux && (name === 'Provider' || name === 'ReactReduxContext')) {
-        if (props.store && typeof props.store.getState === 'function') {
-          try { result.redux = safeVal(props.store.getState(), 2); } catch (_) {}
-        }
+      // Redux Provider — duck-typed, not name-matched: on minified production
+      // builds getDisplayName() returns the mangled name, so 'Provider' never
+      // matches and the store went undetected. The getState+dispatch+subscribe
+      // trio on a `store` prop is distinctive enough on its own.
+      if (!result.redux && props.store &&
+          typeof props.store.getState === 'function' &&
+          typeof props.store.dispatch === 'function' &&
+          typeof props.store.subscribe === 'function') {
+        try { result.redux = captureReduxState(props.store); } catch (_) {}
       }
 
       // MobX Provider (mobx-react / mobx-react-lite)

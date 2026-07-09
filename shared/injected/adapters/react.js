@@ -29,24 +29,30 @@
   const { detectStateManagers } = window.__SI_REACT_STATE_MANAGERS__;
 
   // ── Safe serializer ──────────────────────────────────────────────────────
-  function safeVal(v, depth, seen) {
-    depth = depth == null ? 0 : depth;
-    seen  = seen  || new WeakSet();
+  // maxDepth (default 3 = historical behaviour) is the object-nesting cap;
+  // objects past it become '[deep]' while primitives pass at any depth. Store
+  // captures need a higher cap: Redux Toolkit entity adapters keep spatial
+  // state five levels down (entities.<slice>.entities.<id>.x), below the
+  // default cap.
+  function safeVal(v, depth, seen, maxDepth) {
+    depth    = depth    == null ? 0 : depth;
+    maxDepth = maxDepth == null ? 3 : maxDepth;
+    seen     = seen     || new WeakSet();
     if (v === null || v === undefined) return v;
     if (typeof v === 'function')  return '[fn]';
     if (typeof v === 'symbol')    return String(v);
     if (typeof v !== 'object')    return v;
-    if (depth > 3)                return '[deep]';
+    if (depth > maxDepth)         return '[deep]';
     if (seen.has(v))              return '[circular]';
     seen.add(v);
     if (Array.isArray(v)) {
-      return v.slice(0, 20).map(function(i) { return safeVal(i, depth + 1, seen); });
+      return v.slice(0, 20).map(function(i) { return safeVal(i, depth + 1, seen, maxDepth); });
     }
     var keys = Object.keys(v).slice(0, 30);
     var out  = {};
     for (var ki = 0; ki < keys.length; ki++) {
       var k = keys[ki];
-      try { out[k] = safeVal(v[k], depth + 1, seen); }
+      try { out[k] = safeVal(v[k], depth + 1, seen, maxDepth); }
       catch (_) { out[k] = '[err]'; }
     }
     return out;
