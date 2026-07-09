@@ -296,6 +296,12 @@ const RETRY = {
 const RETRYABLE = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'EPIPE']);
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Hard cap on a single forwarded request. Long enough for the slowest worker
+// operations (screenshot capture, packed SoM, source capture, action timeouts up
+// to ~30s), short enough that a wedged response can never hang the proxy forever
+// (a hung tool call is what the MCP client experiences as "Connection closed").
+const REQUEST_ONCE_TIMEOUT_MS = _cfg.resilience?.proxyRequestTimeoutMs ?? 120000;
+
 function _requestOnce(method, pathname, body) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -317,6 +323,15 @@ function _requestOnce(method, pathname, body) {
           resolve({ error: 'Failed to parse response', raw: data });
         }
       });
+      // A response-stream error would otherwise be an uncaught 'error' event
+      // (crash). ECONNRESET here IS retryable — reject with the code intact.
+      res.on('error', reject);
+    });
+    req.setTimeout(REQUEST_ONCE_TIMEOUT_MS, () => {
+      // destroy() with an error surfaces below as req 'error' with our code.
+      const err = new Error(`proxy request timed out after ${REQUEST_ONCE_TIMEOUT_MS}ms: ${method} ${pathname}`);
+      err.code = 'ETIMEDOUT';
+      req.destroy(err);
     });
     req.on('error', reject);
     if (body) req.write(JSON.stringify(body));
@@ -1050,6 +1065,22 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           border: borderQ === '1' || borderQ === 'true',
         });
         return sendJson(map);
+      }
+
+      // GET /api/sessions/:tabId/framework-state — framework state (React fiber
+      // tree, Redux/Pinia stores, router, ...) over plain HTTP. Same data and
+      // implementation as the MCP get_framework_state tool (server/framework-state.js);
+      // previously MCP-only, which left HTTP-only agents unable to read the
+      // richest sense whiskor collects. ?framework=react|vue3|...|dom (default auto).
+      const fwStateM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/framework-state$/);
+      if (fwStateM) {
+        const tabId = parseInt(fwStateM[1], 10);
+        if (appRegistry.enabled && !appRegistry.canAccess(httpAppId, core.getTabApp(tabId))) {
+          return sendJson({ error: 'Access denied: this tab belongs to another app' }, 403);
+        }
+        const { readFrameworkState } = require('./framework-state');
+        const out = await readFrameworkState(cache, tabId, url.searchParams.get('framework') || 'auto');
+        return sendJson(out, out && out.error && /^No session/.test(out.error) ? 404 : 200);
       }
 
       // Intercept POST /api/action for server-side action types

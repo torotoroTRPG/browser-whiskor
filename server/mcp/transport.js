@@ -171,9 +171,33 @@ function startMcpServer(identity = null) {
 
   const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
+  // Once the client closes its end of the pipe, every later stdout.write raises
+  // EPIPE. Without these guards that surfaced as an unhandledRejection →
+  // shutdown(1), killing the whole proxy after the FIRST failed write (the
+  // "one call fails, then everything is Not connected" crash). A closed stdout
+  // means no client is listening — exit quietly instead of erroring out.
+  let _stdoutDead = false;
+  process.stdout.on('error', (err) => {
+    _stdoutDead = true;
+    process.stderr.write(`[whiskor:mcp] stdout closed (${err && err.code || err}) — client went away, exiting\n`);
+    process.exit(0);
+  });
+  const writeMessage = (m) => {
+    if (_stdoutDead) return;
+    try { process.stdout.write(JSON.stringify(m) + '\n'); }
+    catch (e) { _stdoutDead = true; process.stderr.write(`[whiskor:mcp] stdout write failed: ${e.message}\n`); }
+  };
+
   rl.on('line', async (line) => {
-    const messages = await handleLine(line, identity);
-    for (const m of messages) process.stdout.write(JSON.stringify(m) + '\n');
+    // Line handlers run concurrently (JSON-RPC ids keep responses matchable).
+    // Nothing thrown here may become an unhandledRejection — that would take
+    // down the transport for every other in-flight call.
+    try {
+      const messages = await handleLine(line, identity);
+      for (const m of messages) writeMessage(m);
+    } catch (e) {
+      process.stderr.write(`[whiskor:mcp] handler error: ${e && e.stack || e}\n`);
+    }
   });
 
   process.stderr.write(`[whiskor:mcp] MCP server ready — ${registry.getToolNames().length} tools registered\n`);

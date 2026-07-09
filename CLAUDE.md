@@ -28,6 +28,7 @@ whk stop                          # 稼働中サーバーを graceful 停止（P
 whk shell                         # 人間用の全画面TUIシェル（出力ペイン+候補ポップアップ+ラインエディタ+ステータスバー）。実体は server/tui/、ゼロ依存
 whk shell --classic               # 旧インラインプロンプト版（server/cli-shell.js）。非TTY（パイプ）は常に行REPL
 whk server / whk mcp / whk GET /health  # CLIエントリ (server/cli.js。bin: whk / whiskor)。server は素の起動（ポート使用中なら失敗）
+whk POST <path> --file body.json  # JSONボディをファイルから（シェルquoting回避。`-` で stdin。不正JSONは送信前に検知して --file を案内）
 
 # dev-exec (開発時のライブ実行。operator専用モード。dev.exec.enabled=true が前提)
 whk dev on [--ttl 4h] [--project <path>] # dev mode 活性化（operator専権。TTLで自動失効。拡張バッジ点灯）
@@ -325,6 +326,7 @@ TUI専用ビルトイン:
 | `GET /api/sessions/:tabId/states` | ステート一覧（セッションの siteVersion でグラフが見つからなければ全グラフ横断にフォールバック） |
 | `GET /api/sessions/:tabId/map` | セッションのステートグラフをASCIIツリーで可視化（`state-visualizer.js`。`?maxNodes=`既定40・最大200。session siteVersionにノードが無ければ最大グラフへフォールバック） |
 | `GET /api/sessions/:tabId/layout-map` | ページの ASCII レイアウトマップ（`server/layout-map.js`＝MCP `get_layout_map` と共有。`?width=&legend=&border=`。**`/map` はステートグラフ、こちらはページレイアウト**） |
+| `GET /api/sessions/:tabId/framework-state` | フレームワーク状態（React fiber ツリー・Redux/Pinia ストア・router 等。`?framework=react\|vue3\|…\|dom`、既定 auto）。実体は `server/framework-state.js`＝MCP `get_framework_state` と共有。HTTP専業エージェント向け |
 | `GET /api/changes/:tabId` | 前提変化feed: アクション実行窓の外で起きた外部変化（scroll coalesce / modal開閉 / 遷移）。`?drain=1` で読取＋既読クリア（MCP piggyback `_sinceYourLastLook` が使用）。実体は `server/change-feed.js` |
 | `GET /api/graphs` | ステートグラフ一覧 |
 | `GET /api/graphs/:siteVersion/states` | 指定グラフのノード一覧（`/states/:hash` で単一ノード詳細） |

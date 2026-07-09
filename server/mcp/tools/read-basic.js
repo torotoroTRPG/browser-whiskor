@@ -492,56 +492,10 @@ module.exports = function registerBasicTools(registry) {
       },
     },
     handler: async (args, cb) => {
-      const cache = cb.cache;
-      const index = await cache.getSessionData(args.tabId);
-      if (!index) return { error: `No session for tabId ${args.tabId}` };
-
-      const fw = args.framework || 'auto';
-      const files = (index.files && index.files.raw) || {};
-
-      const fwFileMap = {
-        react:   files.react_snapshot,
-        vue3:    files.vue_snapshot,
-        vue2:    files.vue2_snapshot,
-        angular: files.angular_snapshot,
-        svelte:  files.svelte_snapshot,
-        alpine:  files.alpine_snapshot,
-        preact:  files.preact_snapshot,
-        solid:   files.solid_snapshot,
-        dom:     files.dom_generic,
-      };
-
-      const fwPluginMap = {
-        react: 'react-fiber', vue3: 'vue3', vue2: 'vue2',
-        angular: 'angular', svelte: 'svelte', alpine: 'alpine',
-        preact: 'preact', solid: 'solid', dom: 'dom-generic',
-      };
-
-      let targetFw = null;
-      let targetFile = null;
-      if (fw === 'auto') {
-        const priority = ['react','vue3','vue2','angular','svelte','alpine','preact','solid','dom'];
-        for (const key of priority) {
-          if (fwFileMap[key]) { targetFw = key; targetFile = fwFileMap[key]; break; }
-        }
-      } else {
-        targetFw = fw;
-        targetFile = fwFileMap[fw];
-      }
-
-      if (!targetFile) return { error: `Framework '${fw}' not detected. Available: ${Object.keys(fwFileMap).filter(k => fwFileMap[k]).join(', ') || 'none'}` };
-      const data = await cache.readSessionFile(args.tabId, targetFile);
-      if (!data) return { error: `File ${targetFile} not readable.` };
-      const result = withFreshness(args.tabId, fwPluginMap[targetFw] || targetFw, data, cache);
-
-      // Minified/production build → component names, files, lines are stripped
-      // from the Fiber/DOM but recoverable via capture_sources. Surface that so
-      // agents don't conclude "impossible" (same shape MCP/HTTP/CLI all see).
-      const hint = sourceRecoveryHint(fwPluginMap[targetFw] || targetFw, data);
-      if (hint && result) {
-        result._warnings = [...(result._warnings || []), hint];
-      }
-      return result;
+      // Shared with GET /api/sessions/:tabId/framework-state — one implementation
+      // for both surfaces (server/framework-state.js).
+      const { readFrameworkState } = require('../../framework-state');
+      return readFrameworkState(cb.cache, args.tabId, args.framework);
     },
   });
 

@@ -45,7 +45,17 @@ function _createWorker() {
   }
 
   _status = 'LOADING';
-  _worker = new Worker(path.join(__dirname, 'embed-worker.js'));
+  // stdout/stderr MUST be piped, not inherited: with the defaults, anything the
+  // worker (transformers.js / onnxruntime progress bars, warnings, crash spew)
+  // prints to stdout lands on the PARENT's stdout — which in MCP mode is the
+  // JSON-RPC channel. One stray line corrupts the stream and the client drops
+  // the pipe (the "Connection closed → Not connected" proxy crash). Route both
+  // to stderr so diagnostics stay visible without touching the protocol channel.
+  _worker = new Worker(path.join(__dirname, 'embed-worker.js'), { stdout: true, stderr: true });
+  try {
+    _worker.stdout.on('data', (d) => process.stderr.write(`[embed-worker] ${d}`));
+    _worker.stderr.on('data', (d) => process.stderr.write(`[embed-worker] ${d}`));
+  } catch (_) { /* streams unavailable — never fatal */ }
 
   _worker.on('message', _handleMessage);
   _worker.on('error', _handleError);
@@ -104,6 +114,9 @@ function _handleMessage(msg) {
 function _handleError(err) {
   console.error('[whiskor] Embed worker error:', err);
   _status = 'ERROR';
+  // A crashed worker can never answer its in-flight requests — reject them now
+  // instead of leaving them dangling until the watchdog fires (or forever).
+  _rejectAll(new Error(`Embed worker crashed: ${err && err.message || err}`));
   _restartWorker();
 }
 

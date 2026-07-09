@@ -151,7 +151,7 @@ Core Commands:
 
 HTTP API Client Commands:
   GET <path>          Send a GET request to the local whiskor server
-  POST <path> [body]  Send a POST request (JSON body optional)
+  POST <path> [body]  Send a POST request. Body: inline JSON, --file <path>, or '-' (stdin)
   DELETE <path>       Send a DELETE request
 
 Help Commands:
@@ -179,6 +179,8 @@ Examples:
   whk server --verbose
   whk GET /health
   whk POST /api/collect '{"tabId":123}'
+  whk POST /api/action --file body.json   (shell-quoting-proof: body from a file)
+  Get-Content body.json -Raw | whk POST /api/action -   (or from stdin)
 `);
     return;
   }
@@ -783,7 +785,55 @@ if (HTTP_METHODS.has(command)) {
   const _port   = _cliCfg.server?.httpPort || 7892;
   const _host   = _cliCfg.server?.host     || '127.0.0.1';
   const pathname = clientArgs[1] || '/';
-  const bodyArg  = clientArgs[2] || null;
+
+  // Body sources: `--file <path>` reads the body from a file, a lone `-` reads
+  // it from stdin, anything else is the literal inline argument. File/stdin
+  // exist because shell quoting mangles inline JSON (PowerShell especially —
+  // any execute_js body with quotes/backslashes dies in transit); a file or a
+  // pipe carries the bytes untouched.
+  // NOTE: --file must be read from the RAW args — clientArgs has every --flag
+  // filtered out at the top of this file, which also leaves the filename value
+  // behind as a stray positional (never treat it as an inline body).
+  const _resolveBody = async () => {
+    const fi = args.indexOf('--file');
+    if (fi >= 0) {
+      const fp = args[fi + 1];
+      if (!fp || fp.startsWith('--')) {
+        process.stderr.write('\x1b[31m[whk] --file requires a path (whk POST /api/action --file body.json)\x1b[0m\n');
+        process.exit(1);
+      }
+      try { return require('fs').readFileSync(fp, 'utf8'); }
+      catch (e) {
+        process.stderr.write('\x1b[31m[whk] Cannot read body file: ' + e.message + '\x1b[0m\n');
+        process.exit(1);
+      }
+    }
+    const rest = clientArgs.slice(2);
+    if (rest[0] === '-') {
+      let data = '';
+      for await (const chunk of process.stdin) data += chunk;
+      return data;
+    }
+    return rest[0] || null;
+  };
+
+  _runHttpCommand();
+  async function _runHttpCommand() {
+  let bodyArg = await _resolveBody();
+  if (bodyArg != null && bodyArg.trim() === '') bodyArg = null;
+  // Validate JSON BEFORE sending: quoting damage should fail here with a usable
+  // hint, not as a confusing server-side parse error two hops later.
+  if (bodyArg) {
+    try { JSON.parse(bodyArg); }
+    catch (e) {
+      process.stderr.write('\x1b[31m[whk] Body is not valid JSON: ' + e.message + '\x1b[0m\n');
+      process.stderr.write('      Received: ' + bodyArg.slice(0, 120).replace(/\n/g, '\\n') + (bodyArg.length > 120 ? '…' : '') + '\n');
+      process.stderr.write('      Shell quoting likely mangled it. Write the JSON to a file and use:\n');
+      process.stderr.write('        whk ' + command + ' ' + pathname + ' --file body.json\n');
+      process.stderr.write('      or pipe it:  Get-Content body.json -Raw | whk ' + command + ' ' + pathname + ' -\n');
+      process.exit(1);
+    }
+  }
 
   const req = http.request(
     { hostname: _host, port: _port, path: pathname, method: command,
@@ -819,6 +869,7 @@ if (HTTP_METHODS.has(command)) {
   });
   if (bodyArg) req.write(bodyArg);
   req.end();
+  }
 } else if (!command) {
   // Bare `whk` = restart semantics: always end up with a fresh server running
   // the current code (refreshes extension files, stops an old server if one is
