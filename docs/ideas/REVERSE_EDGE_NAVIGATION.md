@@ -105,8 +105,38 @@ Neither replaces the other: replay stays strict by default; agent-facing
 best equivalent and say so). A `mode` parameter makes the choice overridable
 per call.
 
+## S0 — the graph has no nodes (prerequisite, found 2026-07-10)
+
+Live inspection of a long-running instance: **all 43 on-disk graphs have
+`nodeCount: 0`** with up to 246 edges each (the only graph with nodes predates
+the current wiring). Three stacked causes:
+
+1. **Nodes are only written on the explorer path** (`_recordExplorerState`,
+   fed by `EXPLORER_GET_NEXT_ACTION` / `EXPLORER_STATE_UPDATE`). Normal
+   browsing never creates a node.
+2. **Edges ARE written during normal browsing** — `REACT_TRANSITION` →
+   `addEdge` fires on every debounced react commit — but its `from`/`to` are
+   **reactHash**, while nodes are keyed by **compositeHash**. The two keyspaces
+   can never join: those edges are permanent orphans.
+3. `__SI_CURRENT_HASH__` (composite) is only maintained while the explorer
+   runs, which is also why `observe` reports hash-unavailable in normal use.
+
+Everything in this document assumes nodes exist, so S0 comes first:
+
+- Maintain the composite hash passively: `react.js` already keeps
+  `__SI_REACT_HASH__` fresh on every commit; extract the explorer's
+  domHash/composite computation into a lightweight always-on helper.
+- On transition, passively record node + edge **in the composite keyspace**
+  (state-reporter or a small emitter → `addNode`/`addEdge`).
+- `REACT_TRANSITION` stops writing graph edges (it keeps feeding the
+  correlator — that use is keyspace-agnostic).
+- Startup sweep: drop node-less graphs; they are unreadable edge skeletons.
+
 ## Slices
 
+0. **S0 — passive node recording** (above). Without it the graph, the map
+   (`/api/sessions/:tabId/map`, TUI `map`), and every navigation slice below
+   render nothing outside explorer runs.
 1. **S1 — history inverses.** `go_back` candidates from `node.url` differences.
    Zero new collection; touches `state-navigator.js` only (candidate
    generation + confidence update + blacklist). Biggest win for page-level
