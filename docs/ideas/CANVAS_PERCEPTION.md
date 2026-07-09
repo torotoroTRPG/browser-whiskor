@@ -1,7 +1,9 @@
 # Canvas perception — declaring the DOM/pixel boundary, and a state-first canvas map
 
-**Status:** Slice 1 (boundary flags) implemented (2026-07-04). Slice 2+ (state-first
-canvas map) is design notes only.
+**Status:** Slice 1 (boundary flags) implemented (2026-07-04). Slice 2 (state-first
+canvas map) implemented (2026-07-09): `server/canvas-map.js` + MCP `get_canvas_map`
+(intelligence profile) + `GET /api/sessions/:tabId/canvas-map`. Slice 3 (synthetic
+image) is design notes only.
 
 ## The problem
 
@@ -100,7 +102,7 @@ are different situations and the agent should not have to guess which one it is 
 - `find_target` uses collection-time rects (like every other hint it reports);
   the executor-side note is live.
 
-## Slice 2+ — state-first canvas map (design notes, not implemented)
+## Slice 2 — state-first canvas map (implemented 2026-07-09)
 
 The boundary flags say *where DOM senses end*. The next slice is a sense that works
 past the boundary — an ASCII map of what is *inside* the canvas.
@@ -147,15 +149,65 @@ A grid earns its cost precisely when the question is 2D gestalt — adjacency,
 clusters, enclosure. Sparse → list; dense → grid; switch by measured density (the
 generalization of LAYOUT_ASCII_MAP's "auto-pick width by density" open question).
 
-**Open questions.**
+### What shipped (v1)
 
-- Spatial-field discovery: generic heuristic (arrays of objects carrying numeric
-  `x/y` (± `w/h`) fields in the store) vs per-app schema hints. Where does the
-  app-specific knowledge live?
-- Multiple canvases: which store slice maps to which canvas? (Likely: the agent
-  says which canvas — the Slice-1 identifiers give it the vocabulary.)
-- When state is unreachable (non-React canvas apps): OCR-only degraded mode, and
-  what its map honestly claims.
+`server/canvas-map.js` (pure, zero-dep) + MCP `get_canvas_map` (intelligence
+profile) + `GET /api/sessions/:tabId/canvas-map` — one pipeline for both
+surfaces, reading the framework snapshot via `server/framework-state.js`.
+
+- **Discovery is a generic heuristic, app knowledge lives in the call.** The
+  scanner walks the snapshot (node-budgeted; big production snapshots stop
+  honestly) for three collection shapes: arrays of objects with a numeric
+  coordinate pair, id-keyed maps (entity-adapter style; keys become fallback
+  labels), and componentTree groups (≥3 same-named components whose props carry
+  x/y). Score = count × field completeness × coverage. The best candidate is
+  rendered; the rest come back as `candidates` for the agent to re-query with
+  `path`. Per-app schema knowledge is a tool argument (`hints:
+  {path, x, y, w, h, label}`, dotted accessors) — never server config, so the
+  calling agent can learn it by exploration.
+- **The store snapshot truncates; component props don't.** The extension's
+  serializer cuts objects nested past its depth cap (`'[deep]'`), so a slice
+  like `entities.<slice>.<id>.x` often arrives unreadable — but primitives pass
+  the cut at any depth, so the same coordinates survive in per-piece component
+  props. That is why `components.<Name>` is a first-class path dialect, and why
+  truncation is reported (`STORE_DEPTH_TRUNCATED` warning / error hint naming
+  the cut paths) instead of silently finding nothing.
+- **Density ladder as designed**: crop to content bbox → auto grid/list by
+  measured cell occupancy (sparse → coordinate list `[n] label @x,y w×h`,
+  dense → grid with the same refs in a legend) → runs of ≥3 empty grid rows
+  collapse to `(rows a-b empty)`. Explicit `form: grid|list` overrides;
+  collinear/single-point layouts refuse the grid (no 2D signal to read).
+- **Coordinates stay in store units** — cropped and normalized, so relative
+  placement is faithful without the app's view transform. Every response says
+  so. Applying the pan/zoom projection is a later hints extension.
+- **Which canvas?** The agent says (`canvasIndex`, Slice-1 vocabulary); default
+  annotation is the page's largest canvas. Identification only in v1 — the map
+  is store-space, unprojected.
+- When state is unreachable the tool returns an honest error pointing at the
+  remaining pixel senses (`ocr_region` / screenshot); the OCR audit loop
+  (baseline/observed comparison) is not built yet.
+
+Live verification (a production React+Redux TRPG board) exposed two extractor
+preconditions that were fixed in the extension adapters, not worked around in
+the map:
+
+- **Store detection was name-matched, so production builds hid the store.**
+  The Redux Provider fallback compared `getDisplayName(fiber.type)` against
+  `'Provider'` — minified builds never match. Now duck-typed: any composite
+  fiber whose `store` prop carries the getState/dispatch/subscribe trio.
+- **Store serialization was too shallow for entity adapters.** `safeVal`
+  capped object nesting at 3; Redux Toolkit keeps spatial state five levels
+  down (`entities.<slice>.entities.<id>.x`). `safeVal` gained a
+  backward-compatible `maxDepth` parameter (default 3 = old behaviour) and
+  store captures start at 5, backing off per 2MB size guard. The map's
+  truncation report is what located this: 38 `'[deep]'` paths before the fix,
+  1 after.
+
+One freshness caveat worth knowing: the React snapshot is commit-driven
+(debounced `onCommitFiberRoot`), so right after a server restart an idle page
+has no react file in the new session until something re-renders — and `auto`
+may fall through to a lesser framework's false-positive snapshot. Any state
+change (or a tab reload) delivers it.
 
 ## Choosing the representation — ride the priors, not the entropy
 

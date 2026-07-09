@@ -8,6 +8,7 @@
  *   why_did_this_change  — causal chains for a selector within a time window
  *   get_source_file      — text content of a CSS/JS file by URL
  *   detect_site_updates  — SOURCE_CHANGED events since last session
+ *   get_canvas_map       — what is inside a <canvas>, from framework state
  */
 'use strict';
 
@@ -400,6 +401,60 @@ module.exports = function registerIntelligenceTools(registry) {
           ? 'No source file changes detected. Either the site has not changed or source files have not been fetched yet.'
           : undefined,
       };
+    },
+  });
+
+  // ── get_canvas_map ────────────────────────────────────────────────────────
+  tools.push({
+    definition: {
+      name: 'get_canvas_map',
+      description: 'Map what is INSIDE a <canvas> from framework state (the store slices / component props the app draws from) — the DOM senses end at the canvas boundary, this one does not. Auto-discovers collections of objects with numeric x/y and renders them cropped to their content bounding box, as an ASCII grid (dense) or a coordinate list (sparse). Coordinates are the app\'s own store units, not screen px. When several collections qualify, the best is rendered and the rest are listed as `candidates` — re-call with `path` to pick another. Requires framework state (React/Vue/... snapshot); returns an honest error when none is readable.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tabId:       { type: 'number', description: 'Tab ID from get_sessions' },
+          path:        { type: 'string', description: 'Dot-path to the collection in the framework state (e.g. "redux.entities.pieces"), or "components.<Name>" for the props of all same-named components. Omit to auto-discover.' },
+          hints:       {
+            type: 'object',
+            description: 'Field-accessor overrides when auto-detection picks wrong: {path?, x?, y?, w?, h?, label?} — accessors are dotted paths into each object (e.g. x:"position.x").',
+            properties: {
+              path:  { type: 'string' }, x: { type: 'string' }, y: { type: 'string' },
+              w:     { type: 'string' }, h: { type: 'string' }, label: { type: 'string' },
+            },
+          },
+          canvasIndex: { type: 'number', description: 'Which canvas (ui-catalog canvases[].index) this map corresponds to — annotation only in v1 (the map is store-space, unprojected). Default: the largest canvas.' },
+          framework:   { type: 'string', enum: ['auto', 'react', 'vue3', 'vue2', 'angular', 'svelte', 'alpine', 'preact', 'solid', 'dom'], description: 'Which framework snapshot to read (auto = first detected)' },
+          width:       { type: 'number', description: 'Grid columns (default 40, clamped 12-120)' },
+          form:        { type: 'string', enum: ['auto', 'grid', 'list'], description: 'auto (default) picks by measured density: sparse → coordinate list, dense → grid' },
+          legend:      { type: 'boolean', description: 'Grid form: include the ref→object legend (default true)' },
+          maxObjects:  { type: 'number', description: 'Cap on legend/list lines (default 150)' },
+        },
+        required: ['tabId'],
+      },
+    },
+    handler: async (args, cb) => {
+      const cache = cb.cache;
+      if (!cache) return { error: 'Cache service not available.' };
+      // Shared with GET /api/sessions/:tabId/canvas-map — one pipeline for both
+      // surfaces (server/framework-state.js → server/canvas-map.js).
+      const { readFrameworkState } = require('../../framework-state');
+      const { getCanvasMap, annotateCanvas } = require('../../canvas-map');
+      const state = await readFrameworkState(cache, args.tabId, args.framework || 'auto');
+      if (!state || state.error) {
+        return { error: (state && state.error) || 'Framework state not readable.',
+                 hint: 'The canvas map reads framework state. Trigger refresh_data first; if the app exposes no framework state, only pixel senses remain (ocr_region / capture_screenshot).' };
+      }
+      const map = getCanvasMap(state, {
+        path: args.path, hints: args.hints, width: args.width,
+        form: args.form, legend: args.legend, maxObjects: args.maxObjects,
+      });
+      // Identify which canvas this map corresponds to (Slice-1 vocabulary).
+      const catalog = await cache.readSessionFile(args.tabId, 'raw/ui/elements.json');
+      annotateCanvas(map, catalog, args.canvasIndex != null ? args.canvasIndex : null);
+      if (state._freshness) map._freshness = state._freshness;
+      const stale = (state._warnings || []).filter(w => w.code === 'STALE_DATA');
+      if (stale.length) map._warnings = [...(map._warnings || []), ...stale];
+      return map;
     },
   });
 

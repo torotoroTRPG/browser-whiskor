@@ -107,6 +107,7 @@
     "get_source_context":  { "enabled": true, "category": "intelligence" },
     "capture_sources":     { "enabled": true, "category": "intelligence" },
     "get_state_map_visual": { "enabled": true, "category": "intelligence" },
+    "get_canvas_map":       { "enabled": true, "category": "intelligence" },
     "replay_session":      { "enabled": true, "category": "replay" }
   },
 

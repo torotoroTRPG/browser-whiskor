@@ -48,6 +48,7 @@ function baseCatalog() {
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/ui/elements.json', desc: 'UI catalog: buttons/inputs/links (get_ui_catalog data)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/layout-map',           desc: 'ASCII layout map of the page (get_layout_map data; ?width=&legend=&border=)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/framework-state',      desc: 'Framework state: React/Vue/... tree + stores (get_framework_state data; ?framework=)' },
+    { cat: 'session', text: 'GET /api/sessions/:tabId/canvas-map',           desc: 'Map INSIDE a canvas from framework state (get_canvas_map data; ?path=&form=&width=)' },
     { cat: 'session', text: 'GET /api/changes/:tabId',                       desc: 'Premise-change feed: external changes since last look (?drain=1 = read+clear)' },
     { cat: 'session', text: 'GET /api/sessions/:tabId/raw/delta/smart.json', desc: 'Smart delta (aggregated motion)' },
     { cat: 'session', text: 'DELETE /api/sessions/:tabId',  desc: 'Delete a session' },

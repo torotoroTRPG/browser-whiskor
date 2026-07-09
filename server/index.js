@@ -1083,6 +1083,45 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         return sendJson(out, out && out.error && /^No session/.test(out.error) ? 404 : 200);
       }
 
+      // GET /api/sessions/:tabId/canvas-map — state-first map of what is INSIDE
+      // a <canvas>, rendered from framework state (server/canvas-map.js, shared
+      // with the MCP get_canvas_map tool). ?path=&width=&form=&legend=&framework=
+      // &canvasIndex=&maxObjects=&hints=<url-encoded JSON>.
+      const canvasMapM = method === 'GET' && p.match(/^\/api\/sessions\/(\d+)\/canvas-map$/);
+      if (canvasMapM) {
+        const tabId = parseInt(canvasMapM[1], 10);
+        if (appRegistry.enabled && !appRegistry.canAccess(httpAppId, core.getTabApp(tabId))) {
+          return sendJson({ error: 'Access denied: this tab belongs to another app' }, 403);
+        }
+        const sp = url.searchParams;
+        let hints;
+        if (sp.get('hints')) {
+          try { hints = JSON.parse(sp.get('hints')); }
+          catch (e) { return sendJson({ error: `hints is not valid JSON: ${e.message}` }, 400); }
+        }
+        const { readFrameworkState } = require('./framework-state');
+        const { getCanvasMap, annotateCanvas } = require('./canvas-map');
+        const state = await readFrameworkState(cache, tabId, sp.get('framework') || 'auto');
+        if (!state || state.error) {
+          const msg = (state && state.error) || 'Framework state not readable.';
+          return sendJson({ error: msg, hint: 'The canvas map reads framework state. Trigger POST /api/collect first.' },
+            /^No session/.test(msg) ? 404 : 200);
+        }
+        const map = getCanvasMap(state, {
+          path: sp.get('path') || undefined,
+          hints,
+          width: sp.get('width') ? parseInt(sp.get('width'), 10) : undefined,
+          form: sp.get('form') || undefined,
+          legend: sp.get('legend') !== null ? sp.get('legend') !== 'false' : undefined,
+          maxObjects: sp.get('maxObjects') ? parseInt(sp.get('maxObjects'), 10) : undefined,
+        });
+        // Same Slice-1 canvas annotation as the MCP tool (shared helper).
+        const catalog = await cache.readSessionFile(tabId, 'raw/ui/elements.json');
+        annotateCanvas(map, catalog, sp.get('canvasIndex') !== null ? parseInt(sp.get('canvasIndex'), 10) : null);
+        if (state._freshness) map._freshness = state._freshness;
+        return sendJson(map);
+      }
+
       // Intercept POST /api/action for server-side action types
       if (method === 'POST' && p === '/api/action') {
         const tabId = body?.tabId;

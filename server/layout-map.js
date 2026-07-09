@@ -260,7 +260,7 @@ function renderLegend(items, canvases) {
     const ct = c.clickThrough ? ' (click-through)' : '';
     lines.push(`#${c.ref} canvas ${c.rect.w}×${c.rect.h}${ident} @${c.center.x},${c.center.y}${ct}`);
   }
-  if (cs.length) lines.push('░ = canvas pixels (not DOM-visible): use get_framework_state / ocr_region / screenshot');
+  if (cs.length) lines.push('░ = canvas pixels (not DOM-visible): get_canvas_map renders the contents from framework state; ocr_region / screenshot for pixels');
   return lines.join('\n');
 }
 
