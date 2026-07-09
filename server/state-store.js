@@ -320,7 +320,7 @@ function addEdge(siteVersion, data) {
     console.warn(`[state-store] Rejected edge write to graph "${siteVersion}": origin ${data.origin} does not match graph owner ${g.origin}`);
     return null;
   }
-  const { from, to, action, trigger, selector, replayAction, replayable } = data;
+  const { from, to, action, trigger, selector, replayAction, replayable, basis } = data;
 
   if (!g.edges[from]) g.edges[from] = {};
   if (!g.edgeIndex[to]) g.edgeIndex[to] = [];
@@ -356,6 +356,9 @@ function addEdge(siteVersion, data) {
       // with no attributable action) — findPath must skip them. Absent on
       // older persisted edges, so only an explicit false opts out.
       replayable: replayable !== false,
+      // Provenance of earned speculative edges ('speculative-history' etc.);
+      // null for directly observed transitions.
+      basis: basis || null,
       firstSeen: Date.now(),
       lastSeen: Date.now(),
       replayAction: replayAction || { type: action, selector, text: trigger, x: null, y: null, value: null },

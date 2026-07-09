@@ -1,6 +1,6 @@
 # Speculative reverse edges — navigation beyond URL substitution
 
-**Status:** S0 implemented (2026-07-10); S1–S4 design only
+**Status:** S0 + S1 implemented (2026-07-10); S2–S4 design only
 
 ## Problem
 
@@ -152,6 +152,19 @@ text; a URL change → replayable `navigate` edge; otherwise an
    Zero new collection; touches `state-navigator.js` only (candidate
    generation + confidence update + blacklist). Biggest win for page-level
    states.
+
+   As implemented: candidates are derived per `findPath` call (prior 0.5,
+   real edges expanded first so an observed route wins at equal length;
+   generated only when steps are verified). A verified guess is persisted via
+   `addEdge` with `basis:'speculative-history'` — repeat successes then
+   promote confidence through the normal count lifecycle. A failed guess
+   (hash miss or action error) joins an in-process blacklist and triggers a
+   bounded re-plan (max 3) from wherever the tab actually landed, falling
+   through to the URL fallback, which now reports `fallback:'url'` + a note
+   that SPA state was reset. Submit-shaped forwards (type_text, submit
+   selectors, mutation-labeled triggers) are never inverted. Dry-run
+   (`get_navigation_path`) marks speculative steps and counts them. Tests:
+   `tests/unit/speculative-reverse-edges.test.js`.
 2. **S2 — dialog dismissal.** Store `dialogAppeared` on the transition record
    (producer signal exists already), generate Escape candidates. Reaches the
    states URL fallback can never reach (modals, overlays).

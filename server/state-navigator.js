@@ -46,10 +46,91 @@ function requestHash(tabId, broadcast, timeoutMs = 5000) {
   });
 }
 
+// ── Speculative reverse edges (S1: history inverses) ─────────────────────────
+// Recorded graphs are almost purely forward-directed — the control that leaves
+// a state is rarely the one that led into it. For forward transitions that
+// changed the URL, `go_back` is a cheap candidate inverse with a good prior.
+// Candidates are derived at findPath time (the persisted graph stays a record
+// of observations, never guesses), verified by the existing per-step hash
+// check, persisted only on success (earned), and blacklisted in-process on
+// failure. Design: docs/ideas/REVERSE_EDGE_NAVIGATION.md.
+
+const SPECULATIVE_GO_BACK_CONFIDENCE = 0.5;
+
+// siteVersion|from|to|action → ts of the failed verification. A wrong guess
+// demotes itself on first use instead of being retried on every call.
+const speculativeBlacklist = new Map();
+
+function blacklistKey(siteVersion, edge) {
+  return `${siteVersion || '?'}|${edge.from}|${edge.to}|${edge.action}`;
+}
+
+// A transition that mutated data has no safe inverse — going "back" would not
+// undo it, only mislead. Detectable submit shapes plus a conservative label
+// net; a false positive here only costs a shortcut, a false negative fakes an
+// undo.
+const SUBMIT_LABEL_RE = /submit|送信|確定|購入|支払|保存|削除|delete|save|buy|checkout|register|登録/i;
+
+function isSubmitShaped(edge) {
+  if (!edge) return false;
+  if (edge.action === 'type_text' || edge.action === 'submit') return true;
+  const ra = edge.replayAction || {};
+  if (ra.type === 'type_text' || ra.submit) return true;
+  if (typeof ra.selector === 'string' && /submit/i.test(ra.selector)) return true;
+  if (typeof edge.trigger === 'string' && SUBMIT_LABEL_RE.test(edge.trigger)) return true;
+  return false;
+}
+
+/**
+ * Derive go_back candidates for one traversal: for every replayable forward
+ * edge a→b whose endpoint URLs differ, offer b→a. Skips submit-shaped
+ * forwards, pairs already covered by a real reverse edge, and blacklisted
+ * guesses. Returns from-hash → [candidates].
+ */
+function speculativeReverseEdges(graph, minConfidence) {
+  if (SPECULATIVE_GO_BACK_CONFIDENCE < minConfidence) return {};
+  const nodes = graph.nodes || {};
+  const byFrom = {};
+  for (const from of Object.keys(graph.edges || {})) {
+    for (const edgeKey of Object.keys(graph.edges[from])) {
+      const fwd = graph.edges[from][edgeKey];
+      if (!fwd.to || fwd.to === from) continue;
+      const fromUrl = nodes[from]?.url;
+      const toUrl = nodes[fwd.to]?.url;
+      if (!fromUrl || !toUrl || fromUrl === toUrl) continue; // history only inverts URL changes
+      if (isSubmitShaped(fwd)) continue;
+      const hasRealReverse = Object.values(graph.edges[fwd.to] || {})
+        .some(e => e.to === from && e.replayable !== false);
+      if (hasRealReverse) continue;
+
+      const cand = {
+        from: fwd.to,
+        to: from,
+        action: 'go_back',
+        trigger: null,
+        confidence: SPECULATIVE_GO_BACK_CONFIDENCE,
+        speculative: true,
+        basis: 'speculative-history',
+        replayAction: { type: 'go_back' },
+      };
+      if (speculativeBlacklist.has(blacklistKey(graph.siteVersion, cand))) continue;
+
+      const list = (byFrom[cand.from] = byFrom[cand.from] || []);
+      if (!list.some(c => c.to === cand.to)) list.push(cand);
+    }
+  }
+  return byFrom;
+}
+
 // ── BFS Shortest Path ────────────────────────────────────────────────────────
 
-function findPath(graph, fromHash, toHash, minConfidence = 0.3) {
+function findPath(graph, fromHash, toHash, minConfidence = 0.3, options = {}) {
   if (fromHash === toHash) return [];
+
+  // Lazy reverse candidates ride along as extra edges. BFS itself is
+  // untouched — real edges are expanded first at every node, so at equal
+  // path length an observed route beats a speculative one.
+  const speculative = options.speculative ? speculativeReverseEdges(graph, minConfidence) : null;
 
   const visited = new Set([fromHash]);
   const queue = [[fromHash, []]];
@@ -70,6 +151,17 @@ function findPath(graph, fromHash, toHash, minConfidence = 0.3) {
 
       visited.add(edge.to);
       queue.push([edge.to, newPath]);
+    }
+
+    for (const cand of (speculative && speculative[current]) || []) {
+      if (visited.has(cand.to)) continue;
+
+      const newPath = [...path, { ...cand, edgeKey: 'go_back:speculative' }];
+
+      if (cand.to === toHash) return newPath;
+
+      visited.add(cand.to);
+      queue.push([cand.to, newPath]);
     }
   }
 
@@ -120,102 +212,129 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
       return { ok: false, error: 'NO_GRAPH', message: 'No state graph found. Run the explorer first.' };
     }
 
-    // Step 3: BFS path finding
-    let path = findPath(graph, startHash, targetHash);
-
-    // Step 4: URL fallback
-    if (!path && allowUrlFallback) {
-      const targetNode = graph.nodes[targetHash];
-      if (targetNode?.url) {
-        try {
-          await executeAction(tabId, { type: 'navigate', url: targetNode.url }, 10000);
-          await new Promise(r => setTimeout(r, 2000)); // Wait for page load
-          const finalState = await requestHash(tabId, broadcast, 8000);
-          return {
-            ok: finalState.compositeHash === targetHash,
-            exactMatch: finalState.compositeHash === targetHash,
-            finalHash: finalState.compositeHash,
-            targetHash,
-            usedUrlFallback: true,
-            durationMs: Date.now() - start,
-          };
-        } catch (e) {
-          return { ok: false, error: 'URL_FALLBACK_FAILED', message: e.message };
-        }
-      }
-      return {
-        ok: false,
-        error: 'NO_PATH',
-        message: 'No recorded path from current state to target. Graph may be incomplete.',
-        suggestions: _findSimilarStates(graph, targetHash, 3),
-      };
-    }
-
-    if (!path) {
-      return {
-        ok: false,
-        error: 'NO_PATH',
-        message: 'No path found from current state to target.',
-        suggestions: _findSimilarStates(graph, targetHash, 3),
-      };
-    }
-
-    if (path.length > maxSteps) {
-      return {
-        ok: false,
-        error: 'PATH_TOO_LONG',
-        message: 'Path requires ' + path.length + ' steps, max is ' + maxSteps + '.',
-        pathLength: path.length,
-      };
-    }
-
-    // Step 5: Action replay
+    // Steps 3-5: plan → replay, with bounded replanning. A speculative edge
+    // that fails hash verification blacklists itself and triggers a re-plan
+    // from wherever we actually landed (next candidate, hub route, or —
+    // when candidates run out — the URL fallback below). Speculative edges
+    // are only generated when steps are verified: unverified guesses could
+    // neither be earned nor caught.
+    const MAX_REPLANS = 3;
     const executedPath = [];
-    for (let i = 0; i < path.length; i++) {
-      const edge = path[i];
-      const action = edge.replayAction || { type: edge.action, text: edge.trigger, selector: edge.selector };
+    let replans = 0;
+    let usedSpeculative = false;
+    let currentHash = startHash;
+    let path = null;
+    let completed = false;
+    let firstPlan = true;
 
-      let actionResult;
-      try {
-        actionResult = await executeAction(tabId, action, stepTimeoutMs);
-      } catch (e) {
-        return {
-          ok: false,
-          error: 'ACTION_FAILED',
-          message: e.message,
-          step: i + 1,
-          edge: { action: edge.action, trigger: edge.trigger },
-          path: executedPath,
-        };
+    planning:
+    while (!completed) {
+      path = findPath(graph, currentHash, targetHash, 0.3, { speculative: verifyEachStep });
+      if (!path) break;
+
+      if (executedPath.length + path.length > maxSteps) {
+        if (firstPlan) {
+          return {
+            ok: false,
+            error: 'PATH_TOO_LONG',
+            message: 'Path requires ' + path.length + ' steps, max is ' + maxSteps + '.',
+            pathLength: path.length,
+          };
+        }
+        path = null; // replanned route exceeds the budget — fall to URL fallback
+        break;
       }
+      firstPlan = false;
 
-      if (!actionResult?.ok) {
-        return {
-          ok: false,
-          error: 'ACTION_FAILED',
-          message: actionResult?.error || 'Action failed',
-          step: i + 1,
-          edge: { action: edge.action, trigger: edge.trigger },
-          path: executedPath,
-        };
-      }
+      for (let i = 0; i < path.length; i++) {
+        const edge = path[i];
+        const stepNo = executedPath.length + 1;
+        const action = edge.replayAction || { type: edge.action, text: edge.trigger, selector: edge.selector };
+        if (edge.speculative) usedSpeculative = true;
 
-      // Verify step
-      if (verifyEachStep) {
+        let actionResult, actionError = null;
         try {
-          const state = await requestHash(tabId, broadcast, stepTimeoutMs);
+          actionResult = await executeAction(tabId, action, stepTimeoutMs);
+        } catch (e) {
+          actionError = e.message;
+        }
+        if (!actionError && !actionResult?.ok) actionError = actionResult?.error || 'Action failed';
+
+        if (actionError) {
+          if (edge.speculative) {
+            // A guess that cannot even execute is as wrong as a hash miss.
+            speculativeBlacklist.set(blacklistKey(graph.siteVersion, edge), Date.now());
+            if (replans++ < MAX_REPLANS) continue planning;
+            path = null;
+            break planning;
+          }
+          return {
+            ok: false,
+            error: 'ACTION_FAILED',
+            message: actionError,
+            step: stepNo,
+            edge: { action: edge.action, trigger: edge.trigger },
+            path: executedPath,
+          };
+        }
+
+        // Verify step
+        if (verifyEachStep) {
+          let state = null;
+          try {
+            state = await requestHash(tabId, broadcast, stepTimeoutMs);
+          } catch (e) {
+            executedPath.push({
+              step: stepNo,
+              action: edge.action,
+              trigger: edge.trigger,
+              speculative: !!edge.speculative,
+              fromHash: edge.from,
+              expectedTo: edge.to,
+              actualTo: null,
+              ok: false,
+              error: 'Hash verification timeout',
+            });
+            if (edge.speculative) { path = null; break planning; } // can't judge the guess — stop guessing
+            continue;
+          }
+
+          const stepOk = state.compositeHash === edge.to;
           executedPath.push({
-            step: i + 1,
+            step: stepNo,
             action: edge.action,
             trigger: edge.trigger,
+            speculative: !!edge.speculative,
             fromHash: edge.from,
             expectedTo: edge.to,
             actualTo: state.compositeHash,
-            ok: state.compositeHash === edge.to,
+            ok: stepOk,
           });
 
-          if (state.compositeHash !== edge.to) {
-            // Unexpected transition — record it but continue
+          if (edge.speculative) {
+            if (stepOk) {
+              // Earned: the guess survived verification — persist it as a
+              // normal transition with provenance. Repeat successes promote
+              // confidence through the ordinary count lifecycle.
+              stateStore.addEdge(graph.siteVersion, {
+                from: edge.from,
+                to: edge.to,
+                action: 'go_back',
+                trigger: null,
+                replayAction: { type: 'go_back' },
+                basis: edge.basis,
+              });
+            } else {
+              speculativeBlacklist.set(blacklistKey(graph.siteVersion, edge), Date.now());
+              if (replans++ < MAX_REPLANS && state.compositeHash) {
+                currentHash = state.compositeHash;
+                continue planning;
+              }
+              path = null;
+              break planning;
+            }
+          } else if (!stepOk) {
+            // Unexpected transition on an observed edge — record it but continue
             stateStore.addEdge(graph.siteVersion, {
               from: edge.from,
               to: state.compositeHash,
@@ -223,28 +342,56 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
               trigger: edge.trigger,
             });
           }
-        } catch (e) {
+        } else {
           executedPath.push({
-            step: i + 1,
+            step: stepNo,
             action: edge.action,
             trigger: edge.trigger,
+            speculative: false,
             fromHash: edge.from,
             expectedTo: edge.to,
-            actualTo: null,
-            ok: false,
-            error: 'Hash verification timeout',
+            ok: true,
           });
         }
-      } else {
-        executedPath.push({
-          step: i + 1,
-          action: edge.action,
-          trigger: edge.trigger,
-          fromHash: edge.from,
-          expectedTo: edge.to,
-          ok: true,
-        });
       }
+      completed = true;
+    }
+
+    // URL fallback — last resort, and honest about what it is: navigate()
+    // resets SPA state, so reaching the URL is NOT reaching the recorded state.
+    if (!completed) {
+      if (allowUrlFallback) {
+        const targetNode = graph.nodes[targetHash];
+        if (targetNode?.url) {
+          try {
+            await executeAction(tabId, { type: 'navigate', url: targetNode.url }, 10000);
+            await new Promise(r => setTimeout(r, 2000)); // Wait for page load
+            const finalState = await requestHash(tabId, broadcast, 8000);
+            return {
+              ok: finalState.compositeHash === targetHash,
+              exactMatch: finalState.compositeHash === targetHash,
+              finalHash: finalState.compositeHash,
+              targetHash,
+              usedUrlFallback: true,
+              fallback: 'url',
+              note: 'SPA state was reset — reached the URL, not the recorded state',
+              path: executedPath,
+              durationMs: Date.now() - start,
+            };
+          } catch (e) {
+            return { ok: false, error: 'URL_FALLBACK_FAILED', message: e.message, path: executedPath };
+          }
+        }
+      }
+      return {
+        ok: false,
+        error: 'NO_PATH',
+        message: executedPath.length
+          ? 'No remaining path to target after speculative steps failed.'
+          : 'No recorded path from current state to target. Graph may be incomplete.',
+        suggestions: _findSimilarStates(graph, targetHash, 3),
+        path: executedPath,
+      };
     }
 
     // Step 6: Final verification
@@ -260,10 +407,11 @@ async function navigate(tabId, targetHash, options, executeAction, broadcast) {
 
     return {
       ok: true,
-      stepsExecuted: path.length,
+      stepsExecuted: executedPath.length,
       finalHash,
       targetHash,
       exactMatch,
+      usedSpeculative,
       durationMs: Date.now() - start,
       path: executedPath,
     };
@@ -287,14 +435,18 @@ function getNavigationPath(fromHash, toHash, siteVersion) {
   if (!graph) graph = stateStore.findGraphContaining(toHash);
   if (!graph) return { reachable: false, error: 'No graph found' };
 
-  const path = findPath(graph, fromHash, toHash);
+  // The dry-run mirrors what navigate() would actually try, speculative
+  // reverse edges included — reported as such, never dressed up as observed.
+  const path = findPath(graph, fromHash, toHash, 0.3, { speculative: true });
   if (!path) return { reachable: false, error: 'No path found' };
 
   const warnings = [];
   let totalConfidence = 1;
   for (const edge of path) {
     totalConfidence *= edge.confidence || 0.5;
-    if ((edge.confidence || 0) < 0.5) {
+    if (edge.speculative) {
+      warnings.push('Step "' + edge.action + '" is a speculative reverse edge (basis: ' + edge.basis + ') — verified on first use');
+    } else if ((edge.confidence || 0) < 0.5) {
       warnings.push('Step "' + edge.action + ':' + edge.trigger + '" confidence is low (' + (edge.confidence || 0).toFixed(2) + ')');
     }
   }
@@ -303,6 +455,7 @@ function getNavigationPath(fromHash, toHash, siteVersion) {
     reachable: true,
     steps: path.length,
     confidence: Math.round(totalConfidence * 100) / 100,
+    speculativeSteps: path.filter(e => e.speculative).length,
     path: path.map((e, i) => ({
       step: i + 1,
       action: e.action,
@@ -310,6 +463,7 @@ function getNavigationPath(fromHash, toHash, siteVersion) {
       fromHash: e.from,
       toHash: e.to,
       confidence: e.confidence,
+      speculative: !!e.speculative,
     })),
     warnings,
   };
@@ -406,4 +560,6 @@ module.exports = {
   handleHashReport,
   requestHash,
   _findSimilarStates,
+  _speculativeReverseEdges: speculativeReverseEdges,
+  _clearSpeculativeBlacklist: () => speculativeBlacklist.clear(),
 };
