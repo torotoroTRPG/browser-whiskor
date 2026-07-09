@@ -31,6 +31,10 @@ const ansi = {
   bold:    (s) => `${ESC}1m${s}${ESC}22m`,
   dim:     (s) => `${ESC}2m${s}${ESC}22m`,
   inverse: (s) => `${ESC}7m${s}${ESC}27m`,
+  // 256-color background. Unlike the terminal's default background, an
+  // explicitly colored one is painted opaque even on translucent terminals —
+  // which is exactly what popup rows rely on for readability.
+  bg256: (n, s) => `${ESC}48;5;${n}m${s}${ESC}49m`,
   fg: {
     red:     (s) => `${ESC}31m${s}${ESC}39m`,
     green:   (s) => `${ESC}32m${s}${ESC}39m`,

@@ -24,7 +24,7 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { PassThrough } = require('stream');
-const { ansi, strWidth, truncateToWidth, padToWidth, charWidth, parseSgrMouse, stripSgrMouse, splitTrailingEscape } = require('./term');
+const { ansi, stripAnsi, strWidth, truncateToWidth, padToWidth, charWidth, parseSgrMouse, stripSgrMouse, splitTrailingEscape } = require('./term');
 const { LineEditor } = require('./editor');
 const { Scrollback } = require('./scrollback');
 const { highlightJsonLine } = require('./highlight');
@@ -37,6 +37,10 @@ const PKG_VERSION = require('../../package.json').version;
 
 const PROMPT      = 'whiskor> ';
 const POPUP_MAX   = 8;
+// Band behind popup rows. ANSI has no alpha, and explicitly colored cells are
+// painted opaque even on a translucent terminal — so "semi-transparent" is
+// approximated by staying near-black, just above the default background.
+const POPUP_BG    = 234;
 const HEALTH_POLL_MS = 5000;
 const SPINNER     = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
 
@@ -364,6 +368,10 @@ async function startTui({ host, port }) {
     }
 
     // popup (windowed around the selection, or the field-edit overlay)
+    // Every row gets a full-width background band: the terminal is often run
+    // semi-transparent over a browser, and foreground-only text mixes with the
+    // page behind it. clearLine paints the default (translucent) background,
+    // so the band is padded to full width explicitly.
     const activeIdx = state.mode === 'fieldedit' ? state.fieldIdx + 1 : state.sel;
     for (let i = 0; i < popupH; i++) {
       const r = outputH + 1 + i;
@@ -381,7 +389,8 @@ async function startTui({ host, port }) {
       } else {
         line = ' ' + (isDir ? ansi.bold(ansi.fg.cyan(head)) : head) + '   ' + ansi.fg.gray(desc);
       }
-      frame += line;
+      const pad = Math.max(0, cols - strWidth(stripAnsi(line)));
+      frame += ansi.bg256(POPUP_BG, line + ' '.repeat(pad));
     }
 
     // input line (prompt carries the folder breadcrumb, or the active field name)
