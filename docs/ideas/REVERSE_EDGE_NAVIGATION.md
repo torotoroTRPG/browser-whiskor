@@ -1,0 +1,131 @@
+# Speculative reverse edges — navigation beyond URL substitution
+
+**Status:** design only (2026-07-10)
+
+## Problem
+
+`navigate_to_state` finds a path by BFS over the state graph's **recorded,
+directed** edges (`state-navigator.js findPath`). An edge exists only because
+that exact transition was once observed: `a→b via click("設定")`. Nothing about
+that observation produces the reverse edge — the control that leaves a state is
+almost never the control that led into it (a "設定" button opens the panel; a
+"×", Escape, or the browser back button leaves it). So in practice:
+
+- Freshly-explored graphs are almost purely forward-directed. `b→a` exists only
+  if someone happened to walk back while instrumented.
+- When BFS finds no path, the navigator falls back to `navigate(url)` — which
+  **resets SPA state** (form contents, scroll, store) and cannot reach states
+  that don't map to a unique URL at all (modal open, wizard step 3, a canvas
+  arrangement).
+
+The observable symptom: navigation "works" but is effectively URL substitution
+with extra steps.
+
+## Insight
+
+We don't need to *know* the inverse of a transition. We need **cheap candidate
+inverses with a good prior**, plus verification — and the machinery for the
+second half already exists:
+
+- edges carry a `confidence` field, and `findPath` already filters on
+  `minConfidence` (0.3),
+- `navigate_to_state` already verifies every step against the target hash
+  (`verifyEachStep`).
+
+So the design is: **synthesize speculative reverse edges, let navigation try
+them, verify by hash as it already does, and adjust confidence from the
+outcome.** Edges are earned, not assumed.
+
+## Design
+
+### Candidate sources (priors, cheapest first)
+
+| Basis | Candidate reverse action | Prior | Derivable from |
+|---|---|---|---|
+| The forward transition changed the URL (`node[a].url !== node[b].url`) | `go_back` | ~0.5 | Graph nodes already store `url` — no new collection |
+| The forward transition opened a dialog (`dialogAppeared` on the mutation records) | `press_key Escape` | ~0.35 | dom-mutations analyzer already flags it; needs the flag stored on the edge at record time |
+| A dismiss-looking control exists in state `b` (label ∈ 閉じる/×/close/cancel/戻る) | `click(text)` on it | ~0.3 | ui-catalog snapshot of `b` |
+
+All three are heuristics and all three can be wrong — that is fine, because a
+wrong candidate fails hash verification on first use and demotes itself below
+`minConfidence`. The worst case is one wasted step during an explicit
+`navigate_to_state` call, bounded by the existing `maxSteps`/`stepTimeoutMs`.
+
+### Lifecycle: lazy generation, earned persistence
+
+Speculative edges are **derived at `findPath` time**, not written into the
+graph when a forward transition is recorded. Reasons:
+
+- the graph stays a record of observations, not guesses — every persisted edge
+  either happened or was verified to happen;
+- priors can change without migrating stored graphs.
+
+On traversal:
+
+- **success** (step hash matched): persist the edge as a normal transition with
+  `basis: 'speculative-history' | 'speculative-dismiss'` provenance and promote
+  confidence (e.g. +0.2 per success, capped ~0.95);
+- **failure**: demote below `minConfidence` in a small in-memory blacklist
+  (per graph, per edge) so the same guess isn't retried every call; fall through
+  to the next candidate, then to the URL fallback as today.
+
+### BFS stays untouched
+
+`findPath` just sees more edges. Two small biases keep behaviour sane:
+
+- at equal path length, prefer observed edges over speculative ones (add a
+  fixed cost penalty to speculative edges);
+- hub routing needs no new code — as speculative edges fill in, `b→hub→a`
+  paths appear naturally and the URL fallback stops being the common case.
+
+### URL fallback becomes honest
+
+Keep it as the last resort, but mark the result: `{ fallback: 'url',
+note: 'SPA state was reset — reached the URL, not the recorded state' }`.
+Today it reports success indistinguishably from a real path traversal.
+
+## Strict and fuzzy navigation coexist
+
+Reverse edges fix *reachability*; a second, orthogonal axis is *target
+tolerance*. Today navigation is strict-only: the target is an exact
+`compositeHash`, and a hash that drifted (dynamic content, a changed badge
+count) makes the "same place" unreachable even when every human would say the
+agent arrived. Both modes have real use-cases, so they should be explicit:
+
+| | **strict** | **fuzzy** |
+|---|---|---|
+| Target | exact hash | best-equivalent state: `_findSimilarStates` score (tag Jaccard + label bigram + URL proximity) ≥ threshold — the ranking that already powers failure `suggestions`, promoted from "did you mean" to target resolution |
+| Step verification | every intermediate hash must match (today's `verifyEachStep`) | intermediate steps tolerate hash drift (verify URL/keyState per step, exact-or-similar check on the FINAL state only) — dynamic content must not abort a path halfway |
+| Reports | success = exact arrival, anything else fails | success carries `matched: 'fuzzy'`, the similarity score, and what differed — honest, never silently pretending exactness |
+| Use-cases | replay_session, dev-exec harness runs, regression verification | goal-seeking agent navigation, stale graphs, semantic targets (`query: "設定画面"` → search_states → same pipeline) |
+
+Neither replaces the other: replay stays strict by default; agent-facing
+`navigate_to_state` defaults to strict target + fuzzy *fallback resolution*
+(exact hash first; if it no longer exists or is unreachable, resolve to the
+best equivalent and say so). A `mode` parameter makes the choice overridable
+per call.
+
+## Slices
+
+1. **S1 — history inverses.** `go_back` candidates from `node.url` differences.
+   Zero new collection; touches `state-navigator.js` only (candidate
+   generation + confidence update + blacklist). Biggest win for page-level
+   states.
+2. **S2 — dialog dismissal.** Store `dialogAppeared` on the transition record
+   (producer signal exists already), generate Escape candidates. Reaches the
+   states URL fallback can never reach (modals, overlays).
+3. **S3 — fuzzy target resolution.** Promote `_findSimilarStates` to target
+   resolution with a `mode` parameter and honest `matched:'fuzzy'` reporting;
+   relax intermediate-step verification to final-state-or-similar.
+4. **S4 — dismiss-control heuristics + explorer pre-verification.** Label-based
+   close-button candidates; optionally let the explorer verify speculative
+   edges proactively so agent-facing navigation rarely pays the trial cost.
+
+## Non-goals
+
+- No general "undo" — this inverts *navigation*, not data mutations. A
+  transition that submitted a form has no safe speculative inverse; `go_back`
+  candidates should be skipped when the forward action was a submit-shaped
+  action (type_text with submit, click on type=submit).
+- No symmetric-edge assumption anywhere: reverse edges always go through the
+  same verification as forward ones.
