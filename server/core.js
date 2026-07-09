@@ -604,22 +604,76 @@ class WhiskorCore extends EventEmitter {
         break;
 
       case 'REACT_TRANSITION': {
-        const { from, to, fromReact, toReact, trigger } = msg.payload || {};
-        // siteVersion rides the emit envelope (top level, forwarded by the
-        // bridge); tolerate older payloads that carried it inside payload.
-        const siteVersion = msg.siteVersion || (msg.payload || {}).siteVersion;
-        if (siteVersion && from && to) {
-          this.stateMachine.addEdge(siteVersion, {
-            from, to,
-            action: 'react-update',
-            trigger: trigger || null,
-            origin: this._pageOrigin(msg),
-          });
-        }
-        // Feed to correlator — framework transitions improve causal-chain Rule 2/3
+        // No graph write here: from/to are REACT hashes, while nodes are keyed
+        // by COMPOSITE hashes — edges written in the react keyspace can never
+        // join a node and accumulate as permanent orphans (the pre-S0 bug that
+        // left every passively-browsed graph at nodeCount:0). Graph writes
+        // happen on STATE_TRANSITION below, in the composite keyspace.
+        // Feed to correlator — framework transitions improve causal-chain
+        // Rule 2/3, and that use is keyspace-agnostic.
         if (this.correlator) {
           const newChains = this.correlator.addMessage(msg);
           if (newChains?.length) this._persistCausalChains(msg.tabId, newChains);
+        }
+        this.broadcastToDashboard(msg);
+        break;
+      }
+
+      // Passive state-graph writer: the always-on hash engine in
+      // state-reporter.js reports each SETTLED composite-hash transition
+      // during normal browsing. Explorer runs remain a denser variant of the
+      // same write path (_recordExplorerState).
+      case 'STATE_TRANSITION': {
+        const p = msg.payload || {};
+        const sv = msg.siteVersion || p.siteVersion;
+        const okHash = (h) => typeof h === 'string' && h.length > 0 && h.length <= 128;
+        if (!sv || typeof sv !== 'string' || !okHash(p.to)) {
+          this.broadcastToDashboard(msg);
+          break;
+        }
+
+        // Same trust model as _recordExplorerState: everything in the payload
+        // is page-influenced; the url is clamped to the bridge-verified origin
+        // and the write itself is origin-bound in state-store.
+        const origin = this._pageOrigin(msg);
+        let safeUrl = p.url || msg.tabUrl || null;
+        if (origin && safeUrl) {
+          try { if (new URL(safeUrl).origin !== origin) safeUrl = msg.tabUrl; }
+          catch (_) { safeUrl = msg.tabUrl; }
+        }
+
+        const node = this.stateMachine.addNode(sv, {
+          hash: p.to,
+          reactHash: okHash(p.reactHash) ? p.reactHash : null,
+          domHash: okHash(p.domHash) ? p.domHash : p.to,
+          url: safeUrl,
+          title: typeof p.title === 'string' ? p.title.slice(0, 300) : null,
+          origin,
+        });
+
+        if (node !== null && okHash(p.from) && p.from !== p.to) {
+          // Edge action, best evidence first: a recent click gives a real
+          // replayable trigger; a URL change replays as navigate; anything
+          // else is recorded as a non-replayable observation (it still shapes
+          // the graph and feeds reverse-edge candidates, but findPath must
+          // never try to execute it).
+          const inter = p.interaction;
+          const fromUrl = this.stateMachine.store?.getNodeByHash?.(sv, p.from)?.url || null;
+          let action = 'observed', trigger = null, replayAction = null, replayable = false;
+          if (inter && inter.type === 'click' && typeof inter.text === 'string' && inter.text.trim()) {
+            action = 'click';
+            trigger = inter.text.trim().slice(0, 80);
+            replayAction = { type: 'click', text: trigger };
+            replayable = true;
+          } else if (fromUrl && safeUrl && fromUrl !== safeUrl) {
+            action = 'navigate';
+            trigger = safeUrl;
+            replayAction = { type: 'navigate', url: safeUrl };
+            replayable = true;
+          }
+          this.stateMachine.addEdge(sv, {
+            from: p.from, to: p.to, action, trigger, replayAction, replayable, origin,
+          });
         }
         this.broadcastToDashboard(msg);
         break;

@@ -1,6 +1,6 @@
 # Speculative reverse edges — navigation beyond URL substitution
 
-**Status:** design only (2026-07-10)
+**Status:** S0 implemented (2026-07-10); S1–S4 design only
 
 ## Problem
 
@@ -105,7 +105,7 @@ Neither replaces the other: replay stays strict by default; agent-facing
 best equivalent and say so). A `mode` parameter makes the choice overridable
 per call.
 
-## S0 — the graph has no nodes (prerequisite, found 2026-07-10)
+## S0 — the graph has no nodes (prerequisite, found 2026-07-10; implemented same day)
 
 Live inspection of a long-running instance: **all 43 on-disk graphs have
 `nodeCount: 0`** with up to 246 edges each (the only graph with nodes predates
@@ -131,6 +131,17 @@ Everything in this document assumes nodes exist, so S0 comes first:
 - `REACT_TRANSITION` stops writing graph edges (it keeps feeding the
   correlator — that use is keyspace-agnostic).
 - Startup sweep: drop node-less graphs; they are unreadable edge skeletons.
+
+As implemented: the engine lives in `state-reporter.js` (`__SI_HASH_ENGINE__`,
+loaded before `explorer.js`, which now delegates instead of keeping a fork).
+It polls (700ms) and holds a changed hash as a candidate until it settles
+(800ms) — one `STATE_TRANSITION` per settled state. The server
+(`core.js`) records the node and attributes the edge by best evidence: a
+click within 3s of the change → replayable `click` edge with the clicked
+text; a URL change → replayable `navigate` edge; otherwise an
+`observed` edge with `replayable:false`, which `findPath` skips.
+`sweepEmptyGraphs` runs at startup. Tests:
+`tests/unit/state-transition-passive.test.js`.
 
 ## Slices
 

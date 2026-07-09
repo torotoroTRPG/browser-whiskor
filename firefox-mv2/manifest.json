@@ -49,9 +49,9 @@
         "injected/analyzers/storage-reader.js",
         "injected/analyzers/clickability.js",
         "injected/executor.js",
+        "injected/state-reporter.js",
         "injected/explorer.js",
-        "injected/collector.js",
-        "injected/state-reporter.js"
+        "injected/collector.js"
       ],
       "run_at": "document_start",
       "match_about_blank": false

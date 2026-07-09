@@ -24,6 +24,9 @@ module.exports = {
   getUnvisitedActions: function(siteVersion, fromHash, uiCatalog) {
     return store.getUnvisitedActions(siteVersion, fromHash, uiCatalog);
   },
+  sweepEmptyGraphs: function() {
+    return store.sweepEmptyGraphs();
+  },
   // Expose new store for direct access
   store: store,
 };

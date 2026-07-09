@@ -61,6 +61,7 @@ function findPath(graph, fromHash, toHash, minConfidence = 0.3) {
     for (const edgeKey of Object.keys(edges)) {
       const edge = edges[edgeKey];
       if (!edge.to || visited.has(edge.to)) continue;
+      if (edge.replayable === false) continue; // observation-only, nothing to execute
       if (edge.confidence < minConfidence) continue;
 
       const newPath = [...path, { ...edge, edgeKey }];

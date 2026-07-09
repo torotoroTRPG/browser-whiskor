@@ -1262,6 +1262,11 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
           const result = checkAndRepair(cacheRoot, { verbose: true, autoRepair: true });
           if (result && result.healthy) log('info', `[cache] Integrity check OK (${result.sessions} session(s))`);
 
+          // Node-less graphs are unreadable edge skeletons left by the pre-S0
+          // react-keyspace edge writer (docs/ideas/REVERSE_EDGE_NAVIGATION.md).
+          const emptyGraphs = stateMachine.sweepEmptyGraphs();
+          if (emptyGraphs) log('info', `[graphs] Swept ${emptyGraphs} node-less state graph(s)`);
+
           // Bound session-cache disk usage (LRU eviction of oldest session dirs).
           // The limit existed (cache-integrity.enforceDiskLimit, stateGraph.maxDiskMB)
           // but was never called — wire it here at startup.

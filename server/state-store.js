@@ -15,6 +15,7 @@
 'use strict';
 
 const fs   = require('fs');
+const path = require('path');
 
 const fingerprint = require('./state-fingerprint');
 
@@ -75,6 +76,7 @@ const graphs = new Map(); // siteVersion → StateGraph
  * @property {string|null} selector
  * @property {number} count
  * @property {number} confidence
+ * @property {boolean} replayable   false = observation-only, findPath skips it
  * @property {number} firstSeen
  * @property {number} lastSeen
  * @property {Object} replayAction
@@ -152,6 +154,33 @@ function countEdges(g) {
     c += Object.keys(g.edges[from]).length;
   }
   return c;
+}
+
+/**
+ * Startup sweep: drop on-disk graphs whose node table is empty. Before S0
+ * (docs/ideas/REVERSE_EDGE_NAVIGATION.md) REACT_TRANSITION wrote edges keyed
+ * by react hashes into graphs whose nodes are keyed by composite hashes, so
+ * long-running instances accumulated node-less edge skeletons that render
+ * nothing and can never be navigated.
+ */
+function sweepEmptyGraphs() {
+  let swept = 0;
+  try {
+    for (const f of fs.readdirSync(GRAPH_DIR)) {
+      if (!f.endsWith('.json') && !f.endsWith('.json.gz')) continue;
+      const sv = f.replace(/\.gz$/, '').replace(/\.json$/, '');
+      if (sv === 'index') continue;
+      const g = graphs.get(sv) || loadGraph(sv);
+      if (g && Object.keys(g.nodes || {}).length === 0) {
+        try {
+          fs.unlinkSync(path.join(GRAPH_DIR, f));
+          graphs.delete(sv);
+          swept++;
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return swept;
 }
 
 // ── Origin binding ────────────────────────────────────────────────────────────
@@ -291,7 +320,7 @@ function addEdge(siteVersion, data) {
     console.warn(`[state-store] Rejected edge write to graph "${siteVersion}": origin ${data.origin} does not match graph owner ${g.origin}`);
     return null;
   }
-  const { from, to, action, trigger, selector, replayAction } = data;
+  const { from, to, action, trigger, selector, replayAction, replayable } = data;
 
   if (!g.edges[from]) g.edges[from] = {};
   if (!g.edgeIndex[to]) g.edgeIndex[to] = [];
@@ -323,6 +352,10 @@ function addEdge(siteVersion, data) {
       selector: selector || null,
       count: 1,
       confidence: 0.4,
+      // replayable:false marks observation-only edges (passive transitions
+      // with no attributable action) — findPath must skip them. Absent on
+      // older persisted edges, so only an explicit false opts out.
+      replayable: replayable !== false,
       firstSeen: Date.now(),
       lastSeen: Date.now(),
       replayAction: replayAction || { type: action, selector, text: trigger, x: null, y: null, value: null },
@@ -555,6 +588,7 @@ module.exports = {
   getOrCreate,
   getAllGraphs,
   getUnvisitedActions,
+  sweepEmptyGraphs,
 
   // Query
   getNodeByHash,

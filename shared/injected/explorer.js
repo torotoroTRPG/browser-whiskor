@@ -51,35 +51,17 @@
     return Math.round((tokenSim * (1 - bw) + bigramSim * bw) * 1000) / 1000;
   }
 
-  // ── State Hashing (unified: mirrors server/state-fingerprint.js) ─────────────
-
-  function fnv32(str) {
-    var h = 2166136261 >>> 0;
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    return h.toString(36).padStart(7, '0');
-  }
+  // ── State Hashing ─────────────────────────────────────────────────────────
+  // The canonical engine lives in state-reporter.js (always on, loaded before
+  // this file). Delegating keeps node identity single-sourced — a local copy
+  // here once drifted into an explorer-only hash and left graphs nodeless.
 
   function computeDomHash() {
-    var pathname = location.pathname;
-    var search = location.search;
-    var interactive = document.querySelectorAll('a, button, input, select, textarea, [role=button], [role=link]');
-    var domSig = [];
-    for (var i = 0; i < Math.min(interactive.length, 50); i++) {
-      var el = interactive[i];
-      domSig.push(el.tagName.toLowerCase() + ':' + (el.textContent || '').trim().slice(0, 20));
-    }
-    return fnv32((pathname + search) + '|||' + domSig.join('|'));
+    return window.__SI_HASH_ENGINE__.domHash();
   }
 
   function computeCompositeHash() {
-    var domHash = computeDomHash();
-    var reactHash = window.__SI_REACT_HASH__ || null;
-    var compositeHash = reactHash ? fnv32(reactHash + '|' + domHash) : domHash;
-    window.__SI_CURRENT_HASH__ = { compositeHash: compositeHash, reactHash: reactHash, domHash: domHash };
-    return compositeHash;
+    return window.__SI_HASH_ENGINE__.compute().compositeHash;
   }
 
   // ── Element Finder ────────────────────────────────────────────────────────

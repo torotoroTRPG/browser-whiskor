@@ -138,8 +138,8 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
             ├── collector.js          ← プラグイン出力アグリゲーター
             ├── bridge.js             ← ISOLATED world中継
             ├── executor.js           ← アクション実行 (click/type/key/scroll/JS。click/hover/right_click の text 解決は lib/text-rank.js で順位付け)
-            ├── explorer.js           ← 自律ページ探索 (compositeHash)
-            ├── state-reporter.js     ← REQUEST_STATE_HASH ハンドラ
+            ├── explorer.js           ← 自律ページ探索 (hash計算はstate-reporterのengineへ委譲)
+            ├── state-reporter.js     ← 常駐compositeハッシュエンジン(__SI_HASH_ENGINE__) + 受動遷移emit(STATE_TRANSITION) + REQUEST_STATE_HASH ハンドラ
             ├── lib/text-rank.js      ← text ターゲット解決のランキングポリシー (UMD: browser global ＋ server require 兼用)。executor の click(text) と server の find_target が共有
             ├── adapters/             ← フレームワーク状態抽出 (9アダプター)
             │   react.js + react-hooks.js + react-state-managers.js
@@ -184,6 +184,7 @@ extension/ (Chrome MV3)          firefox-mv2/ (Firefox MV2)
 - `domHash`: URLパス名 + インタラクティブ要素のシグネチャ
 - `compositeHash`: React利用可能時は `FNV32(reactHash + domHash)`、それ以外は `domHash`
 - 非確定的な値 (timestamp, UUID, loadingフラグ) はハッシュ計算から除外される
+- ノード/エッジは**通常ブラウジング中も受動記録**される: `state-reporter.js` の常駐エンジンが settle した compositeHash 遷移を `STATE_TRANSITION` で報告し、`core.js` が composite keyspace でノード＋エッジを書く（エッジの action は証拠ベース: 直近クリック→`click`(replayable) / URL変化→`navigate`(replayable) / それ以外→`observed`(replayable:false、findPath 対象外)）。`REACT_TRANSITION` は graph に書かない（reactHash keyspace はノードと交わらない。correlator 供給のみ）。ノード0のグラフは起動時に掃除（`sweepEmptyGraphs`）。設計: `docs/ideas/REVERSE_EDGE_NAVIGATION.md`
 
 ### MCPツールプロファイル
 
