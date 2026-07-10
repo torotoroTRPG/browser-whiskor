@@ -223,6 +223,57 @@ describe('S1 navigate — failed guess', () => {
   });
 });
 
+// ── S4: dismiss-label candidates + explorer pre-verification ─────────────────
+
+describe('S4 dismiss-label candidates', () => {
+  it('a dismiss-looking button in the arrival state yields a click candidate', () => {
+    const g = forwardGraph({ toUrl: 'https://x/a' }); // same URL: no go_back noise
+    g.nodes.b.uiSummary = { buttons: ['保存', '閉じる'] };
+    const list = nav._speculativeReverseEdges(g, 0.3).b;
+    assert.strictEqual(list.length, 1);
+    const c = list[0];
+    assert.strictEqual(c.action, 'click');
+    assert.strictEqual(c.trigger, '閉じる');
+    assert.strictEqual(c.basis, 'speculative-dismiss');
+    assert.ok(Math.abs(c.confidence - 0.3) < 1e-9);
+    assert.deepStrictEqual(c.replayAction, { type: 'click', text: '閉じる' });
+  });
+
+  it('non-dismiss labels produce nothing; only one label per pair is guessed', () => {
+    const g = forwardGraph({ toUrl: 'https://x/a' });
+    g.nodes.b.uiSummary = { buttons: ['保存', '送信'] };
+    assert.deepStrictEqual(nav._speculativeReverseEdges(g, 0.3), {});
+
+    g.nodes.b.uiSummary = { buttons: ['×', '閉じる'] };
+    assert.strictEqual(nav._speculativeReverseEdges(g, 0.3).b.length, 1, 'one guess per pair');
+  });
+
+  it('all three bases coexist, ordered by prior', () => {
+    const g = forwardGraph({ edge: { dialogAppeared: true } }); // URL change + dialog
+    g.nodes.b.uiSummary = { buttons: ['閉じる'] };
+    const list = nav._speculativeReverseEdges(g, 0.3).b;
+    assert.deepStrictEqual(list.map(c => c.action), ['go_back', 'press_key', 'click']);
+  });
+
+  it('explorer pre-verification: dismiss controls come first for dialog-entered states', () => {
+    const SV = '__unit_spec_preverify__';
+    store.addEdge(SV, { from: 'outer', to: 'modal', action: 'click', trigger: 'open', dialogAppeared: true });
+    const ui = { buttons: [{ text: '保存' }, { text: '閉じる' }], links: [] };
+    try {
+      const actions = store.getUnvisitedActions(SV, 'modal', ui);
+      assert.strictEqual(actions[0].text, '閉じる', 'dismissal must be verified first');
+
+      // Once a real reverse edge exists the ordering incentive is gone.
+      store.addEdge(SV, { from: 'modal', to: 'outer', action: 'click', trigger: '閉じる' });
+      const after = store.getUnvisitedActions(SV, 'modal', { buttons: [{ text: '保存' }, { text: '中止' }], links: [] });
+      assert.strictEqual(after[0].text, '保存', 'original order restored once covered');
+    } finally {
+      const dir = process.env.WHISKOR_GRAPH_DIR || fileURLToPath(new URL('../../cache/graphs/', import.meta.url));
+      try { fs.rmSync(path.join(dir, `${SV}.json.gz`), { force: true }); } catch (_) {}
+    }
+  });
+});
+
 // ── S3: fuzzy target resolution ──────────────────────────────────────────────
 
 function seedFuzzyGraph() {

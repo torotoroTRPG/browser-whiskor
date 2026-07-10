@@ -56,16 +56,19 @@ function requestHash(tabId, broadcast, timeoutMs = 5000) {
 // failure. Design: docs/ideas/REVERSE_EDGE_NAVIGATION.md.
 
 const SPECULATIVE_PRIORS = {
-  'speculative-history': 0.5,   // go_back — history inverts URL-changing transitions
-  'speculative-dismiss': 0.35,  // Escape — dismisses the dialog a transition opened
+  goBack: 0.5,       // history inverts URL-changing transitions
+  escape: 0.35,      // Escape dismisses the dialog a transition opened
+  dismissLabel: 0.3, // a dismiss-looking control (閉じる/×/close/…) in the state
 };
 
-// siteVersion|from|to|action → ts of the failed verification. A wrong guess
-// demotes itself on first use instead of being retried on every call.
+// siteVersion|from|to|action|trigger → ts of the failed verification. A wrong
+// guess demotes itself on first use instead of being retried on every call.
+// trigger is part of the key so one wrong close-label doesn't blacklist the
+// pair's other candidates.
 const speculativeBlacklist = new Map();
 
 function blacklistKey(siteVersion, edge) {
-  return `${siteVersion || '?'}|${edge.from}|${edge.to}|${edge.action}`;
+  return `${siteVersion || '?'}|${edge.from}|${edge.to}|${edge.action}|${edge.trigger || ''}`;
 }
 
 // A transition that mutated data has no safe inverse — going "back" would not
@@ -123,7 +126,7 @@ function speculativeReverseEdges(graph, minConfidence) {
           to: from,
           action: 'go_back',
           trigger: null,
-          confidence: SPECULATIVE_PRIORS['speculative-history'],
+          confidence: SPECULATIVE_PRIORS.goBack,
           speculative: true,
           basis: 'speculative-history',
           replayAction: { type: 'go_back' },
@@ -136,11 +139,29 @@ function speculativeReverseEdges(graph, minConfidence) {
           to: from,
           action: 'press_key',
           trigger: 'Escape',
-          confidence: SPECULATIVE_PRIORS['speculative-dismiss'],
+          confidence: SPECULATIVE_PRIORS.escape,
           speculative: true,
           basis: 'speculative-dismiss',
           replayAction: { type: 'press_key', key: 'Escape' },
         });
+      }
+
+      // S4: a dismiss-looking control in the arrival state (from its recorded
+      // uiSummary — explorer-visited nodes carry one). One label per pair is
+      // guess enough; a wrong one blacklists only itself (trigger in the key).
+      for (const label of nodes[fwd.to]?.uiSummary?.buttons || []) {
+        if (!stateStore.isDismissLabel(label)) continue;
+        offer({
+          from: fwd.to,
+          to: from,
+          action: 'click',
+          trigger: label,
+          confidence: SPECULATIVE_PRIORS.dismissLabel,
+          speculative: true,
+          basis: 'speculative-dismiss',
+          replayAction: { type: 'click', text: label },
+        });
+        break;
       }
     }
   }

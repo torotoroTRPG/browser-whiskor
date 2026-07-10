@@ -1,6 +1,6 @@
 # Speculative reverse edges — navigation beyond URL substitution
 
-**Status:** S0–S3 implemented (2026-07-10); S4 design only
+**Status:** S0–S4 implemented (2026-07-10)
 
 ## Problem
 
@@ -192,6 +192,19 @@ text; a URL change → replayable `navigate` edge; otherwise an
 4. **S4 — dismiss-control heuristics + explorer pre-verification.** Label-based
    close-button candidates; optionally let the explorer verify speculative
    edges proactively so agent-facing navigation rarely pays the trial cost.
+
+   As implemented: `click(label)` candidates (prior 0.3,
+   `basis:'speculative-dismiss'`) from the arrival node's recorded
+   `uiSummary.buttons` matching the shared dismiss set (state-store
+   `isDismissLabel`: 閉じる/×/close/cancel/戻る/… — confirm-shaped labels
+   deliberately excluded). One label per pair; the blacklist keys on
+   trigger, so a wrong label doesn't take the pair's other candidates with
+   it. Pre-verification: `getUnvisitedActions` sorts dismiss-looking
+   controls first when the state was entered by a dialog-opening edge with
+   no verified way back — the explorer's own click then records the reverse
+   edge as a real observation. Note: passive (non-explorer) nodes carry no
+   uiSummary, so label candidates currently arise from explorer-visited
+   states.
 
 ## Non-goals
 

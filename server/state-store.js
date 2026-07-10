@@ -541,6 +541,33 @@ function getAllNodesFlat(options = {}) {
   return allNodes.slice(0, limit);
 }
 
+// Labels that read as "leave this state" — shared by the navigator's
+// dismiss-label reverse candidates and the explorer's pre-verification
+// ordering below. Deliberately excludes confirm-shaped labels (OK/はい):
+// those commit, they don't dismiss.
+const DISMISS_LABELS = new Set([
+  '閉じる', 'とじる', 'close', 'cancel', 'キャンセル', '×', '✕', 'x', '戻る', 'back', 'dismiss',
+]);
+
+function isDismissLabel(text) {
+  return DISMISS_LABELS.has(String(text || '').trim().toLowerCase());
+}
+
+/** True when a transition INTO this state opened a dialog and no replayable
+ *  reverse edge exists yet — the case where verifying a dismissal first pays. */
+function wantsReverseVerification(g, hash) {
+  for (const from of Object.keys(g.edges || {})) {
+    for (const key of Object.keys(g.edges[from])) {
+      const e = g.edges[from][key];
+      if (e.to !== hash || e.dialogAppeared !== true) continue;
+      const hasReverse = Object.values(g.edges[hash] || {})
+        .some(r => r.to === from && r.replayable !== false);
+      if (!hasReverse) return true;
+    }
+  }
+  return false;
+}
+
 function getUnvisitedActions(siteVersion, fromHash, uiCatalog) {
   const g = getOrCreate(siteVersion);
   const visited = g.edges[fromHash] || {};
@@ -556,6 +583,15 @@ function getUnvisitedActions(siteVersion, fromHash, uiCatalog) {
     if (link.text && !visitedTriggers.has(link.text) && !link.href?.startsWith('mailto:')) {
       candidates.push({ type: 'click', text: link.text, elementType: 'link', href: link.href, rect: link.rect });
     }
+  }
+
+  // Explorer pre-verification (S4): when this state was entered by a
+  // dialog-opening transition that still has no verified way back, walk the
+  // dismiss-looking controls first. The resulting EXPLORER_TRANSITION records
+  // the reverse edge as a real observation, so agent-facing navigation never
+  // pays the speculative trial cost for it.
+  if (candidates.length > 1 && wantsReverseVerification(g, fromHash)) {
+    candidates.sort((a, b) => (isDismissLabel(b.text) ? 1 : 0) - (isDismissLabel(a.text) ? 1 : 0));
   }
   return candidates;
 }
@@ -596,6 +632,7 @@ module.exports = {
   getOrCreate,
   getAllGraphs,
   getUnvisitedActions,
+  isDismissLabel,
   sweepEmptyGraphs,
 
   // Query
