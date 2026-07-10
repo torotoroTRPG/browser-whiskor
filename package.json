@@ -27,8 +27,8 @@
   },
   "main": "server/index.js",
   "bin": {
-    "whk": "./server/cli.js",
-    "whiskor": "./server/cli.js"
+    "whk": "server/cli.js",
+    "whiskor": "server/cli.js"
   },
   "files": [
     "server/",

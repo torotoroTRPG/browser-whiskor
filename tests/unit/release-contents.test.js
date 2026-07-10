@@ -111,6 +111,23 @@ describe('release.yml full-bundle enumeration', () => {
   });
 });
 
+describe('npm bin entries', () => {
+  // npm "auto-corrects" bin values it considers invalid by REMOVING them at
+  // publish time (observed with "./server/cli.js" — the ./ prefix). A package
+  // published that way installs no whk/whiskor command at all.
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  test('bin paths use the normalized form npm accepts, and the targets exist', () => {
+    for (const [name, rel] of Object.entries(pkg.bin || {})) {
+      assert.ok(!rel.startsWith('./'), `bin[${name}]: "./" prefix gets the entry silently dropped at publish`);
+      assert.ok(fs.existsSync(path.join(ROOT, rel)), `bin[${name}] target missing: ${rel}`);
+      const firstLine = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n', 1)[0];
+      assert.match(firstLine, /^#!.*node/, `bin[${name}] target needs a node shebang for global installs`);
+    }
+    assert.ok(pkg.bin && pkg.bin.whk && pkg.bin.whiskor, 'whk/whiskor bins must both exist');
+  });
+});
+
 describe('release notes ← CHANGELOG.md contract', () => {
   const yml = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
   const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
