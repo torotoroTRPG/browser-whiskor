@@ -23,6 +23,17 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [Unreleased]
+
+### Security
+- **Credential headers redacted by default** — `Authorization`, `Cookie`,
+  `Set-Cookie`, `X-Api-Key` and kin now have their values replaced with
+  `[redacted len=N]` at collection time, before anything is cached, shown on
+  the dashboard, exported, or seen by an agent. Name-based, on by default
+  (`network.redactAuthHeaders`), pinned as a committed public default. This is
+  separate from (and independent of) the opt-in `privacy.secretGuard`, which
+  also covers bodies and known values.
+
 ## [0.16.0] - 2026-07-10
 
 ### Added

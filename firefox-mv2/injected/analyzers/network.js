@@ -31,6 +31,26 @@
     return text.slice(0, maxLen) || null;
   }
 
+  // Header values that carry credentials verbatim. Redacted at COLLECTION time
+  // (before emit) by default, so the raw value never enters the cache, the
+  // dashboard, /export, or an agent's view — a defense that does not depend on
+  // the opt-in server-side secret-guard. Disable for API debugging with
+  // config.options.network.redactAuthHeaders = false. Name-based (not
+  // brand-based): works for every site, nothing to keep in sync.
+  const SENSITIVE_HEADER_RE = /^(authorization|cookie|set-cookie|x-auth-token|x-api-key|x-access-token|x-csrf-token|proxy-authorization)$/i;
+
+  function redactHeaders(headers, cfg) {
+    if (!headers || (cfg && cfg.redactAuthHeaders === false)) return headers;
+    const out = {};
+    for (const k of Object.keys(headers)) {
+      const v = headers[k];
+      out[k] = SENSITIVE_HEADER_RE.test(k) && typeof v === 'string' && v.length
+        ? `[redacted len=${v.length}]`
+        : v;
+    }
+    return out;
+  }
+
   registry.register({
     id: 'network-hook',
     name: 'Network Interceptor',
@@ -70,7 +90,7 @@
         const reqId = `${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
 
         api.emit('NETWORK_REQUEST', {
-          reqId, url, method, headers, source: 'page-js',
+          reqId, url, method, headers: redactHeaders(headers, cfg), source: 'page-js',
           bodyPreview: cfg.captureBody ? safeBody(typeof init.body === 'string' ? init.body : null, maxLen) : null,
           ts: Date.now(), tokens,
         }, true);
@@ -94,7 +114,7 @@
 
           api.emit('NETWORK_RESPONSE', {
             reqId, url, status: response.status,
-            headers: resHeaders, bodyPreview, ts: Date.now(),
+            headers: redactHeaders(resHeaders, cfg), bodyPreview, ts: Date.now(),
           }, true);
 
           return response;
@@ -122,7 +142,7 @@
         xhr.send = function (body) {
           api.emit('NETWORK_REQUEST', {
             reqId, url: meta.url, method: meta.method, source: 'page-js',
-            headers: meta.headers, tokens: meta.tokens,
+            headers: redactHeaders(meta.headers, cfg()), tokens: meta.tokens,
             bodyPreview: cfg().captureBody ? safeBody(typeof body === 'string' ? body : null, cfg().bodyMaxLength || 500) : null,
             ts: Date.now(),
           }, true);
@@ -150,7 +170,7 @@
           });
           api.emit('NETWORK_RESPONSE', {
             reqId, url: meta.url, status: xhr.status,
-            headers: resHeaders, bodyPreview, ts: Date.now(),
+            headers: redactHeaders(resHeaders, cfg()), bodyPreview, ts: Date.now(),
           }, true);
         });
 

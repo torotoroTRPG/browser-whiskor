@@ -501,7 +501,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         },
         options: {
           textCoords:  { level: 'word', includeHidden: false, includeOffscreen: false, maxWords: 5000, includeFormValues: false, ...(_cfg.textCoords || {}) },
-          network:     { captureBody: true, bodyMaxLength: _cfg.collection?.networkBodyMaxBytes ?? 4096, captureTokens: true },
+          network:     { captureBody: true, bodyMaxLength: _cfg.collection?.networkBodyMaxBytes ?? 4096, captureTokens: true, redactAuthHeaders: _cfg.network?.redactAuthHeaders !== false },
           react:       { maxDepth: 80, maxProps: 30, maxHooks: 25, ...(_cfg.react || {}) },
           console:     { levels: ['log', 'warn', 'error', 'info', 'debug'], maxBuffer: _cfg.collection?.maxConsoleLogs ?? 2000 },
         },

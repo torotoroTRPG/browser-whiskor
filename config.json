@@ -400,6 +400,12 @@
     "_comment_ja": "true にすると execute_js の実行中に console.log 等をキャプチャして結果に含める"
   },
 
+  "network": {
+    "redactAuthHeaders": true,
+    "_comment_en": "Redact credential-bearing HTTP header VALUES (Authorization, Cookie, Set-Cookie, X-Api-Key, …) at collection time, before anything is cached, shown on the dashboard, exported, or seen by an agent. Name-based and on by default; set false when you are debugging an API and need the raw header. This is separate from privacy.secretGuard (which also redacts bodies/known values and is opt-in).",
+    "_comment_ja": "認証情報を含むHTTPヘッダの値（Authorization/Cookie/Set-Cookie/X-Api-Key等）を収集時点で伏せる。キャッシュ・ダッシュボード・export・agent到達より前に処理。ヘッダ名ベースで既定ON。APIデバッグで生ヘッダが要るときのみfalse。privacy.secretGuard（本文や既知値も伏せるopt-in機構）とは別。"
+  },
+
     "adaptiveCollection": {
     "enabled": false,
     "activeIntervalMs": 5000,

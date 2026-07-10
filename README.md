@@ -773,6 +773,16 @@ Threat model: *you don't necessarily trust the agent.* Secret Guard hides user s
 
 Enable with `privacy.secretGuard.enabled: true` (default off). See `secrets.local.json.example` and `docs/ideas/REDACTION_SECRET_GUARD.md`.
 
+**Always-on baseline (separate from Secret Guard):** credential-bearing HTTP
+header *values* — `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, and
+kin — are redacted to `[redacted len=N]` at **collection time**, before
+anything is written to the cache, shown on the dashboard, included in
+`/export`, or returned to an agent. This is name-based (works for every site,
+nothing to keep in sync), on by default (`network.redactAuthHeaders`), and
+guarded as a committed public default. Turn it off only when you are debugging
+an API and need the raw header. It does not cover request/response *bodies* or
+form values — that is Secret Guard's job (opt-in, above).
+
 ## Source Upload & Correlation
 
 Upload the target site's source (frontend, backend, or any slice of it) and whiskor correlates it with runtime observation, so the agent can pull **just the relevant source lines** instead of the whole project:

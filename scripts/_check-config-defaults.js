@@ -28,6 +28,8 @@ const REQUIRED = [
     why: 'dev-exec (live arbitrary code execution) must be opt-in — enable it in config.local.json' },
   { path: 'agentControl.console.captureAllWorlds', expected: false,
     why: 'all-worlds console capture reads OTHER extensions\' logs and holds a debugger attachment — must be opt-in' },
+  { path: 'network.redactAuthHeaders', expected: true,
+    why: 'credential header redaction must stay ON by default — turning it off leaks Authorization/Cookie into cache and /export' },
 ];
 
 // Paths that must be an EMPTY array in the shipped config (a personal value here
