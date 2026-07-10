@@ -25,6 +25,13 @@ and the git history.
 
 ## [Unreleased]
 
+### Changed
+- **Automated npm publish on release** — tagging a release now publishes
+  `whiskor` to npm via OIDC Trusted Publishing (no stored token; provenance
+  recorded). Idempotent (skips a version already on npm) and independent of
+  the GitHub release step. Requires a one-time Trusted Publisher setup on
+  npmjs.com.
+
 ### Security
 - **Credential headers redacted by default** — `Authorization`, `Cookie`,
   `Set-Cookie`, `X-Api-Key` and kin now have their values replaced with

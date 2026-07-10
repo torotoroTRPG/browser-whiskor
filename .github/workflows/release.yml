@@ -246,3 +246,43 @@ jobs:
             dist/*/*.zip
             SHA256SUMS.txt
           fail_on_unmatched_files: false
+
+  # Publish the `whiskor` package to npm via OIDC Trusted Publishing — no
+  # long-lived NPM_TOKEN is stored anywhere; npm mints a short-lived,
+  # workflow-scoped credential from the id-token below and records provenance.
+  # ONE-TIME SETUP on npmjs.com: package settings → Publishing access →
+  # Trusted Publisher → GitHub Actions, repo torotoroTRPG/browser-whiskor,
+  # workflow release.yml. Until that is configured, this job errors (the
+  # GitHub release above still succeeds — publishing is independent).
+  npm-publish:
+    runs-on: ubuntu-latest
+    needs: [check-version, release]
+    permissions:
+      contents: read
+      id-token: write        # required for OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs a recent npm; the runner's bundled one may lag.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Skip if this version is already on npm
+        id: pubcheck
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          if npm view "whiskor@${VERSION}" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "whiskor@${VERSION} already published — skipping."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.pubcheck.outputs.publish == 'true'
+        run: npm publish --provenance --access public
