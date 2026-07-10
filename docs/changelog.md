@@ -1,10 +1,12 @@
-# Changelog
+# Changelog (frozen at v0.11.0)
+
+> This file is a historical archive. Entries from **v0.12.0 onward live in
+> [/CHANGELOG.md](../CHANGELOG.md)** at the repository root — the single
+> source the release workflow reads.
 
 All notable changes to browser-whiskor.
 
 > **Note on Versioning:** The versioning scheme was changed during development. The project transitioned from `3.x.x` (internal/development versioning) to `0.3.x` to prepare for the initial open-source release (OSS), reflecting its pre-1.0 status.
-
-## [Unreleased]
 
 ## [0.11.0] — 2026-07-02
 

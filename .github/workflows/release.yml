@@ -183,8 +183,10 @@ jobs:
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
 
-          # Pull this version's section out of docs/changelog.md so the release
-          # notes show what changed, not just install instructions.
+          # Pull this version's section out of CHANGELOG.md (repo root — the
+          # curated keep-a-changelog file; its header carries the entry
+          # template) so the release notes show what changed, not just
+          # install instructions.
           awk -v ver="$VERSION" '
             index($0, "## [") == 1 {
               if (capture) exit
@@ -192,10 +194,17 @@ jobs:
               next
             }
             capture { print }
-          ' docs/changelog.md > changelog-section.md
+          ' CHANGELOG.md > changelog-section.md
 
           if [ ! -s changelog-section.md ]; then
-            echo "::warning::No docs/changelog.md section found for [$VERSION] — release notes will omit it." >&2
+            # A patch may ship without notes (warning only); a minor/major
+            # bump (x.y.0) means user-visible change and must say what it is.
+            PATCH_PART="${VERSION##*.}"
+            if [ "$PATCH_PART" = "0" ]; then
+              echo "::error::CHANGELOG.md has no [$VERSION] section. A minor/major release must describe what changed — add an entry (template in the CHANGELOG.md header) and re-tag." >&2
+              exit 1
+            fi
+            echo "::warning::No CHANGELOG.md section found for [$VERSION] — release notes will omit it." >&2
           fi
 
           {
