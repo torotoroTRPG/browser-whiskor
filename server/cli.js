@@ -161,6 +161,13 @@ Dev Mode Commands (operator-only; requires dev.exec.enabled in config.local.json
   dev exec <file.js> --tab <id> [--harness]   Run a self-contained ES module in a
                       live tab and get a verdict (baseline → observed → 5-value)
 
+Config Commands:
+  config preset dev [--force] [--dry-run]
+                      Write the enumerated developer-capability keys into
+                      config.local.json (git-ignored). Your existing values are
+                      kept unless --force; re-run after upgrades to adopt newly
+                      added keys. Never touches privacy.* or dev-mode activation
+
 Help Commands:
   help server         Show help for server and MCP options
   help api            Show detailed API endpoints and payloads
@@ -430,6 +437,22 @@ if (command === 'DEV') {
   return;
 }
 
+// ── whk config ────────────────────────────────────────────────────────────────
+// Operator-side config helpers. `preset dev` writes an ENUMERATED set of
+// developer-capability keys into config.local.json (git-ignored personal
+// overrides) — printed one by one, existing values kept unless --force,
+// future additions adopted only by re-running. It never touches privacy.*
+// and never activates dev MODE (that stays `whk dev on`).
+if (command === 'CONFIG') {
+  try {
+    runConfig(clientArgs.slice(1));
+  } catch (err) {
+    process.stderr.write('\x1b[31m[whk] config failed: ' + err.message + '\x1b[0m\n');
+    process.exit(1);
+  }
+  return;
+}
+
 // ── whk shell ─────────────────────────────────────────────────────────────────
 // Interactive HTTP API shell for humans. Default on a TTY: the full-screen TUI
 // (server/tui/app.js — scrollback pane, real line editor, status bar, Ctrl+R).
@@ -596,6 +619,48 @@ async function runDev(sub) {
   process.stderr.write(`\x1b[31m[whk] unknown dev subcommand: ${action}\x1b[0m\n`);
   process.stderr.write('      usage: whk dev on [--ttl 4h] [--project <path>] | off | status | exec <file> --tab <id> [--harness]\n');
   process.exit(1);
+}
+
+function runConfig(sub) {
+  const action = (sub[0] || '').toLowerCase();
+  if (action !== 'preset') {
+    process.stderr.write('\x1b[31m[whk] usage: whk config preset <name> [--force] [--dry-run]\x1b[0m\n');
+    process.stderr.write('      presets: ' + Object.keys(require('./config-presets').PRESETS).join(', ') + '\n');
+    process.exit(1);
+  }
+  const { applyPreset } = require('./config-presets');
+  const presetName = (sub[1] || '').toLowerCase();
+  const force = args.includes('--force');
+  const dryRun = args.includes('--dry-run');
+  const localPath = path.join(__dirname, '..', 'config.local.json');
+
+  let existing = {};
+  if (fs.existsSync(localPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+    } catch (e) {
+      process.stderr.write(`\x1b[31m[whk] ${localPath} is not valid JSON (${e.message}) — fix or remove it first.\x1b[0m\n`);
+      process.exit(1);
+    }
+  }
+
+  const { config, actions } = applyPreset(existing, presetName, { force });
+
+  console.log(`\nPreset "${presetName}" → ${localPath}${dryRun ? '  (dry-run, nothing written)' : ''}\n`);
+  for (const a of actions) {
+    const mark = a.action === 'set' ? '\x1b[32mset \x1b[0m' : '\x1b[2mkept\x1b[0m';
+    const val = JSON.stringify(a.value);
+    const kept = a.action === 'kept' ? `  (yours: ${JSON.stringify(a.current)})` : '';
+    console.log(`  ${mark}  ${a.path} = ${val}${kept}`);
+    console.log(`        \x1b[2m${a.why}\x1b[0m`);
+  }
+  console.log(`\nNot touched: privacy.* (protections), network exposure, dev MODE`);
+  console.log(`(dev.exec.enabled opens the policy only — activation stays \x1b[1mwhk dev on\x1b[0m).`);
+
+  if (!dryRun) {
+    fs.writeFileSync(localPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    console.log(`\nWritten. Restart to apply: \x1b[1mwhk restart\x1b[0m`);
+  }
 }
 
 async function runStop() {

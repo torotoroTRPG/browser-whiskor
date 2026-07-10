@@ -1,0 +1,21 @@
+{
+  "_comment_en": "Personal/machine-local overrides, deep-merged over config.json at startup. Copy to config.local.json (git-ignored) and keep ONLY the keys you change — everything else keeps the committed defaults. `whk config preset dev` generates the developer-capability set below for you (and prints every key it sets).",
+  "_comment_ja": "個人/マシン固有の上書き。起動時に config.json の上へディープマージされる。config.local.json（git管理外）にコピーし、変えたいキーだけ残すこと。下の開発者向け一式は `whk config preset dev` が列挙表示つきで生成してくれる。",
+
+  "security": {
+    "allowExecuteJs": true
+  },
+  "dev": {
+    "exec": {
+      "_comment": "Policy only — dev MODE still requires the explicit `whk dev on` (TTL, badge).",
+      "enabled": true
+    }
+  },
+  "agentControl": {
+    "allowAgentConfig": true,
+    "input": { "highFidelity": "fallback" },
+    "console": { "captureAllWorlds": true },
+    "actionDiff": { "auto": true },
+    "packedSom": { "prefetchOnNavigate": true, "prefetchThumbs": true }
+  }
+}
