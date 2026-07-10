@@ -263,14 +263,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 bundles npm 11.x (>= 11.5.1), which supports OIDC trusted
+      # publishing out of the box. We deliberately do NOT `npm install -g
+      # npm@latest`: the in-place self-upgrade leaves provenance's bundled
+      # `sigstore` module unresolvable (Cannot find module 'sigstore'), which
+      # broke the first 0.16.1 attempt. The distribution's own npm is clean.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      # Trusted publishing needs a recent npm; the runner's bundled one may lag.
-      - name: Ensure npm supports trusted publishing
-        run: npm install -g npm@latest
+      - name: Show npm version (must be >= 11.5.1 for trusted publishing)
+        run: npm --version
 
       - name: Skip if this version is already on npm
         id: pubcheck
