@@ -129,7 +129,7 @@ function printHelp(topic) {
   const logo = `
    /\\_/\\  
   ( o.o )  browser-whiskor v${version}
-   > ^ <   Agent-grade browser instrumentation
+   > ^ <   Browser perception for AI agents
 `;
 
   if (!topic) {
@@ -153,6 +153,13 @@ HTTP API Client Commands:
   GET <path>          Send a GET request to the local whiskor server
   POST <path> [body]  Send a POST request. Body: inline JSON, --file <path>, or '-' (stdin)
   DELETE <path>       Send a DELETE request
+
+Dev Mode Commands (operator-only; requires dev.exec.enabled in config.local.json):
+  dev on [--ttl 4h] [--project <path>]   Activate dev mode (TTL auto-expiry, badge lit)
+  dev off             Deactivate dev mode
+  dev status          Show current dev mode state
+  dev exec <file.js> --tab <id> [--harness]   Run a self-contained ES module in a
+                      live tab and get a verdict (baseline → observed → 5-value)
 
 Help Commands:
   help server         Show help for server and MCP options
@@ -269,6 +276,12 @@ Examples:
     console.log(`  /api/graphs/:siteVersion/states       List nodes of one state graph`);
     console.log(`  /api/sessions/:id/states              State nodes seen by a session`);
     console.log(`  /api/sessions/:id/map                 ASCII state-graph visualization`);
+    console.log(`  /api/sessions/:id/layout-map          ASCII page layout map (?width=&legend=)`);
+    console.log(`  /api/sessions/:id/framework-state     Framework state (React fiber, stores, router)`);
+    console.log(`  /api/sessions/:id/canvas-map          Canvas contents rendered from framework state`);
+    console.log(`  /api/changes/:id                      External-change feed (scroll/modal/navigation; ?drain=1)`);
+    console.log(`  /api/uninstrumented-tabs              Browser tabs without whiskor sessions`);
+    console.log(`  /api/dev/status                       Dev-exec mode state (whk dev status)`);
     console.log(`  /api/sources/:id                      List captured source files`);
     console.log(`  /api/sources/:id/zip                  Download sources as a folder ZIP`);
     console.log(`  /api/ocr                              OCR engine availability`);

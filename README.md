@@ -4,7 +4,7 @@
 
 Browser perception and state navigation for AI agents. A Chrome/Firefox extension + MCP server that lets an agent see what is happening inside a browser tab — framework state, DOM structure, text coordinates, network traffic — and navigate between recorded UI states.
 
-> Most of this project — code, tests, and documentation — is written with an AI coding agent, directed and reviewed by the maintainer.
+> Most of this project — code, tests, and documentation — is written with an AI coding agent, directed and reviewed by the maintainer. It is pre-1.0 software: interfaces still change between releases, and an update may break existing behavior.
 
 ## What This Is (and Isn't)
 
@@ -22,6 +22,17 @@ Browser perception and state navigation for AI agents. A Chrome/Firefox extensio
 - State-based navigation: "go to the cart page" via recorded action replay
 
 These action features work, but they live outside the core purpose of this project. **For reliable browser automation, we recommend pairing browser-whiskor with a dedicated browser control tool** (Playwright, Puppeteer, or a browser-use agent). The action layer here is useful for simple follow-up actions after perception and state navigation, but it is not a replacement for a proper automation framework.
+
+### Compared to CDP-based tools (chrome-devtools-mcp, Playwright MCP)
+
+CDP-driven MCP servers are good at *driving* a browser: trusted input, performance traces, DevTools-grade network inspection — usually against a browser instance they launch and own. browser-whiskor sits on a different axis:
+
+- **Framework state, not just the DOM** — component trees, hooks, and store contents (Redux / Pinia / Zustand / …) via 9 in-page adapters. CDP sees the rendered DOM; the adapters read what the app itself holds.
+- **Your live browser, not a driven one** — an extension inside the browser you already use (Chrome and Firefox), sharing tabs with you. The agent doesn't launch or own a browser instance.
+- **Recorded, queryable sessions** — observations persist to a cache with cross-session search, and a state graph grows passively as you browse; `navigate_to_state` replays verified paths through it.
+- **Token-lean representations** — text coordinates, ASCII layout maps, packed Set-of-Marks, delta aggregation with pattern references, instead of full screenshots and DOM dumps.
+
+They compose rather than compete: use a CDP tool or Playwright to drive, and browser-whiskor to perceive and remember. (For widgets that demand trusted input, whiskor has its own optional CDP path — see High-Fidelity Input below.)
 
 ## Framework Support
 
