@@ -3,12 +3,12 @@
  *
  * Pins the two release surfaces where paths silently drift:
  *
- * 1. npm package contents — package.json has no `files` field and there is no
- *    .npmignore, so `npm pack` follows .gitignore. That is currently correct
- *    by accident. `whk setup` treats a missing bundled extension/ as a benign
- *    "source-less layout" (skipped, not an error), so if the package ever
- *    stops shipping a runtime piece, a global install breaks SILENTLY. This
- *    test asserts the pack manifest still carries everything `whk` needs.
+ * 1. npm package contents — package.json enumerates a `files` whitelist for
+ *    the published `whiskor` package. `whk setup` treats a missing bundled
+ *    extension/ as a benign "source-less layout" (skipped, not an error), so
+ *    if the whitelist ever drops a runtime piece, a global install breaks
+ *    SILENTLY. This test asserts the pack manifest carries everything `whk`
+ *    needs.
  *
  * 2. release.yml full-bundle ZIP — the zip line enumerates top-level paths
  *    explicitly. Directory entries pick up new files inside automatically,
@@ -47,6 +47,11 @@ const REQUIRED_PACK_PATHS = [
   'firefox-mv2/manifest.json',
   'firefox-mv2/background/background.js',
   'skills/README.md',
+  'scripts/supervisor.js',          // npm start entry
+  'config.local.json.example',
+  'LICENSE',
+  'CHANGELOG.md',
+  'THIRD-PARTY-NOTICES.md',
 ];
 
 // What the release full bundle must carry (matrix target "full" in
@@ -103,5 +108,27 @@ describe('release.yml full-bundle enumeration', () => {
     const gone = bundleEntries().filter(p => !fs.existsSync(path.join(ROOT, p)));
     assert.deepStrictEqual(gone, [],
       `release.yml lists paths that no longer exist: ${gone.join(', ')}`);
+  });
+});
+
+describe('release notes ← CHANGELOG.md contract', () => {
+  const yml = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8');
+  const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
+
+  test('release.yml extracts from the root CHANGELOG.md (docs/changelog.md is frozen)', () => {
+    assert.match(yml, /' CHANGELOG\.md > changelog-section\.md/,
+      'release notes must come from the root CHANGELOG.md');
+    assert.ok(!yml.includes('docs/changelog.md'),
+      'docs/changelog.md is a frozen archive — the workflow must not read it');
+  });
+
+  test('a minor/major release without a changelog section fails the workflow', () => {
+    assert.match(yml, /PATCH_PART.*=.*"0"/s, 'x.y.0 detection missing');
+    assert.match(yml, /::error::CHANGELOG\.md has no/, 'hard failure for note-less minor/major missing');
+  });
+
+  test('CHANGELOG.md carries the entry template the failure message points to', () => {
+    assert.match(changelog, /Entry template/, 'template comment missing from CHANGELOG.md header');
+    assert.match(changelog, /## \[x\.y\.z\] - YYYY-MM-DD/, 'template skeleton missing');
   });
 });

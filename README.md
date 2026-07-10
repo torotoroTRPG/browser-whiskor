@@ -170,11 +170,25 @@ See `docs/archive/v0.3.6-improvements.md` for the rationale and the dual-hash im
 
 ### Installation
 
+**From npm** (package name is `whiskor`):
+
+```bash
+npm install -g whiskor
+whk setup           # copies the bundled extension into ~/.whiskor and starts the server
+whk where           # shows the managed extension path to load in the browser
+```
+
+Then load the extension once (see the browser steps below) from `~/.whiskor/extension`
+(Chrome) or `~/.whiskor/firefox-mv2` (Firefox). Future `whk setup` runs update those
+files in place and ask the browser to reload them — no re-install.
+
+**From a git clone:**
+
 ```bash
 cd browser-whiskor
 npm install
 
-# Option A — npm start (manual extension load)
+# Option A — npm start (manual extension load from extension/ in the repo)
 npm start          # supervised (auto-restart); raw worker: npm run start:raw
 
 # Option B — whk CLI (recommended: manages extension + server together)
@@ -197,6 +211,21 @@ whk shell               # interactive TUI shell (type to search, arrows, Enter t
 2. Select `firefox-mv2/manifest.json`
 
 ## MCP Configuration (Claude Desktop)
+
+With the npm global install (`whiskor` is on PATH):
+
+```json
+{
+  "mcpServers": {
+    "browser-whiskor": {
+      "command": "whiskor",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+From a git clone:
 
 ```json
 {

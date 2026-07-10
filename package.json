@@ -1,7 +1,7 @@
 {
-  "name": "browser-whiskor",
+  "name": "whiskor",
   "version": "0.15.1",
-  "description": "Agent-grade browser instrumentation with MCP server",
+  "description": "Browser perception and state navigation for AI agents — Chrome/Firefox extension + MCP/HTTP server",
   "license": "MIT",
   "homepage": "https://github.com/torotoroTRPG/browser-whiskor#readme",
   "repository": {
@@ -11,11 +11,41 @@
   "bugs": {
     "url": "https://github.com/torotoroTRPG/browser-whiskor/issues"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "browser-extension",
+    "browser-automation",
+    "devtools",
+    "react-devtools",
+    "accessibility",
+    "state-management"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "main": "server/index.js",
   "bin": {
     "whk": "./server/cli.js",
     "whiskor": "./server/cli.js"
   },
+  "files": [
+    "server/",
+    "extension/",
+    "firefox-mv2/",
+    "shared/",
+    "scripts/",
+    "skills/",
+    "config.json",
+    "config.local.json.example",
+    "secrets.local.json.example",
+    "start.ps1",
+    "start.sh",
+    "start.bat",
+    "CHANGELOG.md",
+    "THIRD-PARTY-NOTICES.md"
+  ],
   "scripts": {
     "start": "node scripts/supervisor.js",
     "start:raw": "node server/index.js",
