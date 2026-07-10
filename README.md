@@ -2,7 +2,9 @@
 
 [![MCP Badge](https://lobehub.com/badge/mcp/torotorotrpg-browser-whiskor)](https://lobehub.com/mcp/torotorotrpg-browser-whiskor)
 
-**Agent-grade browser perception and state navigation.** A Chrome/Firefox extension + MCP server that gives AI agents "eyes" into the browser — framework state, DOM structure, text coordinates, network traffic — and the ability to navigate between recorded UI states.
+Browser perception and state navigation for AI agents. A Chrome/Firefox extension + MCP server that lets an agent see what is happening inside a browser tab — framework state, DOM structure, text coordinates, network traffic — and navigate between recorded UI states.
+
+> Most of this project — code, tests, and documentation — is written with an AI coding agent, directed and reviewed by the maintainer.
 
 ## What This Is (and Isn't)
 
@@ -21,9 +23,9 @@
 
 These action features work, but they live outside the core purpose of this project. **For reliable browser automation, we recommend pairing browser-whiskor with a dedicated browser control tool** (Playwright, Puppeteer, or a browser-use agent). The action layer here is useful for simple follow-up actions after perception and state navigation, but it is not a replacement for a proper automation framework.
 
-## Framework Support — Honest Depth Report
+## Framework Support
 
-Not all frameworks are supported equally. Here is the real state of each adapter:
+Not all frameworks are supported equally. The current depth of each adapter:
 
 | Framework | Depth | What You Get | Caveats |
 |-----------|-------|-------------|---------|
@@ -54,18 +56,18 @@ AI Agent (Claude / Cursor / etc.)
     │ MCP stdio (JSON-RPC 2.0)
     ▼
 ┌─ server/mcp/ ──────────────────────────────────────────────────┐
-│  MCP Layer (70 tools, configurable visibility)                 │
+│  MCP Layer (72 tools, configurable visibility)                 │
 │                                                                │
 │  mcp-server.js          ← Entry point, wires layers together   │
 │  mcp/registry.js        ← Tool registration, filtering, presets│
 │  mcp/transport.js       ← stdio JSON-RPC transport             │
 │  mcp/tools/read*.js     ← 24 read tools (sessions, DOM, layout)│
-│  mcp/tools/write.js     ← 17 write tools (click, type, type_secret — observe opt.) │
+│  mcp/tools/write.js     ← 18 write tools (click, type, type_secret — observe opt.) │
 │  mcp/tools/tabs.js      ← 4 tab tools (list/switch/open/close) │
 │  mcp/tools/capture*.js  ← 5 capture tools (screenshot, element,│
 │                           packed SoM, thumbnail, refresh)      │
 │  mcp/tools/control.js   ← 10 control tools (config, explorer, profiles)  │
-│  mcp/tools/intelligence.js ← 6 intelligence tools              │
+│  mcp/tools/intelligence.js ← 7 intelligence tools              │
 │  mcp/tools/ocr.js       ← ocr_region (pixel OCR, bring-your-own)│
 │  mcp/tools/source.js    ← get_source_context + capture_sources │
 │  mcp/tools/replay.js    ← replay_session                       │
@@ -99,7 +101,7 @@ AI Agent (Claude / Cursor / etc.)
 │  state-store.js        ← State graph + LRU + gzip + backward compat wrapper │
 │  state-fingerprint.js  ← FNV32 hash engine                     │
 │  state-semantic.js     ← Labels, tags, keyState, search        │
-│  state-navigator.js    ← BFS path finding + action replay      │
+│  state-navigator.js    ← BFS + speculative reverse edges + replay │
 └──────────┬──────────────────────────────┬──────────────────────┘
            │ HTTP :7892                     │ WebSocket :7891
            ▼                                ▼
@@ -247,7 +249,7 @@ It's a **label, not security** (local loopback needs no encryption; use `appIsol
 
 ---
 
-## Explorer — Honest Assessment
+## Explorer
 
 The autonomous exploration engine (`explorer.js`) uses a unified composite hash for state identification, fuzzy element matching, loop detection, and depth limiting. Current status:
 
@@ -257,7 +259,7 @@ The autonomous exploration engine (`explorer.js`) uses a unified composite hash 
 - **Depth limiting:** Configurable max depth (default: 20)
 - **State graph:** All transitions recorded with confidence scores based on observation count and recency
 
-**What it does well:** Builds a navigable state graph of the application. The graph can be queried and traversed by agents using `navigate_to_state`.
+**What it does:** Builds a navigable state graph of the application. The graph can be queried and traversed by agents using `navigate_to_state`. (Since v0.15, normal browsing also records states passively — the explorer is the denser variant of the same write path.)
 
 **What it cannot do:** Handle authentication flows that require credentials, or navigate states that were never recorded in the graph.
 
@@ -297,11 +299,11 @@ Warning codes:
 
 ---
 
-## MCP Tools (70 tools)
+## MCP Tools (72 tools)
 
 ### Dynamic Tool Profiles
 
-Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
+Instead of exposing all 72 tools at once, browser-whiskor uses **dynamic profiles** to keep AI context lean:
 
 | Profile | Tools | Auto-Trigger | Idle Unload |
 |---------|-------|-------------|-------------|
@@ -309,9 +311,9 @@ Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profile
 | **debug** (+6) | get_console_logs, get_storage, get_perf_metrics, get_css_analysis, get_dom_snapshot, get_accessibility | "console", "debug", "error" | 10 turns |
 | **state-nav** (+9) | get_state_map, list_states, search_states, get_state_detail, pin_state, navigate_to_state, get_navigation_path, get_state_map_visual, replay_session | "state", "graph", "navigate", "replay" | 8 turns |
 | **delta** (+3) | get_delta, list_patterns, lookup_pattern | "delta", "change", "scroll" | 6 turns |
-| **advanced-actions** (+12) | drag, hover, select_option, check_box, mouse_scroll, right_click, press_key, type_secret, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
+| **advanced-actions** (+13) | drag, hover, unhover, select_option, check_box, mouse_scroll, right_click, press_key, type_secret, go_back, go_forward, reload_page, scroll_page | "drag", "hover", "select" | 5 turns |
 | **tabs** (+4) | list_tabs, switch_tab, open_tab, close_tab | "switch tab", "new tab", "popup", "redirect" | 6 turns |
-| **intelligence** (+7) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context, capture_sources, ocr_region | "explain", "why", "source", "cause", "ocr", "canvas" | 5 turns |
+| **intelligence** (+8) | explain_element, why_did_this_change, get_source_file, detect_site_updates, get_source_context, capture_sources, ocr_region, get_canvas_map | "explain", "why", "source", "cause", "ocr", "canvas" | 5 turns |
 | **admin** (+4) | set_config, get_config_changes, trigger_collect, trigger_explorer | "config", "collect" | 3 turns |
 | **power** (+2) | execute_js, wait_for_element | "execute", "wait" | 2 turns |
 
@@ -364,8 +366,8 @@ Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profile
 
 | Tool | Description |
 |------|-------------|
-| `navigate_to_state` | Navigate to a target state by replaying recorded actions (BFS path + hash verification) |
-| `get_navigation_path` | Dry-run: check if a path exists without executing actions |
+| `navigate_to_state` | Navigate to a target state by replaying recorded actions. BFS over recorded edges plus speculative reverse candidates (go_back / Escape / close-labels — verified per step, persisted only on success). `mode: strict\|auto\|fuzzy` controls target tolerance; results report `matched: "exact"\|"fuzzy"` and mark the URL fallback as `fallback:"url"` (it resets SPA state) |
+| `get_navigation_path` | Dry-run: check if a path exists without executing actions (speculative steps are marked as such) |
 
 ### Action (WRITE)
 
@@ -382,6 +384,7 @@ Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profile
 | `type_secret` | Type a registered secret by **ref name only** — the agent never sees the value; the worker resolves it from `secrets.local.json` and injects it directly (see Secret Guard) |
 | `press_key` | Keyboard shortcuts — to the focused element, or to a specific one via `selector`/`text` (focused first; trusted via CDP when high-fidelity input is enabled) |
 | `hover` | Hover (dropdowns, tooltips) |
+| `unhover` | Clear a hover state (move the pointer away, close hover-opened UI) |
 | `scroll_page` | Scroll to position or element; returns the target's own before/after positions, `moved`, and `atBoundary` (a `{0,0}` move at a boundary is the edge, not a failure) |
 | `mouse_scroll` | Fire wheel event at specific coordinates; reports what actually moved (`scrolled`, `via`) and falls back to scrolling the container directly when no wheel handler reacts |
 | `drag` | Drag from coordinates/selector to coordinates |
@@ -414,6 +417,7 @@ Instead of exposing all 70 tools at once, browser-whiskor uses **dynamic profile
 | `detect_site_updates` | Cross-session: detect which CSS/JS files have changed |
 | `get_source_context` | Slice context out of user-uploaded project source: by file/line range, by symbol, or by observed component name (see Source Upload & Correlation) |
 | `capture_sources` | Capture the page's JS/CSS/HTML via DevTools `getResources()` (CORS-free, bypasses page-context limits). Opt-in `includeNetwork` adds XHR/fetch response bodies from the HAR; `reload` captures the initial page load too. Requires the DevTools panel to be open on the target tab |
+| `get_canvas_map` | Render what is *inside* a canvas from framework state (auto-discovers numeric x/y in stores/props, crops to the content bbox, picks grid/list form by density). For canvas/WebGL apps where the DOM is one `<canvas>` |
 
 ### Capture
 
@@ -776,16 +780,16 @@ A zero-dependency full-screen shell: scrollable output, incremental-search popup
 
 ## Testing & Quality
 
-**628 automated tests** run via `npm test` (594 unit, 29 integration, 5 stress), plus Playwright E2E specs (`npm run test:e2e`) that drive a real browser with the extension loaded.
+876 automated tests run via `npm test` (841 unit, 30 integration, 5 stress), plus Playwright E2E specs (`npm run test:e2e`) that drive a real browser with the extension loaded.
 
 | Category | Count | Scope |
 |----------|-------|-------|
-| **Unit** | 594 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, secret guard, packed SoM, correlator, TUI field-edit, shell escape, layout map, session search/list, source capture |
-| **Integration** | 29 | Server ↔ Client flows, error recovery, multi-tab, source correlation |
+| **Unit** | 841 | Server logic, WS messaging, MCP tools, state hashing / ND filter, observe settle, secret guard, packed SoM, correlator, TUI field-edit, shell escape, layout map, session search/list, source capture, passive state recording, speculative reverse edges |
+| **Integration** | 30 | Server ↔ Client flows, error recovery, multi-tab, source correlation, shutdown |
 | **Stress** | 5 | Large payloads (5000+ words), long sessions |
 | **E2E (Playwright)** | spec files | Real-browser: injected collection, executor round-trip, packed SoM, secret masking, dashboard |
 
-Two structural guards keep the suite honest:
+Two structural guards back these numbers:
 - **Hollow-test guard** (`scripts/_check-hollow-tests.js`, in CI and `validate.ps1`): a unit test that never imports production code fails the build — tests must exercise the real modules.
 - **Producer/consumer contract test** (`tests/unit/injected-server-contract.test.js`): statically cross-checks every injected `emit` type against a server consumer, so adding a page-side producer without wiring the server fails immediately instead of silently dropping data.
 
