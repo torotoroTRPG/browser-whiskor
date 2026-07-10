@@ -59,7 +59,8 @@ const REQUIRED_PACK_PATHS = [
 const REQUIRED_BUNDLE_PATHS = [
   'server/', 'extension/', 'firefox-mv2/', 'shared/', 'scripts/', 'skills/',
   'docs/', 'start.ps1', 'start.sh', 'start.bat',
-  'README.md', 'config.json', 'package.json', 'package-lock.json',
+  'README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md',
+  'config.json', 'config.local.json.example', 'package.json', 'package-lock.json',
 ];
 
 describe('npm package contents (whk global install)', () => {

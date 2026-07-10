@@ -23,6 +23,14 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.2] - 2026-07-10
+
+### Fixed
+- **Full-bundle release ZIP** now includes `CHANGELOG.md`, `LICENSE`,
+  `THIRD-PARTY-NOTICES.md` and `config.local.json.example` (previously only
+  the frozen `docs/changelog.md` rode along under `docs/`). The bundle
+  file-list is pinned by tests to match the npm package's runtime set.
+
 ## [0.16.1] - 2026-07-10
 
 ### Changed

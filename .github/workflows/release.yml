@@ -146,7 +146,8 @@ jobs:
               server/ extension/ firefox-mv2/ shared/ scripts/ skills/ \
               docs/ \
               start.bat start.ps1 start.sh \
-              README.md config.json package.json package-lock.json \
+              README.md CHANGELOG.md LICENSE THIRD-PARTY-NOTICES.md \
+              config.json config.local.json.example package.json package-lock.json \
               -x "*.gitkeep" -x "*.DS_Store"
           else
             cd "${{ matrix.target.dir }}"
