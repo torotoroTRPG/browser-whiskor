@@ -23,7 +23,7 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
-## [Unreleased]
+## [0.16.1] - 2026-07-10
 
 ### Changed
 - **Automated npm publish on release** — tagging a release now publishes
