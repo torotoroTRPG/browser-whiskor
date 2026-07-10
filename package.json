@@ -1,6 +1,6 @@
 {
   "name": "whiskor",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Browser perception and state navigation for AI agents — Chrome/Firefox extension + MCP/HTTP server",
   "license": "MIT",
   "homepage": "https://github.com/torotoroTRPG/browser-whiskor#readme",
