@@ -8,17 +8,17 @@
 const state = {
   connected: false,
   requests:  [],
-  tokens:    [],
-  endpoints: new Set(),
-  textData:  null,
-  reactData: null,
-  vueData:   null,
+  tokens:      [],
+  endpoints:   new Set(),
+  textData:    null,
+  reactData:   null,
+  vueData:     null,
   angularData: null,
-  cssData:   null,
-  uiData:    null,
-  fwData:    null,
+  cssData:     null,
+  uiData:      null,
+  fwData:      null,
   genericData: null,
-  lcp:       null,
+  lcp:         null,
 };
 
 // ── Port ──────────────────────────────────────────────────────────────────
@@ -128,6 +128,20 @@ document.getElementById('mode-select').addEventListener('change', (e) => {
 
 document.getElementById('btn-export').addEventListener('click', () => {
   window.open('http://localhost:7892/export', '_blank');
+});
+document.getElementById('btn-export-tab').addEventListener('click', () => {
+  window.open('http://localhost:7892/export?tabId=' + tabId, '_blank');
+});
+document.getElementById('btn-export-site').addEventListener('click', async () => {
+  try {
+    const r = await fetch('http://localhost:7892/api/sessions/' + tabId);
+    const d = r.ok ? await r.json() : null;
+    if (d && d.siteVersion) {
+      window.open('http://localhost:7892/export?siteVersion=' + encodeURIComponent(d.siteVersion), '_blank');
+    } else {
+      alert('siteVersion not available yet — trigger a collect first.');
+    }
+  } catch (_) { alert('Cannot reach whiskor server.'); }
 });
 
 // ── Source capture (DevTools getResources → server) ───────────────────────

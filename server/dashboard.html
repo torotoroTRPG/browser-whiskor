@@ -251,12 +251,12 @@
     .s-item {
       padding: 13px 21px;
       cursor: pointer;
-      transition: all 500ms var(--ease-float);
+      transition: background 300ms var(--ease-float), box-shadow 300ms var(--ease-float);
       box-shadow: inset 0 -0.5px 0 0 var(--border);
     }
     .s-item:hover, .s-item.active {
       background: rgba(255,255,255,0.025);
-      padding-left: 26px;
+      box-shadow: inset 3px 0 0 var(--accent), inset 0 -0.5px 0 0 var(--border);
     }
     [data-theme="frost"] .s-item:hover,
     [data-theme="frost"] .s-item.active { background: rgba(0,0,0,0.025); }
@@ -280,6 +280,12 @@
       float: right; cursor: pointer; font-size: 11px; opacity: 0.2; transition: opacity 200ms; user-select: none; margin-right: 4px;
     }
     .s-item .s-del:hover { opacity: 0.9; }
+    .s-item .s-exp {
+      float: right; cursor: pointer; font: 200 8px/1 var(--font-mono); color: var(--muted);
+      opacity: 0.3; transition: opacity 200ms, color 200ms; user-select: none; margin-right: 6px;
+      letter-spacing: 0.05em; padding-top: 1px;
+    }
+    .s-item .s-exp:hover { opacity: 1; color: var(--ok); }
     .s-item .s-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .s-tag {
       font: 200 8px/1 var(--font-mono);
@@ -1357,17 +1363,28 @@
         var fws = (s.summary && s.summary.detectedFrameworks || []).map(function(f){ return '<span class="s-tag">' + esc(f) + '</span>'; }).join('');
         var pinBtn = s.keep ? '<span class="s-pin active" data-tid="' + s.tabId + '" title="Pinned — will not be cleaned up">📌</span>'
                             : '<span class="s-pin" data-tid="' + s.tabId + '" title="Click to pin this session">📌</span>';
-        var delBtn = '<span class="s-del" data-tid="' + s.tabId + '" title="Delete this session">🗑</span>';
+        var delBtn    = '<span class="s-del" data-tid="' + s.tabId + '" title="Delete this session">🗑</span>';
+        var expTabBtn = '<span class="s-exp s-exp-tab" data-tid="' + s.tabId + '" title="Export this tab\'s session as ZIP">↓TAB</span>';
+        var expSiteBtn = s.siteVersion
+          ? '<span class="s-exp s-exp-site" data-sv="' + esc(s.siteVersion) + '" title="Export all sessions for this site as ZIP">↓SITE</span>'
+          : '';
+        // float:right renders right-to-left in DOM order: pin→del→expSite→expTab
+        // Visual result (left→right): [↓TAB][↓SITE][🗑][📌]
         return '<div class="s-item' + (s.tabId === S.tabId ? ' active' : '') + '" data-tid="' + s.tabId + '">'
                 + pinBtn
                 + delBtn
+                + expSiteBtn
+                + expTabBtn
                 + '<div class="s-url">' + esc(s.url || '(unknown)') + '</div>'
                 + '<div class="s-meta">TAB ' + s.tabId + ' · ' + new Date(s.updatedAt).toLocaleTimeString() + '</div>'
                 + (fws ? '<div class="s-tags">' + fws + '</div>' : '')
                 + '</div>';
       }).join('');
       el.querySelectorAll('.s-item').forEach(function(item) {
-        item.addEventListener('click', function(e) { if (e.target.classList.contains('s-pin')) return; selectSession(parseInt(this.dataset.tid)); });
+        item.addEventListener('click', function(e) {
+          if (e.target.classList.contains('s-pin') || e.target.classList.contains('s-exp') || e.target.classList.contains('s-del')) return;
+          selectSession(parseInt(this.dataset.tid));
+        });
       });
       el.querySelectorAll('.s-pin').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
@@ -1392,6 +1409,18 @@
             }
             refreshSessions();
           });
+        });
+      });
+      el.querySelectorAll('.s-exp-tab').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          window.open(S.api + '/export?tabId=' + this.dataset.tid, '_blank');
+        });
+      });
+      el.querySelectorAll('.s-exp-site').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          window.open(S.api + '/export?siteVersion=' + encodeURIComponent(this.dataset.sv), '_blank');
         });
       });
     }

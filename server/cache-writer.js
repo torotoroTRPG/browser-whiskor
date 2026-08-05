@@ -595,6 +595,7 @@ function getSessionList(opts = {}) {
     const closedAt = s.closedAt || s.index.closedAt || null;
     const entry = {
       tabId,
+      siteVersion: s.index.siteVersion || null,
       url:       s.index.url,
       title:     s.index.title,
       createdAt: s.index.createdAt,

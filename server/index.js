@@ -641,7 +641,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
     if (method === 'GET' && p === '/export') {
       try {
         const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
-        const wantTab = url.searchParams.get('tabId');
+        const wantTab  = url.searchParams.get('tabId');
+        const wantSite = url.searchParams.get('siteVersion');
         if (!fs.existsSync(cacheRoot)) {
           return sendJson({ ok: false, error: 'No cached sessions to export.' }, 404);
         }
@@ -658,15 +659,15 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
             const st = fs.statSync(full);
             if (st.isDirectory()) { walk(full, rel); continue; }
             total += st.size;
-            if (total > MAX_BYTES) throw new Error(`Export exceeds ${exportMaxMb} MB — scope it with ?tabId=<id> or raise export.maxMb in config.local.json.`);
+            if (total > MAX_BYTES) throw new Error(`Export exceeds ${exportMaxMb} MB — scope it with ?tabId=<id>, ?siteVersion=<sv>, or raise export.maxMb in config.local.json.`);
             entries.push({ name: rel, data: fs.readFileSync(full) });
           }
         };
 
         // Sessions are stored at cache/sessions/<siteVersion>/<tabId>-<sessionId>/
-        // When ?tabId= is given, search across siteVersion dirs for matching session dirs.
-        const prefix = wantTab ? `session-${wantTab}` : 'sessions';
+        const prefix = wantTab ? `session-${wantTab}` : wantSite ? `site-${wantSite}` : 'sessions';
         if (wantTab) {
+          // Search across all siteVersion dirs for session dirs matching this tabId.
           let found = false;
           for (const siteDir of fs.readdirSync(cacheRoot)) {
             const sitePath = path.join(cacheRoot, siteDir);
@@ -680,6 +681,12 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
             }
           }
           if (!found) return sendJson({ ok: false, error: `No cached session for tabId=${wantTab}.` }, 404);
+        } else if (wantSite) {
+          // Export all sessions for one site version (the siteVersion IS the dir name).
+          const siteDir  = wantSite.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+          const sitePath = path.join(cacheRoot, siteDir);
+          if (!fs.existsSync(sitePath)) return sendJson({ ok: false, error: `No cached sessions for siteVersion=${wantSite}.` }, 404);
+          walk(sitePath, prefix);
         } else {
           walk(cacheRoot, prefix);
         }

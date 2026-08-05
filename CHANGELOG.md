@@ -23,6 +23,22 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.5] - 2026-08-05
+
+### Added
+- **Site-level export** — `GET /export?siteVersion=<sv>` exports all sessions for one
+  site as a ZIP. `siteVersion` is now included in the `/api/sessions` list response.
+- **Export buttons in DevTools panel** — toolbar now has `↓ ZIP Tab` (current tab),
+  `↓ ZIP Site` (all sessions for the same site, fetched from API on click), and
+  `↓ ZIP All` (renamed from the old ZIP button). Chrome and Firefox panels updated.
+- **Export buttons in dashboard** — each session card now shows `↓TAB` and `↓SITE`
+  buttons that download the respective ZIP directly.
+
+### Fixed
+- **Dashboard session hover flicker** — `.s-item:hover` was changing `padding-left`
+  on hover, causing layout shift that made the item oscillate under the cursor.
+  Replaced with `box-shadow: inset 3px 0` which adds no layout shift.
+
 ## [0.16.4] - 2026-08-05
 
 ### Fixed
