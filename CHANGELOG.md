@@ -23,6 +23,14 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.4] - 2026-08-05
+
+### Fixed
+- **`GET /export?tabId=`** now correctly scopes the ZIP to the requested tab.
+  Sessions are stored under `cache/sessions/<siteVersion>/<tabId>-<sessionId>/`
+  (two-level layout); the old code looked for `cache/sessions/<tabId>/` which
+  never exists and always returned 404.
+
 ## [0.16.3] - 2026-08-05
 
 ### Added

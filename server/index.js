@@ -642,9 +642,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
       try {
         const cacheRoot = process.env.WHISKOR_CACHE_DIR || path.join(__dirname, '..', 'cache', 'sessions');
         const wantTab = url.searchParams.get('tabId');
-        const root = wantTab ? path.join(cacheRoot, wantTab) : cacheRoot;
-        if (!fs.existsSync(root)) {
-          return sendJson({ ok: false, error: wantTab ? `No cached session for tabId=${wantTab}.` : 'No cached sessions to export.' }, 404);
+        if (!fs.existsSync(cacheRoot)) {
+          return sendJson({ ok: false, error: 'No cached sessions to export.' }, 404);
         }
 
         const { buildZip } = require('./zip-writer');
@@ -663,8 +662,27 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
             entries.push({ name: rel, data: fs.readFileSync(full) });
           }
         };
+
+        // Sessions are stored at cache/sessions/<siteVersion>/<tabId>-<sessionId>/
+        // When ?tabId= is given, search across siteVersion dirs for matching session dirs.
         const prefix = wantTab ? `session-${wantTab}` : 'sessions';
-        walk(root, prefix);
+        if (wantTab) {
+          let found = false;
+          for (const siteDir of fs.readdirSync(cacheRoot)) {
+            const sitePath = path.join(cacheRoot, siteDir);
+            if (!fs.statSync(sitePath).isDirectory()) continue;
+            for (const sessionDir of fs.readdirSync(sitePath)) {
+              if (!sessionDir.startsWith(`${wantTab}-`)) continue;
+              const sessionPath = path.join(sitePath, sessionDir);
+              if (!fs.statSync(sessionPath).isDirectory()) continue;
+              walk(sessionPath, `${prefix}/${siteDir}/${sessionDir}`);
+              found = true;
+            }
+          }
+          if (!found) return sendJson({ ok: false, error: `No cached session for tabId=${wantTab}.` }, 404);
+        } else {
+          walk(cacheRoot, prefix);
+        }
         if (!entries.length) return sendJson({ ok: false, error: 'Nothing to export (cache is empty).' }, 404);
 
         const zip = buildZip(entries);
