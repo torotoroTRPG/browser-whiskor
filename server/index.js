@@ -648,7 +648,8 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
         }
 
         const { buildZip } = require('./zip-writer');
-        const MAX_BYTES = 50 * 1024 * 1024; // guard against runaway archives
+        const exportMaxMb = _cfg.export?.maxMb ?? 50;
+        const MAX_BYTES = exportMaxMb * 1024 * 1024;
         const entries = [];
         let total = 0;
         const walk = (dir, base) => {
@@ -658,7 +659,7 @@ let appRegistry = new AppRegistry({}); // no-op default; replaced when non-proxy
             const st = fs.statSync(full);
             if (st.isDirectory()) { walk(full, rel); continue; }
             total += st.size;
-            if (total > MAX_BYTES) throw new Error('Export exceeds 50MB — scope it with ?tabId=<id>.');
+            if (total > MAX_BYTES) throw new Error(`Export exceeds ${exportMaxMb} MB — scope it with ?tabId=<id> or raise export.maxMb in config.local.json.`);
             entries.push({ name: rel, data: fs.readFileSync(full) });
           }
         };

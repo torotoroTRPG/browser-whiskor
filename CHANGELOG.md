@@ -23,6 +23,14 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.3] - 2026-08-05
+
+### Added
+- **`export.maxMb`** config key — the export ZIP size guard (`GET /export`) is now
+  configurable instead of hard-coded at 50 MB. Default stays 50 MB; raise it in
+  `config.local.json` when exporting large session caches without `?tabId` scoping.
+  The error message now also points to the config key.
+
 ## [0.16.2] - 2026-07-10
 
 ### Fixed

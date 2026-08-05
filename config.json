@@ -552,5 +552,11 @@
     "maxNavigateSteps":         10,
     "verifyEachStep":           true,
     "minConfidenceForPath":     0.3
+  },
+
+  "export": {
+    "maxMb": 50,
+    "_comment_en": "Maximum uncompressed size (MB) of a GET /export ZIP. When exporting all sessions at once (no ?tabId), the guard fires if the total exceeds this value — either raise it here (in config.local.json) or scope the request with ?tabId=<id>.",
+    "_comment_ja": "GET /export ZIP の上限サイズ（MB）。?tabId 指定なしで全セッションをまとめてエクスポートする際、合計がこの値を超えるとガードが発動します。config.local.json でこの値を引き上げるか、?tabId=<id> でエクスポート対象を絞ってください。"
   }
 }
