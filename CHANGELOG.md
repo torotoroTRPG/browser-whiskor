@@ -23,6 +23,13 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.6] - 2026-08-22
+
+### Added
+- **`--version` / `--ver` / `--v` / `version`** — the CLI now prints the installed
+  version and exits instead of falling through to server-start semantics
+  (previously `whk --version` was silently treated as a bare `whk` restart).
+
 ## [0.16.5] - 2026-08-05
 
 ### Added

@@ -146,6 +146,7 @@ Core Commands:
   stop                Gracefully stop the running server (flushes buffers, exit 0)
   restart             Refresh extension files → reload extension → stop → start fresh
   where               Show resolved paths (this CLI, managed dir) + the live server
+  version             Show whiskor version (alias: --version, --ver, --v)
   shell               Interactive HTTP API shell — type to search commands,
                       arrows to pick, Tab to adopt, Enter to run (alias: tui)
 
@@ -188,6 +189,7 @@ Global Options:
   --mock              Inject mock browser data
   --static-tools      Bypass dynamic tool manager (for static MCP clients)
   --help, -h          Show help message
+  --version, --ver, --v   Show whiskor version
 
 Examples:
   whk server --verbose
@@ -366,6 +368,11 @@ Examples:
 
 if (args.includes('--help') || args.includes('-h') || command === 'HELP') {
   printHelp(clientArgs[1] || (command === 'HELP' ? null : command));
+  process.exit(0);
+}
+
+if (args.includes('--version') || args.includes('--ver') || args.includes('--v') || command === 'VERSION') {
+  console.log(`v${require('../package.json').version}`);
   process.exit(0);
 }
 
