@@ -23,6 +23,13 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.16.7] - 2026-08-22
+
+### Changed
+- **`pnpm.onlyBuiltDependencies`** added to `package.json` — `pnpm add -g whiskor`
+  no longer prompts `pnpm approve-builds -g` for `sharp`/`protobufjs`'s install
+  scripts; they run automatically like a normal `npm install` would.
+
 ## [0.16.6] - 2026-08-22
 
 ### Added
