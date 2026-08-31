@@ -23,6 +23,21 @@ and the git history.
   ### Security    (trust-boundary changes)
 -->
 
+## [0.17.0] - 2026-09-01
+
+### Security
+- **App isolation now covers every route that resolves a `:tabId`.** Only
+  `GET /api/sessions/:tabId` checked `canAccess`. `/states`, `/states/:hash`,
+  `/map`, `/changes/:tabId`, the smart-delta blob, the raw file passthrough,
+  `POST`/`DELETE /pin` and `DELETE /api/sessions/:tabId` all answered for tabs
+  owned by another app — so with `appIsolation` on, a second agent could read
+  another agent's page data and delete or unpin its sessions.
+
+### Changed
+- With `appIsolation` enabled, the routes above now return **403** to a caller
+  that does not own the tab (they returned the data before). Nothing changes
+  when `appIsolation` is off, which is the default.
+
 ## [0.16.7] - 2026-08-22
 
 ### Changed
