@@ -239,6 +239,27 @@ class WhiskorCore extends EventEmitter {
   }
 
   /**
+   * App-isolation gate for any route that resolves a tabId.
+   *
+   * Returns a 403 response object when `callerAppId` may not touch `tabId`,
+   * otherwise null — so a route reads `const deny = this._denyCrossApp(...);
+   * if (deny) return deny;`.
+   *
+   * This exists because the check used to be hand-written per route, and only
+   * GET /api/sessions/:tabId ever got one. Every sibling path that takes the
+   * same tabId (/states, /states/:hash, /map, /changes/:tabId, the smart-delta
+   * blob, the raw file passthrough, /pin and the DELETE) answered for tabs
+   * belonging to other apps. With a 240-line if-chain and no routing table,
+   * "remember to add the check" is not a workable rule; one helper called at
+   * each site is.
+   */
+  _denyCrossApp(callerAppId, tabId) {
+    if (!this.appRegistry?.enabled) return null;
+    if (this.appRegistry.canAccess(callerAppId, this.getTabApp(tabId))) return null;
+    return { status: 403, body: { error: 'Access denied: this tab belongs to another app' } };
+  }
+
+  /**
    * Tabs that exist in the browser (last TAB_INVENTORY push) but have no whiskor
    * session — i.e. the agent can't see or act on them via get_sessions. Each is
    * classified so the agent knows whether it's actionable:
@@ -928,9 +949,8 @@ class WhiskorCore extends EventEmitter {
     const sessionM = p.match(/^\/api\/sessions\/(\d+)$/);
     if (method === 'GET' && sessionM) {
       const tabId = parseInt(sessionM[1]);
-      if (appRegistry?.enabled && !appRegistry.canAccess(callerAppId, this.getTabApp(tabId))) {
-        return { status: 403, body: { error: 'Access denied: this tab belongs to another app' } };
-      }
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const d = this.cache.getSessionData(tabId);
       return d ? { status: 200, body: d } : { status: 404, body: { error: 'Not found' } };
     }
@@ -939,6 +959,8 @@ class WhiskorCore extends EventEmitter {
     const statesM = p.match(/^\/api\/sessions\/(\d+)\/states$/);
     if (method === 'GET' && statesM) {
       const tabId = parseInt(statesM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const sessionData = this.cache.getSessionData(tabId);
       if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
       const store = this.stateMachine.store;
@@ -956,6 +978,8 @@ class WhiskorCore extends EventEmitter {
     const stateHashM = p.match(/^\/api\/sessions\/(\d+)\/states\/([^/]+)$/);
     if (method === 'GET' && stateHashM) {
       const tabId = parseInt(stateHashM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const hash = stateHashM[2];
       const sessionData = this.cache.getSessionData(tabId);
       if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
@@ -970,6 +994,8 @@ class WhiskorCore extends EventEmitter {
     const mapM = p.match(/^\/api\/sessions\/(\d+)\/map$/);
     if (method === 'GET' && mapM) {
       const tabId = parseInt(mapM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const sessionData = this.cache.getSessionData(tabId);
       if (!sessionData) return { status: 404, body: { error: 'Session not found' } };
       const sv = this._resolveGraphSiteVersion(sessionData.siteVersion);
@@ -986,6 +1012,8 @@ class WhiskorCore extends EventEmitter {
     const changesM = p.match(/^\/api\/changes\/(\d+)$/);
     if (method === 'GET' && changesM) {
       const tabId = parseInt(changesM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       if (!this.changeFeed) return { status: 200, body: { enabled: false, changes: [] } };
       const drain = url.searchParams?.get?.('drain');
       const changes = (drain === '1' || drain === 'true') ? this.changeFeed.drain(tabId) : this.changeFeed.peek(tabId);
@@ -996,6 +1024,8 @@ class WhiskorCore extends EventEmitter {
     const deltaM = p.match(/^\/api\/sessions\/(\d+)\/raw\/delta\/smart\.json$/);
     if (method === 'GET' && deltaM) {
       const tabId = parseInt(deltaM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const delta = this.cache.getSmartDelta ? this.cache.getSmartDelta(tabId) : null;
       return { status: 200, body: delta || { elapsed_ms: 0, frame_count: 0, motion_groups: [], _patterns: { new: null, known: null } } };
     }
@@ -1003,6 +1033,8 @@ class WhiskorCore extends EventEmitter {
     const fileM = p.match(/^\/api\/sessions\/(\d+)\/(.+)$/);
     if (method === 'GET' && fileM) {
       const tabId = parseInt(fileM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       const dir = this.cache.getSessionDir(tabId);
       if (!dir) return { status: 404, body: { error: 'Session not found' } };
       const filePart = fileM[2].replace(/\.\.\//g, '').replace(/\.\.\\/g, '');
@@ -1024,11 +1056,15 @@ class WhiskorCore extends EventEmitter {
     const pinM = p.match(/^\/api\/sessions\/(\d+)\/pin$/);
     if (method === 'POST' && pinM) {
       const tabId = parseInt(pinM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       this.cache.setSessionKeep(tabId, true);
       return { status: 200, body: { ok: true, tabId, keep: true } };
     }
     if (method === 'DELETE' && pinM) {
       const tabId = parseInt(pinM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       this.cache.setSessionKeep(tabId, false);
       return { status: 200, body: { ok: true, tabId, keep: false } };
     }
@@ -1036,6 +1072,8 @@ class WhiskorCore extends EventEmitter {
     // DELETE /api/sessions/:tabId  — remove session entirely
     if (method === 'DELETE' && sessionM) {
       const tabId = parseInt(sessionM[1]);
+      const deny = this._denyCrossApp(callerAppId, tabId);
+      if (deny) return deny;
       this.cache.removeSession(tabId);
       this.somCache.evictTab(tabId);   // drop the tab's packed-SoM + thumbnail cache
       this.somThumbs.evictTab(tabId);  // (defined for "tab closed" but was never called)
